@@ -8,10 +8,11 @@ setup steps that apply these rules are in [Running a server](server.md).
 
 Two transports reach the server: HTTPS, which a fresh server serves,
 and SSH, which an operator turns on ([SSH on and off](server.md#ssh-on-and-off)).
-On either, a key the server knows decides who connects, and the
-principal is the key's, never a field the client sends. Over HTTPS
-ariesd checks it itself ([The HTTPS listener](#the-https-listener));
-over SSH, sshd does, as follows.
+On either, a key the server knows decides who connects, or over HTTPS a
+sign-in the server issued ([Sign-in and tokens](#sign-in-and-tokens)),
+and the principal is the key's or the sign-in's, never a field the
+client sends. Over HTTPS ariesd checks it itself ([The HTTPS
+listener](#the-https-listener)); over SSH, sshd does, as follows.
 
 The server's sshd decides who connects. Each key's `authorized_keys`
 line forces one command, `ariesd stdio --principal NAME`, so the
@@ -477,15 +478,18 @@ front door, and so, unlike sshd, its authentication is Aries's own
 code, on a port other machines reach. What it serves, and what bounds
 it:
 
-- **Two paths.** `GET /.well-known/aries` answers the server's version,
-  its transports and how one signs in: no principal, no secret, the only
-  thing served to anyone. `GET /v1/connect` is a WebSocket whose
-  protocol starts only after a key proof; every other path is 404, and
+- **Two paths, and the sign-in's.** `GET /.well-known/aries` answers
+  the server's version, its transports and how one signs in, with the
+  providers' names: no principal, no secret. `GET /v1/connect` is a
+  WebSocket whose protocol starts only after a sign-in's token and its
+  proof, checked before the upgrade, or a key proof; with providers
+  set, the sign-in's paths ([Sign-in and tokens](#sign-in-and-tokens));
+  every other path is 404, and
   the loopback listener's, the status socket's and the bridge's paths
   are not served over HTTPS. A test of a default install
   (`cmd/ariesd`, `TestDefaultInstallExposes`) holds both: no path
   reaches the protocol without a proof, and no SSH path is open.
-- **The key proof** (until sign-in, slice T2). The client offers its
+- **The key proof** (decision 89), for a connection with no sign-in. The client offers its
   keys; the server challenges the first it knows with 32 random bytes,
   fresh for the connection; the key signs the challenge, the server's
   URL and the key itself. The signature cannot be replayed on another
@@ -519,10 +523,75 @@ it:
   logged with its reason and the address, sampled per address, never
   with the key's text.
 
-What it does not yet have: sign-in through an identity provider,
-tokens bound to the machine's key, and scopes (slice T2 of
-[transport.md](design/transport.md#15-plan)); a security review of the
-listener before 1.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)).
+What it does not yet have: a security review of the listener and the
+authorization server before 1.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)).
+
+## Sign-in and tokens
+
+With providers under `login:` ([Sign-in](server.md#sign-in)), a person
+signs in at the company's identity provider, through ariesd, which is
+its own authorization server (design: [transport.md §6](design/transport.md#6-tokens)).
+What holds, and what bounds it:
+
+- **Nobody signs themselves up** (decision 57). A sign-in is someone
+  only by an identity an admin invited: the first sign-in whose address
+  the provider says is verified binds the invitation, once, to the
+  provider's issuer and subject, and from then on that pair alone is
+  matched. A later account with the same address and another subject is
+  refused (the lapsed-domain case); two providers are never joined by
+  address. Nobody invites onto their own principal, so an agent holding
+  someone's key cannot point their principal at an account it holds.
+- **The provider's token is checked by ariesd, never by aries.** The
+  server exchanges the provider's code itself, with its client secret
+  in a 0600 file, and checks the ID token: RS256 or ES256 alone (`none`,
+  HMAC and `crit` refused), the issuer exactly, the client id among the
+  audiences, `exp`, `iat` and `nbf` on the store's clock, the nonce the
+  server sent, and `auth_time` within `fresh_auth`, with `prompt=login`
+  sent, so that a browser with a session open does not renew a day with
+  nobody there. Keys come from the configured URL, refetched at most once
+  a minute, or from a file with nothing fetched; nothing in the code names
+  a provider's host, and Entra's authority has no default.
+- **aries's half of the sign-in** is OAuth's for a native app: PKCE S256,
+  a state checked on the way back, the server's issuer checked as `iss`
+  (RFC 9207) against a mix-up of servers, a loopback redirect on
+  `127.0.0.1` that answers one path once, and a code of the server's,
+  good for a minute and once, worth nothing without the verifier.
+  `/oauth/authorize` never redirects to an address it did not check: a
+  request that is not aries's is answered with a page.
+- **The token** is 256 random bits and more, of which the server keeps
+  only the SHA-256; it carries nothing, and ending it is a row at once.
+  It is bound to a P-256 key aries makes at each sign-in (DPoP, RFC
+  9449): each connection proves the key, by a proof for `/v1/connect` at
+  the server's configured URL, never the request's `Host`, made within a
+  minute, for this token (`ath`), and used once. A token copied out of a
+  log, a proxy or a backup is useless without the key. What DPoP does
+  not do: whoever has the user's files has both, for the rest of the
+  day; the keystore that would close that is 1.x.
+- **A day, then nothing** (decision 58): no refresh token, and nothing
+  renews a sign-in. Its end, `aries logout`, `aries admin signin end`
+  and removing its identity close its connections at once, each told
+  why (decision 59). Disabling the principal or ending a membership
+  closes them as it closes any.
+- **Scopes** ([Scopes](server.md#scopes)) are checked at every op, by a
+  table a test holds to every op of the protocol, so a new op is a
+  person's terminal's alone until decided: `mcp` and `ci` never reach an
+  admin op, never take the session `cli`, and never decide a person's
+  gate (decision 68). `aries login` asks for `cli mcp`, so a person's
+  machine holds both; what it cannot tell is a person typing `aries`
+  from an agent with a shell running it, as over SSH.
+- **Replay** of a DPoP proof is refused within the daemon that saw it,
+  which remembers each for two minutes (`dpop_proofs_per_server`).
+  Several daemons in front of one database would each remember their
+  own, so a proof replayed to another within its minute would pass; they
+  would need the proofs seen shared, or DPoP nonces. 1.0 runs one.
+- **Nothing secret is printed or logged.** No token, code, verifier,
+  address or subject is in a log line, a span, an event or an error;
+  `whoami` and `admin signin list` show a sign-in's id, provider,
+  machine and end. The token and its key are 0600 files in a 0700
+  directory of the user's, refused if anyone else may read them.
+- **Agents.** `aries mcp` presents the person's sign-in too; when it
+  ends, the agent is told to ask the person to sign in, never to run
+  `aries login` itself.
 
 ## The telemetry listener
 
