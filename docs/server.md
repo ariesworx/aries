@@ -1167,7 +1167,11 @@ and what was not.
 
    The last line counts the keys that are now in both places. It is a
    reminder, and `control init` never edits `authorized_keys`: see
-   [Keys from the store](#keys-from-the-store), step 5.
+   [Keys from the store](#keys-from-the-store), step 5. It is printed
+   only while something still reads the file: sshd, with SSH on, or
+   ariesd's key proof over HTTPS, when the file is ariesd's
+   `authorized_keys`. With SSH off, `/etc/aries/admin.keys`, which no
+   one else reads, gets no such line.
 
 3. Nothing more is needed for admins to create further projects. Each
    project is a schema of the DSN's database, which ariesd's role owns
