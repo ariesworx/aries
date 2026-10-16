@@ -8,6 +8,11 @@ attribute aries.control.writes result
 attribute aries.gates event
 attribute aries.gates kind
 attribute aries.handshakes result
+attribute aries.https.cert.reloads result
+attribute aries.https.connections.refused reason
+attribute aries.https.key_proofs result
+attribute aries.https.upgrades reason
+attribute aries.https.upgrades result
 attribute aries.keys_file.writes result
 attribute aries.limit.refusals limit
 attribute aries.locks event
@@ -30,6 +35,12 @@ instrument aries.db.pool.in_use aries_db_pool_in_use
 instrument aries.db.pool.waits aries_db_pool_waits_total
 instrument aries.gates aries_gates_total
 instrument aries.handshakes aries_handshakes_total
+instrument aries.https.cert.reloads aries_https_cert_reloads_total
+instrument aries.https.connections aries_https_connections
+instrument aries.https.connections.refused aries_https_connections_refused_total
+instrument aries.https.key_proofs aries_https_key_proofs_total
+instrument aries.https.tls_handshakes.failed aries_https_tls_handshakes_failed_total
+instrument aries.https.upgrades aries_https_upgrades_total
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
 instrument aries.limit.refusals aries_limit_refusals_total
@@ -116,14 +127,33 @@ value aries.handshakes result ok
 value aries.handshakes result stale
 value aries.handshakes result unavailable
 value aries.handshakes result version
+value aries.https.cert.reloads result failed
+value aries.https.cert.reloads result ok
+value aries.https.connections.refused reason limit
+value aries.https.connections.refused reason untrusted
+value aries.https.key_proofs result bad_proof
+value aries.https.key_proofs result failed
+value aries.https.key_proofs result invalid
+value aries.https.key_proofs result ok
+value aries.https.key_proofs result unknown_key
+value aries.https.key_proofs result url
+value aries.https.upgrades reason auth_failures
+value aries.https.upgrades reason bad_request
+value aries.https.upgrades reason none
+value aries.https.upgrades reason origin
+value aries.https.upgrades result ok
+value aries.https.upgrades result refused
 value aries.keys_file.writes result failed
 value aries.keys_file.writes result ok
+value aries.limit.refusals limit auth_failures_per_minute
 value aries.limit.refusals limit conns_per_principal
 value aries.limit.refusals limit conns_per_server
 value aries.limit.refusals limit control_writes_per_second
 value aries.limit.refusals limit handshake_sockets
 value aries.limit.refusals limit handshakes_per_principal
 value aries.limit.refusals limit hours_per_day
+value aries.limit.refusals limit https_conns_per_addr
+value aries.limit.refusals limit https_conns_per_server
 value aries.limit.refusals limit identities_per_principal
 value aries.limit.refusals limit invites_per_server
 value aries.limit.refusals limit keys_per_principal

@@ -72,6 +72,23 @@ groups:
             log has the cause at error level, every 30 seconds
             (docs/server.md, Keys from the store).
 
+      - alert: AriesTLSCertReloadFailing
+        expr: >-
+          increase(aries_https_cert_reloads_total{result="failed"}[5m]) > 0
+          or (aries_https_cert_reloads_total{result="failed"} > 0
+          unless aries_https_cert_reloads_total{result="failed"} offset 5m)
+        labels:
+          severity: critical
+        annotations:
+          summary: The HTTPS listener's certificate files changed and cannot be read.
+          description: >-
+            ariesd keeps serving the certificate it had, which ends on
+            its date all the same: `ariesd status` shows when. The
+            files do not make a pair, or the key is open to others; the
+            log has the cause in `tls.cert_reload_failed`. Put the
+            matching pair in place, the key mode 0600 (docs/server.md,
+            The HTTPS listener).
+
       - alert: AriesClockBehind
         expr: aries_clock_behind_seconds > 0
         for: 1m
@@ -170,9 +187,9 @@ groups:
 
       - alert: AriesConnectionCapReached
         expr: >-
-          sum by (limit) (increase(aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets"}[5m])) > 0
-          or sum by (limit) (aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets"} > 0
-          unless aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets"} offset 5m)
+          sum by (limit) (increase(aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets|https_conns_per_server"}[5m])) > 0
+          or sum by (limit) (aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets|https_conns_per_server"} > 0
+          unless aries_limit_refusals_total{limit=~"conns_per_server|conns_per_principal|handshakes_per_principal|handshake_sockets|https_conns_per_server"} offset 5m)
         labels:
           severity: warning
         annotations:
@@ -263,9 +280,10 @@ groups:
       # metrics, and nothing in this directory turns a log record into
       # one: the Collector's core distribution has no component that
       # counts records. Match `event` where the logs are read, in the
-      # journal or the backend that receives the records. Three events
+      # journal or the backend that receives the records. Four events
       # the guide says to alert on have a rule above from the metric
       # that counts the same thing: `keys_file.write_failed`
-      # (AriesKeysFileWriteFailing), `project.open_failed` at a
+      # (AriesKeysFileWriteFailing), `tls.cert_reload_failed`
+      # (AriesTLSCertReloadFailing), `project.open_failed` at a
       # handshake (AriesProjectUnavailable) and
       # `telemetry.export_failed` (the three AriesTelemetry rules).

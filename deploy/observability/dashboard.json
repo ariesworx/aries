@@ -377,6 +377,54 @@
           "legendFormat": "{{kind}} {{event}}"
         }
       ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "The HTTPS listener: connections, upgrades, key proofs and TLS",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aries_https_connections",
+          "legendFormat": "connections open"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result, reason) (increase(aries_https_upgrades_total[5m]))",
+          "legendFormat": "upgrade {{result}} {{reason}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (result) (increase(aries_https_key_proofs_total[5m]))",
+          "legendFormat": "key proof {{result}}"
+        },
+        {
+          "refId": "D",
+          "expr": "increase(aries_https_tls_handshakes_failed_total[5m])",
+          "legendFormat": "TLS handshakes failed"
+        },
+        {
+          "refId": "E",
+          "expr": "sum by (reason) (increase(aries_https_connections_refused_total[5m]))",
+          "legendFormat": "refused {{reason}}"
+        }
+      ]
     }
   ]
 }
