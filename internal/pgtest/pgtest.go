@@ -32,7 +32,8 @@
 // gone, however it went, the pipe closes; the watcher then asks the
 // server for an immediate shutdown, which ends every backend it forked
 // and frees its System V semaphores and shared memory, kills the
-// server's process group if it has not gone within 10 seconds,
+// server's process group if it has not gone within 10 seconds, frees
+// the semaphore sets a killed server left (macOS; sema_darwin.go),
 // removes from the directory what this package and Postgres put there,
 // removes the directory if that emptied it, and exits. Stop, or the
 // server exiting by itself, ends the watcher first, and then the
@@ -246,8 +247,19 @@ func (s *Server) launch(ctx context.Context) error {
 	s.cmd, s.exit, s.stopped = cmd, exit, false
 	watched := w.watch(cmd.Process.Pid)
 	// The watcher goes before exit is sent, so nothing of this launch
-	// runs once Stop has returned.
-	go func() { err := cmd.Wait(); w.dismiss(); _ = logf.Close(); exit <- err }()
+	// runs once Stop has returned. A server that exits frees its
+	// semaphores and shared memory, and one that was killed leaves
+	// them: they are freed before the watcher goes, so that one or the
+	// other frees them.
+	pid, data := cmd.Process.Pid, s.data()
+	go func() {
+		err := cmd.Wait()
+		freeSemaphores(data, pid)
+		_ = removeSegment(data)
+		w.dismiss()
+		_ = logf.Close()
+		exit <- err
+	}()
 	if watched != nil {
 		return errors.Join(watched, s.Stop())
 	}
@@ -260,6 +272,11 @@ func (s *Server) launch(ctx context.Context) error {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if err := db.PingContext(ctx); err == nil {
+			// The server made all its semaphores before it took a
+			// connection.
+			if err := s.recordSemaphores(pid); err != nil {
+				return errors.Join(err, s.Stop())
+			}
 			// Restart finds the role made at the first launch.
 			if _, err := db.ExecContext(ctx, `DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+User+`') THEN CREATE ROLE `+User+` LOGIN; END IF;
@@ -434,7 +451,8 @@ func (s *Server) Stop() error {
 	if err := killGroup(s.cmd); err != nil {
 		return fmt.Errorf("pgtest: kill: %w", err)
 	}
+	// What the killed server left was freed before exit was sent.
 	<-s.exit
 	s.stopped = true
-	return removeSegment(s.data())
+	return nil
 }

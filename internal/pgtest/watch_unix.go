@@ -27,12 +27,13 @@ import (
 // 10 seconds more: a server that is killed frees none of them, and macOS
 // allows 87,381 semaphores in all (kern.sysv.semmns), about 400 to a
 // server, and 32 shared memory segments (kern.sysv.shmmni). It then
-// removes from the server's directory, $1, what pgtest and Postgres put
-// there (the data directory, the log, the socket and its lock file), and
-// the shared memory segment the server named in its postmaster.pid if a
-// killed server left it, and the directory itself if that leaves it
-// empty. Nothing tells a killed server's semaphores from another's, so
-// they stay.
+// frees what a killed server left: each semaphore set its semaphores
+// file lists whose id ipcs still shows with the set's key (a set that
+// was freed and made again has another id), and the shared memory
+// segment it named in its postmaster.pid. It removes from the server's
+// directory, $1, what pgtest and Postgres put there (the data
+// directory, the log, the semaphores file, the socket and its lock
+// file), and the directory itself if that leaves it empty.
 //
 // It ignores the signals a terminal or a harness sends a whole group or
 // session, so only its input ends it. The names it removes are the ones
@@ -55,9 +56,17 @@ wait_gone
 kill -s KILL -- "-$pid" 2>/dev/null
 wait_gone
 cd -- "$1" 2>/dev/null || exit 0
+if [ -f semaphores ]; then
+	while read -r id key; do
+		case $id in '' | *[!0-9]*) continue ;; esac
+		if ipcs -s 2>/dev/null | awk -v id="$id" -v key="$key" '$2 == id && $3 == key { f = 1 } END { exit !f }'; then
+			ipcrm -s "$id" 2>/dev/null
+		fi
+	done <semaphores
+fi
 shm=$(sed -n 7p data/postmaster.pid 2>/dev/null | awk '{print $2}')
 case $shm in '' | *[!0-9]*) ;; *) ipcrm -m "$shm" 2>/dev/null ;; esac
-rm -rf -- data server.log .s.PGSQL.5432 .s.PGSQL.5432.lock
+rm -rf -- data server.log semaphores .s.PGSQL.5432 .s.PGSQL.5432.lock
 cd /
 rmdir -- "$1" 2>/dev/null
 exit 0
@@ -155,8 +164,8 @@ func (s *Server) Signal(sig syscall.Signal) error {
 
 // removeSegment removes the System V shared memory segment that the
 // server on data named in its postmaster.pid, which a server that was
-// killed leaves behind; the watcher's script does the same. Its
-// semaphores stay: nothing tells them from another server's.
+// killed leaves behind, once it has exited; the watcher's script does
+// the same.
 func removeSegment(data string) error {
 	id, ok := segment(data)
 	if !ok {
