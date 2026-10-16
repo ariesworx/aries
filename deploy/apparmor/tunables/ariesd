@@ -1,6 +1,7 @@
 # Where an Aries server keeps its files, for the AppArmor profiles of
-# ariesd (/etc/apparmor.d/ariesd, and with SSH on
-# /etc/apparmor.d/ariesd-stdio). Install this file as
+# ariesd (/etc/apparmor.d/ariesd, abstractions/ariesd-admin, and
+# ariesd-stdio with SSH on or ariesd-default with SSH off). Install this
+# file as
 # /etc/apparmor.d/tunables/ariesd.
 #
 # The values are those of docs/server.md. If you moved something, change
@@ -8,6 +9,7 @@
 #
 #   apparmor_parser -r /etc/apparmor.d/ariesd
 #   apparmor_parser -r /etc/apparmor.d/ariesd-stdio    # with SSH on
+#   apparmor_parser -r /etc/apparmor.d/ariesd-default  # with SSH off
 #
 # AppArmor matches the path a file really has, with symbolic links
 # resolved, so name the real directory, not a link to it.

@@ -9,9 +9,11 @@ and remove them:
 |---|---|---|
 | `ariesd` | `/etc/apparmor.d/ariesd` | Two profiles: `ariesd-serve` and `ariesd-admin` |
 | `ariesd-stdio` | `/etc/apparmor.d/ariesd-stdio`, only with SSH on | The bridge's profile, `ariesd-stdio` |
+| `ariesd-default` | `/etc/apparmor.d/ariesd-default`, only with SSH off | The profile of the binary's path in the bridge's place, `ariesd-default`: the operator's rules |
+| `abstractions/ariesd-admin` | `/etc/apparmor.d/abstractions/ariesd-admin` | The operator's rules, which `ariesd-admin` and `ariesd-default` both include |
 | `tunables/ariesd` | `/etc/apparmor.d/tunables/ariesd` | The paths the profiles name, each in one place, for a server that moved one |
 
-## Why three profiles
+## Why these profiles
 
 The one binary is the daemon, sshd's forced command and the operator's
 tool, and AppArmor chooses a profile by a program's path, never by its
@@ -20,6 +22,7 @@ arguments.
 | Profile | Chosen by | For |
 |---|---|---|
 | `ariesd-stdio` | The binary's path, `/opt/aries/bin/ariesd`, which `/usr/local/bin/ariesd` links to: AppArmor resolves the link | `ariesd stdio`, the bridge sshd runs for every connection, and `ariesd status`. Installed only with SSH on |
+| `ariesd-default` | The binary's path, with SSH off, in the bridge's place | Whatever runs from the path with no profile asked for: `ariesd status` and the operator's commands run without `aa-exec`. It has the operator's rules, so those commands are confined either way. Installed only with SSH off |
 | `ariesd-serve` | The unit's `AppArmorProfile=ariesd-serve` | `ariesd serve`, the daemon |
 | `ariesd-admin` | The operator: `aa-exec -p ariesd-admin -- ariesd …` | `control init`, `import-bd`, `export-bd`, `upgrade` |
 
@@ -27,11 +30,18 @@ arguments.
   bridge with no way to ask for another, and outside the systemd unit:
   the unit's `ProtectSystem` and the rest do not reach it. The bridge
   may read the config file and connect to the daemon's socket.
-- **With SSH off the path carries none.** Nothing runs as sshd's forced
-  command, so the bridge's profile, in a file of its own, is not
-  installed (transport.md §11.1), and `install-server.sh --disable-ssh`
-  unloads and removes it. `ariesd status`, and a command run without
-  `aa-exec`, then run unconfined, as with no profiles.
+- **With SSH off the path carries `ariesd-default`.** Nothing runs as
+  sshd's forced command, so the bridge's profile, in a file of its own,
+  is not installed (transport.md §11.1), and `install-server.sh
+  --disable-ssh` unloads and removes it. The path would then carry no
+  profile, and `ariesd status`, and an operator's command run without
+  `aa-exec`, would run unconfined, the case that was open while HTTPS
+  was the only transport; `ariesd-default` is the operator's rules
+  attached to the path. AppArmor attaches one profile to a path, so the
+  bridge's and this are never loaded together, and the installer swaps
+  them. Both read `local/ariesd-admin` for the operator's own rules.
+  Not run on an enforcing kernel here: CI parses the three files, and
+  the P5 machine run (aries-4734lnht) is what loads them.
 - **The daemon gets its own**, because it reaches Postgres and alone
   writes the keys file. With one profile for both, the bridge could do
   both.
@@ -47,7 +57,8 @@ arguments.
 - **The operator's commands get the widest**, because `upgrade` reaches
   the network, replaces the binary and runs `sudo`, which nothing that
   listens should be able to do. With SSH on, a command run without
-  `aa-exec` gets the bridge's profile and is refused.
+  `aa-exec` gets the bridge's profile and is refused; with SSH off it
+  gets `ariesd-default`, the same rules.
 - No profile may change to another, and neither the bridge nor the
   daemon may run a program.
 

@@ -1,8 +1,10 @@
 # AppArmor profiles for ariesd, the Aries server (docs/server.md,
 # "Confine ariesd with AppArmor"). Install this file as
-# /etc/apparmor.d/ariesd and tunables/ariesd beside it as
-# /etc/apparmor.d/tunables/ariesd; with SSH on, ariesd-stdio beside them
-# as /etc/apparmor.d/ariesd-stdio. README.md says how they were tested.
+# /etc/apparmor.d/ariesd, tunables/ariesd beside it as
+# /etc/apparmor.d/tunables/ariesd and abstractions/ariesd-admin as
+# /etc/apparmor.d/abstractions/ariesd-admin; then ariesd-stdio with SSH
+# on, or ariesd-default with SSH off, as /etc/apparmor.d/ariesd-stdio or
+# /etc/apparmor.d/ariesd-default. README.md says how they were tested.
 #
 # One binary does three jobs, and each gets the profile that fits it:
 #
@@ -13,18 +15,25 @@
 #                     also what any run gets that asks for nothing else:
 #                     `ariesd status`, which needs the same two things,
 #                     runs under it as the aries user.
+#   ariesd-default  what a server with SSH off puts on the same path in
+#                     its place, in a file of its own, ariesd-default:
+#                     the operator's rules, so that a command run
+#                     without aa-exec is confined too.
 #   ariesd-serve    the daemon, `ariesd serve`. The systemd unit asks
 #                     for it with AppArmorProfile=ariesd-serve.
 #   ariesd-admin    the operator's commands: control init, import-bd,
 #                     export-bd and upgrade. The operator asks for it:
 #                     sudo -u aries -H aa-exec -p ariesd-admin -- ariesd upgrade
+#                     Its rules are abstractions/ariesd-admin's, which
+#                     ariesd-default shares.
 #
 # AppArmor chooses a profile by the path of the program, never by its
-# arguments, so the one path can carry only one profile by itself. It
-# carries the smallest, because sshd starts the bridge with no way to
-# ask for another, outside the systemd unit and its sandbox. With SSH
-# off nothing runs as sshd's forced command, and the path carries no
-# profile. The daemon
+# arguments, so the one path can carry only one profile by itself, and
+# ariesd-stdio and ariesd-default are never loaded together. With SSH on
+# the path carries the smallest, because sshd starts the bridge with no
+# way to ask for another, outside the systemd unit and its sandbox. With
+# SSH off nothing runs as sshd's forced command, and the path carries
+# the operator's rules. The daemon
 # and the operator's commands may reach Postgres; the daemon alone may
 # write the keys file; the operator's profile alone may replace the
 # binary and run sudo. No
@@ -32,7 +41,8 @@
 # program at all.
 #
 # The paths are tunables/ariesd's. Rules of your own go in
-# /etc/apparmor.d/local/ariesd-serve and local/ariesd-admin, and in
+# /etc/apparmor.d/local/ariesd-serve and local/ariesd-admin (which
+# ariesd-default reads too), and in
 # local/ariesd-stdio for the bridge, which upgrades of these files leave
 # alone. A deny rule here wins over anything those files allow.
 
@@ -185,106 +195,11 @@ profile ariesd-serve flags=(attach_disconnected) {
   include if exists <local/ariesd-serve>
 }
 
-# The operator's commands, run as the aries user through aa-exec:
+# The operator's commands, entered with aa-exec as the aries user:
 # control init, import-bd, export-bd, and upgrade with --check, --to and
-# --rollback. (`ariesd status` is not one of them: it runs under the
-# bridge's profile, with SSH on, or none, and would also run under this
-# one.) They open the store as the daemon does; upgrade also
-# downloads a release, replaces the binary, asks systemd for a restart
-# through sudo, and asks the daemon whether it is healthy.
+# --rollback. Its rules are abstractions/ariesd-admin's, which
+# ariesd-default shares: with SSH off that profile carries the binary's
+# path, and a command run without aa-exec gets the same rules.
 profile ariesd-admin flags=(attach_disconnected) {
-  include <abstractions/base>
-  # The certificate authorities that vouch for the release's host.
-  include <abstractions/ssl_certs>
-
-  @{ariesd_config} r,
-  /etc/passwd r,
-
-  # Postgres, as the daemon reaches it: by its unix socket, with the
-  # client files a DSN may name, or over TCP.
-  @{ariesd_pg_socket}/.s.PGSQL.* rw,
-  @{ariesd_db_files}/ r,
-  @{ariesd_db_files}/** r,
-
-  # Postgres on another machine, the release (HTTPS, or HTTPS_PROXY),
-  # and DNS for their hosts. Go resolves names itself, so the files it
-  # reads are listed here and abstractions/nameservice, which allows far
-  # more, is left out.
-  network inet stream,
-  network inet6 stream,
-  network inet dgram,
-  network inet6 dgram,
-  /etc/hosts r,
-  /etc/nsswitch.conf r,
-  /etc/resolv.conf r,
-  @{run}/systemd/resolve/resolv.conf r,
-  @{run}/systemd/resolve/stub-resolv.conf r,
-
-  # control init reads authorized_keys, or with SSH off the file the
-  # installer writes the first admin's key to. Nothing here writes
-  # either, or the keys file: the daemon does that.
-  owner @{ariesd_keys_dir}/ r,
-  owner @{ariesd_authorized_keys} r,
-  @{ariesd_admin_keys} r,
-
-  # import-bd reads the file it is given and export-bd -o writes one,
-  # through a temporary file beside it. Both stay in the top of the
-  # account's home directory; anything else goes through a pipe
-  # (`ariesd import-bd -`, `ariesd export-bd | ...`).
-  owner @{ariesd_home}/ r,
-  owner @{ariesd_home}/* rw,
-
-  # upgrade finds its own file through the links that lead to it, stages
-  # the new binary beside it and runs `version` in it under this same
-  # profile, keeps the old binary as ariesd.prev, and renames.
-  # --rollback renames ariesd.prev back.
-  @{ariesd_bin_above}/ r,
-  @{ariesd_bin}/ r,
-  @{ariesd_bin}/ariesd mr,
-  owner @{ariesd_bin}/ariesd rw,
-  owner @{ariesd_bin}/ariesd.prev rw,
-  owner @{ariesd_bin}/.ariesd.prev-* rw,
-  owner @{ariesd_bin}/.ariesd.new-* mrwix,
-
-  # The restart: `sudo -n systemctl restart UNIT`. sudo runs unconfined,
-  # with a scrubbed environment (Ux), and does what sudoers lets the
-  # aries user do: with the guide's rule, that one command. If it
-  # hangs for two minutes, upgrade kills it. AppArmor names the file the
-  # links lead to: on Ubuntu 26.04 /usr/bin/sudo is a link to sudo-rs,
-  # or to the original sudo, renamed sudo.ws, if the machine chose it.
-  /usr/bin/sudo rUx,
-  /usr/bin/sudo.ws rUx,
-  /usr/lib/cargo/bin/sudo rUx,
-  signal (send) set=(kill) peer=unconfined,
-
-  # Signals among its own threads, under the label aa-exec gives the
-  # aries user on Ubuntu 26.04: ariesd-admin//&unconfined (see
-  # ariesd-serve).
-  signal peer=@{profile_name}//&unconfined,
-
-  # The health check: a handshake on the daemon's socket.
-  @{ariesd_run}/ariesd.sock rw,
-
-  owner @{PROC}/@{pid}/cgroup r,
-  owner @{PROC}/@{pid}/mountinfo r,
-  @{sys}/fs/cgroup/** r,
-
-  # root may run `ariesd upgrade --check`, and is told so when it runs
-  # anything else here. The config file is the aries user's, mode
-  # 0600, so root reads it by this capability and has no other.
-  capability dac_read_search,
-
-  audit deny @{ariesd_config} w,
-  audit deny @{ariesd_keys_dir}/** w,
-  audit deny @{HOMEDIRS}/** mrwklx,
-  audit deny /root/** mrwklx,
-  audit deny ptrace (trace),
-  audit deny mount,
-  audit deny umount,
-  audit deny pivot_root,
-  audit deny network netlink,
-  audit deny network packet,
-  audit deny network raw,
-
-  include if exists <local/ariesd-admin>
+  include <abstractions/ariesd-admin>
 }
