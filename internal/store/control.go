@@ -3,6 +3,7 @@ package store
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -235,6 +236,9 @@ type cwtx struct {
 	index []func(*index)
 	// elsewhere is Control.elsewhere, or nil.
 	elsewhere func(fingerprint string) (principal string, ok bool)
+	// operator is set for a write of the operator's `ariesd control
+	// init` (ControlOptions.Operator), whose keys are imported.
+	operator bool
 }
 
 // indexed records a change for the index to take when the attempt
@@ -272,7 +276,8 @@ func (c *Control) write(ctx context.Context, actor Actor, fn func(*cwtx) error) 
 				w.admin = p.State == PrincipalActive
 			}
 		}
-		cw := &cwtx{wtx: w, lim: c.lim, inviteTTL: c.inviteTTL, admins: c.ConfigAdmin, configAdmins: c.s.opts.Admins}
+		cw := &cwtx{wtx: w, lim: c.lim, inviteTTL: c.inviteTTL, admins: c.ConfigAdmin, configAdmins: c.s.opts.Admins,
+			operator: c.operator && actor.Principal == OperatorPrincipal}
 		if fn := c.elsewhere.Load(); fn != nil {
 			cw.elsewhere = *fn
 		}
@@ -339,14 +344,33 @@ type index struct {
 // membership names one principal in one project.
 type membership struct{ principal, project string }
 
-// indexedKey is a key in the index: its principal and its text.
-type indexedKey struct{ principal, key string }
+// indexedKey is a key in the index: its principal, its text, and its
+// end, zero for none.
+type indexedKey struct {
+	principal, key string
+	end            time.Time
+}
+
+// ended reports whether k has an end and now is at or past it.
+func (k indexedKey) ended(now time.Time) bool { return !k.end.IsZero() && !now.Before(k.end) }
+
+// wire is k as a PrincipalKey with Fingerprint, Principal, Key and
+// ExpiresAt set.
+func (k indexedKey) wire(fingerprint string) PrincipalKey {
+	out := PrincipalKey{Fingerprint: fingerprint, Principal: k.principal, Key: k.key}
+	if !k.end.IsZero() {
+		end := k.end
+		out.ExpiresAt = &end
+	}
+	return out
+}
 
 // AuthorizedKey returns the principal a public key authenticates and the
 // key in authorized_keys form (its type and base64, nothing else), for
 // the fingerprint [golang.org/x/crypto/ssh.FingerprintSHA256] gives. It
-// answers only for a key of an active principal: ok is false for a key
-// that is unknown or removed, or whose principal is disabled.
+// answers only for a key of an active principal that has not ended on
+// the store's clock: ok is false for a key that is unknown, removed or
+// past its end, or whose principal is disabled.
 //
 // It reads memory only, never the database, so every handshake can ask
 // it. The index is loaded when the
@@ -354,33 +378,73 @@ type indexedKey struct{ principal, key string }
 // makes to the database is not seen until [Control.Reload] or the next
 // open.
 func (c *Control) AuthorizedKey(fingerprint string) (principal, key string, ok bool) {
+	now := c.Now()
 	c.ix.mu.RLock()
 	defer c.ix.mu.RUnlock()
 	k, found := c.ix.byFingerprint[fingerprint]
-	if !found || !c.ix.active[k.principal] {
+	if !found || !c.ix.active[k.principal] || k.ended(now) {
 		return "", "", false
 	}
 	return k.principal, k.key, true
 }
 
 // AuthorizedKeys returns every key [Control.AuthorizedKey] answers for,
-// the keys of the active principals, by principal and then fingerprint:
-// what the daemon writes sshd's keys file from. Only Fingerprint,
-// Principal and Key are set. It reads memory only, as AuthorizedKey
-// does.
+// the keys of the active principals that have not ended, by principal
+// and then fingerprint: what the daemon writes sshd's keys file from.
+// Only Fingerprint, Principal, Key and ExpiresAt are set. It reads
+// memory only, as AuthorizedKey does.
 func (c *Control) AuthorizedKeys() []PrincipalKey {
+	now := c.Now()
 	c.ix.mu.RLock()
 	defer c.ix.mu.RUnlock()
 	var out []PrincipalKey
 	for fp, k := range c.ix.byFingerprint {
-		if c.ix.active[k.principal] {
-			out = append(out, PrincipalKey{Fingerprint: fp, Principal: k.principal, Key: k.key})
+		if c.ix.active[k.principal] && !k.ended(now) {
+			out = append(out, k.wire(fp))
 		}
 	}
 	slices.SortFunc(out, func(a, b PrincipalKey) int {
 		return cmp.Or(strings.Compare(a.Principal, b.Principal), strings.Compare(a.Fingerprint, b.Fingerprint))
 	})
 	return out
+}
+
+// EndedKey reports whether the key with a fingerprint is one the store
+// holds and whose end has passed on the store's clock, and if so whose
+// it is and when it ended: what a refusal of that key says. It reads
+// memory only, as AuthorizedKey does.
+func (c *Control) EndedKey(fingerprint string) (principal string, end time.Time, ok bool) {
+	now := c.Now()
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	k, found := c.ix.byFingerprint[fingerprint]
+	if !found || !k.ended(now) {
+		return "", time.Time{}, false
+	}
+	return k.principal, k.end, true
+}
+
+// KeyEnds returns, on the store's clock, the keys whose end has passed
+// and that the store still holds, by fingerprint, with Fingerprint,
+// Principal, Key and ExpiresAt set; and next, the earliest end still to
+// come, or the zero time when no key has one. The daemon closes the
+// connections the first signed in, and sets a timer for next. It reads
+// memory only, as AuthorizedKey does.
+func (c *Control) KeyEnds() (ended []PrincipalKey, next time.Time) {
+	now := c.Now()
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	for fp, k := range c.ix.byFingerprint {
+		switch {
+		case k.end.IsZero():
+		case k.ended(now):
+			ended = append(ended, k.wire(fp))
+		case next.IsZero() || k.end.Before(next):
+			next = k.end
+		}
+	}
+	slices.SortFunc(ended, func(a, b PrincipalKey) int { return strings.Compare(a.Fingerprint, b.Fingerprint) })
+	return ended, next
 }
 
 // Access is what a principal may do in a project, as [Control.Access]
@@ -480,7 +544,7 @@ func (c *Control) load(ctx context.Context) error {
 			set[n] = true
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT fingerprint, principal, "key" FROM principal_keys`)
+	rows, err := q.QueryContext(ctx, `SELECT fingerprint, principal, "key", expires_at FROM principal_keys`)
 	if err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}
@@ -489,8 +553,12 @@ func (c *Control) load(ctx context.Context) error {
 	for rows.Next() {
 		var fp string
 		var k indexedKey
-		if err := rows.Scan(&fp, &k.principal, &k.key); err != nil {
+		var end sql.NullTime
+		if err := rows.Scan(&fp, &k.principal, &k.key, &end); err != nil {
 			return fmt.Errorf("load index: %w", err)
+		}
+		if end.Valid {
+			k.end = end.Time.UTC()
 		}
 		keys[fp] = k
 	}

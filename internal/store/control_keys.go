@@ -36,6 +36,90 @@ type PrincipalKey struct {
 	Comment string    `json:"comment,omitempty"`
 	AddedBy string    `json:"added_by"`
 	AddedAt time.Time `json:"added_at"`
+	// ExpiresAt is when the key stops authenticating, in UTC to the
+	// second, or nil for a key with no end (design identity.md §4).
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// Origin says who put the key there: OriginAdmin or OriginImport
+	// so far.
+	Origin string `json:"origin,omitempty"`
+	// Machine is what the client said it is, for a key a sign-in made;
+	// trusted for nothing. No key has one yet.
+	Machine string `json:"machine,omitempty"`
+}
+
+// Who put a key there (PrincipalKey.Origin). The schema also allows
+// login, for a sign-in's key, and workload, for a workload's.
+const (
+	OriginAdmin  = "admin"
+	OriginImport = "import"
+)
+
+// KeyEnd is when a key added with [Control.AddKeyEnding] stops
+// authenticating: at At, or In after the store's time when the write
+// runs, or never, when both are zero. The end is kept to the second, cut
+// down, since that is what sshd's expiry-time holds.
+type KeyEnd struct {
+	At time.Time
+	In time.Duration
+}
+
+const (
+	// MaxKeyLifetime is the furthest a key's end may be from the time it
+	// is added. Ten years: a key meant to last longer is given no end.
+	MaxKeyLifetime = 10 * 365 * 24 * time.Hour
+	// KeyPruneAfter is how long a key that has ended is kept before
+	// [Control.PruneKeys] deletes it, so that a refused connection's log
+	// line and `aries admin key list` still show it for a while (design
+	// identity.md §4.3).
+	KeyPruneAfter = time.Hour
+)
+
+// KeyEndError refuses the end asked of a key ([Control.AddKeyEnding]):
+// Reason says why. It is ErrInvalid, but when Fingerprint is set: the
+// principal has that key already, with another end, and it is then
+// ErrExists.
+type KeyEndError struct {
+	Reason      string
+	Fingerprint string
+}
+
+func (e *KeyEndError) Error() string { return fmt.Sprintf("%v: %s", e.Unwrap(), e.Reason) }
+
+func (e *KeyEndError) Unwrap() error {
+	if e.Fingerprint != "" {
+		return ErrExists
+	}
+	return ErrInvalid
+}
+
+// end returns the end e names at now, in UTC to the second, or the zero
+// time for none. It refuses, with a [*KeyEndError], an end that is not
+// after now, one more than MaxKeyLifetime after it, and At and In both
+// set.
+func (e KeyEnd) end(now time.Time) (time.Time, error) {
+	var at time.Time
+	switch {
+	case !e.At.IsZero() && e.In != 0:
+		return time.Time{}, &KeyEndError{Reason: "a key's end is a time or a duration, not both"}
+	case e.In < 0:
+		return time.Time{}, &KeyEndError{Reason: fmt.Sprintf("a key's end must be after now; %s is not", e.In)}
+	case e.In > 0:
+		at = now.Add(e.In)
+	case !e.At.IsZero():
+		at = e.At
+	default:
+		return time.Time{}, nil
+	}
+	at = at.UTC().Truncate(time.Second)
+	switch {
+	case !at.After(now):
+		return time.Time{}, &KeyEndError{Reason: fmt.Sprintf("a key's end must be after the server's time, %s; %s is not",
+			now.Format(time.RFC3339), at.Format(time.RFC3339))}
+	case at.After(now.Add(MaxKeyLifetime)):
+		return time.Time{}, &KeyEndError{Reason: fmt.Sprintf("a key's end may be at most %d days away; give a key meant to last longer no end",
+			MaxKeyLifetime/(24*time.Hour))}
+	}
+	return at, nil
 }
 
 const (
@@ -123,6 +207,21 @@ func parseKey(line string) (fingerprint, key, comment string, err error) {
 // [AccessKey] refusal for either, so it cannot tell a key in that file
 // from a key in the store.
 func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line string) (PrincipalKey, error) {
+	return c.AddKeyEnding(ctx, actor, principal, line, KeyEnd{})
+}
+
+// AddKeyEnding is [Control.AddKey] for a key that stops authenticating
+// at end, or never when end is zero, decided on the store's clock as the
+// write runs (rule 19). An end that is not after that time, or is more
+// than [MaxKeyLifetime] past it, is refused with ErrInvalid.
+//
+// A key the principal has already is returned as it is when its end is
+// the one asked for, and refused with ErrExists when it is another: an
+// end is changed by removing the key and adding it again, which closes
+// the connections it signed in. A duration is counted from the time of
+// each call, so adding a key again with the same duration a second or
+// more later names another end, and is refused.
+func (c *Control) AddKeyEnding(ctx context.Context, actor Actor, principal, line string, end KeyEnd) (PrincipalKey, error) {
 	if err := validPrincipal(principal); err != nil {
 		return PrincipalKey{}, err
 	}
@@ -147,7 +246,11 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 		if _, err := readPrincipal(ctx, w.tx, principal); err != nil {
 			return err
 		}
-		out, err = w.addKey(ctx, principal, parsedKey{fp, key, comment})
+		at, err := end.end(w.now)
+		if err != nil {
+			return err
+		}
+		out, err = w.addKey(ctx, principal, parsedKey{fp, key, comment}, at)
 		return err
 	})
 	if err != nil {
@@ -159,15 +262,19 @@ func (c *Control) AddKey(ctx context.Context, actor Actor, principal, line strin
 // parsedKey is a key as parseKey read it.
 type parsedKey struct{ fingerprint, key, comment string }
 
-// addKey gives principal the key k and records it, or returns the key as
-// it is when principal has it already. It refuses a key another
-// principal has, in the store or elsewhere (Control.KeysElsewhere), and
-// one past ControlLimits.Keys. The caller has checked
+// addKey gives principal the key k, ending at end (none when zero), and
+// records it, or returns the key as it is when principal has it already
+// with that end. It refuses a key another principal has, in the store or
+// elsewhere (Control.KeysElsewhere), the principal's own key with
+// another end, and one past ControlLimits.Keys. The caller has checked
 // the actor and that the principal exists.
-func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (PrincipalKey, error) {
+func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey, end time.Time) (PrincipalKey, error) {
 	switch cur, err := readKey(ctx, w.tx, k.fingerprint); {
-	case err == nil && cur.Principal == principal:
+	case err == nil && cur.Principal == principal && endOf(cur).Equal(end):
 		return cur, nil
+	case err == nil && cur.Principal == principal:
+		return PrincipalKey{}, &KeyEndError{Fingerprint: k.fingerprint,
+			Reason: fmt.Sprintf("key %s is %s's already, %s; to give it another end, remove it and add it again", k.fingerprint, principal, endWords(cur.ExpiresAt))}
 	case err == nil && !w.admin:
 		// A project admin is not told that the key is anyone's.
 		return PrincipalKey{}, w.denied(OpKeyAdd, principal, "", AccessKey)
@@ -189,12 +296,23 @@ func (w *cwtx) addKey(ctx context.Context, principal string, k parsedKey) (Princ
 	if err := w.room(ctx, limitKeys, w.lim.Keys, `SELECT COUNT(*) FROM principal_keys WHERE principal = $1`, principal); err != nil {
 		return PrincipalKey{}, err
 	}
-	out := PrincipalKey{Fingerprint: k.fingerprint, Principal: principal, Key: k.key, Comment: k.comment, AddedBy: w.actor.Principal, AddedAt: w.now}
-	if _, err := w.exec(ctx, `INSERT INTO principal_keys (fingerprint, principal, "key", comment, added_by, added_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-		out.Fingerprint, principal, out.Key, out.Comment, out.AddedBy, w.now); err != nil {
+	out := PrincipalKey{Fingerprint: k.fingerprint, Principal: principal, Key: k.key, Comment: k.comment, AddedBy: w.actor.Principal, AddedAt: w.now,
+		Origin: OriginAdmin}
+	if w.operator {
+		out.Origin = OriginImport
+	}
+	var expires sql.NullTime
+	if !end.IsZero() {
+		out.ExpiresAt = &end
+		expires = sql.NullTime{Time: end, Valid: true}
+	}
+	if _, err := w.exec(ctx, `INSERT INTO principal_keys (fingerprint, principal, "key", comment, added_by, added_at, expires_at, origin) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		out.Fingerprint, principal, out.Key, out.Comment, out.AddedBy, w.now, expires, out.Origin); err != nil {
 		return PrincipalKey{}, fmt.Errorf("add key %s: %w", out.Fingerprint, err)
 	}
-	w.indexed(func(ix *index) { ix.byFingerprint[out.Fingerprint] = indexedKey{principal: principal, key: out.Key} })
+	w.indexed(func(ix *index) {
+		ix.byFingerprint[out.Fingerprint] = indexedKey{principal: principal, key: out.Key, end: end}
+	})
 	return out, w.event(ctx, OpKeyAdd, out.Fingerprint, nil, out)
 }
 
@@ -302,15 +420,78 @@ func queryKeys(ctx context.Context, q querier, what, where, arg string) ([]Princ
 	return out, nil
 }
 
-const keySelect = `SELECT fingerprint, principal, "key", comment, added_by, added_at FROM principal_keys`
+const keySelect = `SELECT fingerprint, principal, "key", comment, added_by, added_at, expires_at, origin, machine FROM principal_keys`
 
 func scanKey(r scanner) (PrincipalKey, error) {
 	var k PrincipalKey
-	if err := r.Scan(&k.Fingerprint, &k.Principal, &k.Key, &k.Comment, &k.AddedBy, &k.AddedAt); err != nil {
+	var expires sql.NullTime
+	var machine sql.NullString
+	if err := r.Scan(&k.Fingerprint, &k.Principal, &k.Key, &k.Comment, &k.AddedBy, &k.AddedAt, &expires, &k.Origin, &machine); err != nil {
 		return PrincipalKey{}, err
 	}
 	k.AddedAt = k.AddedAt.UTC()
+	if expires.Valid {
+		at := expires.Time.UTC()
+		k.ExpiresAt = &at
+	}
+	k.Machine = machine.String
 	return k, nil
+}
+
+// endOf is a key's end, or the zero time for a key with none.
+func endOf(k PrincipalKey) time.Time {
+	if k.ExpiresAt == nil {
+		return time.Time{}
+	}
+	return *k.ExpiresAt
+}
+
+// endWords says when a key ends, for a refusal.
+func endWords(end *time.Time) string {
+	if end == nil {
+		return "with no end"
+	}
+	return "ending " + end.UTC().Format(time.RFC3339)
+}
+
+// PruneKeys deletes the keys whose end is more than [KeyPruneAfter]
+// past, and returns how many. It is pruning, not history (rule 7): the
+// end was recorded when the key was added, so no event is appended.
+// When the index holds no such key it writes nothing.
+func (c *Control) PruneKeys(ctx context.Context) (int, error) {
+	if !c.prunable(c.Now().Add(-KeyPruneAfter)) {
+		return 0, nil
+	}
+	var n int
+	err := c.write(ctx, ReaperActor, func(w *cwtx) error {
+		w.quiet = true
+		fps, err := queryStrings(ctx, w.tx, `DELETE FROM principal_keys WHERE expires_at < $1 RETURNING fingerprint`, w.now.Add(-KeyPruneAfter))
+		if err != nil {
+			return fmt.Errorf("prune keys: %w", err)
+		}
+		n = len(fps)
+		w.indexed(func(ix *index) {
+			for _, fp := range fps {
+				delete(ix.byFingerprint, fp)
+			}
+		})
+		return nil
+	})
+	return n, err
+}
+
+// prunable reports whether the index holds a key that ended before
+// before. A key another process added is not in it until a reload,
+// which the daemon does on each tick.
+func (c *Control) prunable(before time.Time) bool {
+	c.ix.mu.RLock()
+	defer c.ix.mu.RUnlock()
+	for _, k := range c.ix.byFingerprint {
+		if !k.end.IsZero() && k.end.Before(before) {
+			return true
+		}
+	}
+	return false
 }
 
 // readKey reads one key, or returns ErrNotFound.

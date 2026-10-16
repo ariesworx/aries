@@ -79,6 +79,10 @@ const (
 	// KeysFileRemoved is the keys file ariesd wrote, removed because SSH
 	// is off.
 	KeysFileRemoved Event = "keys_file.removed"
+	// KeyExpired is a key of the control store that reached its end: its
+	// line is gone from the keys file, and the connections it signed in
+	// were closed.
+	KeyExpired Event = "key.expired"
 
 	// The HTTPS listener (transport.md §4): listening, stopped by an
 	// error, and a connection refused before its hello (the key proof,
@@ -145,7 +149,7 @@ var events = []Event{
 	ProjectAdded, ProjectOpened, ProjectOpenFailed, ProjectNotOpened, ProjectClosed, ProjectCloseFailed,
 	StoreSchemaTooNew, StoreUnsafeAccount, ControlReload, ControlIndexStale,
 	ClaimExpired, ClaimReleased, LockExpired, LockReleased, GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,
-	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut, KeysFileRemoved,
+	KeysFileWritten, KeysFileWriteFailed, KeysFileHeldBack, KeysFileLeftOut, KeysFileRemoved, KeyExpired,
 	HTTPSListening, HTTPSStopped, HTTPSRefused, TLSCertReloaded, TLSCertReloadFailed,
 	ClockBehind, ClockCaughtUp, ClockStepped, ClockStepSettled, ClockSettleFailed,
 	DatabaseCheckFailed,

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -259,6 +260,53 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// TestKeyExpires adds keys with an end by `aries admin key add
+// --expires`, as a duration and as a time: the key signs in by its line
+// of the keys file, which carries the end in UTC, and the list says when
+// each key ends. The end itself is the server tests' (TestKeyEnd…),
+// which move a clock.
+func TestKeyExpires(t *testing.T) {
+	t.Parallel()
+	w := keysWorld(t, server.Limits{})
+	dana := w.newUser("dana", "")
+	bob, laptop := w.newUser("", ""), w.newUser("", "")
+	dana.ok("admin", "principal", "add", "bob")
+
+	fp := bob.fingerprint()
+	got := dana.ok("admin", "key", "add", "bob", bob.pub(), "--expires", "2h")
+	end, ok := strings.CutPrefix(got, "key "+fp+" (ssh-ed25519, someone@example.com) added to bob, ending ")
+	at, err := time.Parse("2006-01-02 15:04:05 UTC\n", end)
+	if !ok || err != nil || at.Before(time.Now().Add(time.Hour)) || at.After(time.Now().Add(3*time.Hour)) {
+		t.Fatalf("key add --expires 2h: %q; want the key added, ending two hours from now", got)
+	}
+	if !strings.Contains(readFile(t, w.keysFile), `restrict,expiry-time="`+at.Format("20060102150405")+`Z",command=`) {
+		t.Errorf("the keys file lacks bob's end in UTC:\n%s", readFile(t, w.keysFile))
+	}
+	id := strings.TrimSpace(bob.ok("create", "by a key with an end"))
+	if got := decode[proto.ShowResult](t, bob.ok("show", id, "--json")); got.Issue.CreatedBy != "bob" {
+		t.Errorf("the issue was created by %q, want bob, by his key before its end", got.Issue.CreatedBy)
+	}
+
+	on := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	added := decode[proto.KeyResult](t, dana.ok("--json", "admin", "key", "add", "bob", laptop.pub(), "--expires", on.Format(time.RFC3339)))
+	if added.ExpiresAt == nil || !added.ExpiresAt.Equal(on) {
+		t.Errorf("key add --expires %s --json = %+v; want that end", on.Format(time.RFC3339), added)
+	}
+	list := dana.ok("admin", "key", "list", "bob")
+	for _, want := range []string{"ENDS", endOf(at), endOf(on)} {
+		if !strings.Contains(list, want) {
+			t.Errorf("key list bob lacks %q:\n%s", want, list)
+		}
+	}
+	if r := dana.run("v0.2.0", "admin", "key", "add", "bob", bob.pub(), "--expires", "3h"); r.code != cli.ExitFailure ||
+		!strings.Contains(r.stderr, "aries admin key remove "+fp) {
+		t.Errorf("key add of bob's key again with another end: exit %d, stderr %q; want it refused, naming the removal", r.code, r.stderr)
+	}
+}
+
+// endOf is an end as `aries admin key list` prints it.
+func endOf(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
 
 // TestAdminKeyCommands runs `aries admin key` and `principal add --key`
 // through SSH and the daemon, in text and --json, as those who may and

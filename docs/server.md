@@ -2773,7 +2773,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `conn.idle_closed` | debug | A connection idled past `idle_timeout` |
 | `conn.read_failed`, `conn.write_failed` | info | A connection ended on a read or a write that failed |
 | `conn.access_ended` | info | A connection was closed because its own access ended, during its handshake or by its own request |
-| `conn.dropped` | info | An `aries admin` change closed the connections of whoever lost access; `connections` is how many |
+| `conn.dropped` | info | An `aries admin` change closed the connections of whoever lost access, or a key reached its end (`reason="key expired"`, by `ariesd`); `connections` is how many |
 | `conn.key_lookup_ignored` | debug | An `ariesd` from before the keys file asked about a key; it is not answered |
 | `handshake.failed` | info | A handshake was refused or failed; `err` says why |
 | `agent.harness_ignored` | info | A client named a harness ariesd does not know |
@@ -2801,16 +2801,17 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `gate.waived` | info | An admin waived a gate |
 | `gate.rearmed` | info | A passed or waived gate was reopened |
 | `reaper.failed`, `reaper.prune_failed` | error | The reaper could not end expired claims, or prune, in a project |
-| `reaper.pruned` | info | The reaper removed old registry rows or read inbox items |
+| `reaper.pruned` | info | The reaper removed old registry rows or read inbox items, or keys that ended over an hour before (`keys`) |
 | `access.sweep_failed` | error | The claims of holders without access could not be ended in a project |
 | `keys_file.written` | info | The keys file was written |
 | `keys_file.write_failed` | error | The keys file could not be written: sshd reads the old one. Every 30 seconds until a write succeeds. Alert on it |
 | `keys_file.key_held_back` | warn | A key of the store is left out of the keys file because `authorized_keys` gives it to another principal |
 | `keys_file.key_left_out` | error | A key's row in the store does not check out, and is left out of the keys file |
 | `keys_file.removed` | info | SSH is off, so the keys file ariesd wrote was removed |
+| `key.expired` | info | A key of the store reached its end (`aries admin key add --expires`): its line left the keys file, and the connections it signed in, `connections`, over SSH or HTTPS, were closed. Once per key |
 | `https.listening` | info | The HTTPS listener serves: its address, TLS mode and URLs |
 | `https.listener_stopped` | error | The HTTPS listener stopped on an error; nothing is served over HTTPS until a restart |
-| `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a proof that does not verify, a browser's origin, the limit on failures), sampled per address |
+| `https.refused` | info | A connection to `/v1/connect` was refused before its hello (`reason`: a key the server does not know, a key past its end, a proof that does not verify, a browser's origin, the limit on failures), sampled per address |
 | `tls.cert_reloaded` | info | The certificate files changed and were read again |
 | `tls.cert_reload_failed` | error | The certificate files changed and could not be read; the listener keeps the certificate it had. Alert on it |
 | `clock.behind` | error | The clock is behind the latest event of the database named, at start and every ten minutes while it lasts, with the fix ([The server's clock](#the-servers-clock)) |
@@ -3212,11 +3213,11 @@ number of series cannot grow with what clients send:
 | `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file and the certificate's reloads: `ok` or `failed` |
 | `result` of an upgrade | `ok`, or `refused` |
 | `reason` of an upgrade | `none` for one upgraded; for one refused, `origin` (a browser's page, 403), `auth_failures` (the address past `auth_failures_per_minute`, 429) or `bad_request` (not a WebSocket upgrade, 400, or one that could not be completed) |
-| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `bad_proof` (the signature does not verify); `failed` (the client left, or said nothing within `upgrade_timeout`) |
+| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `key_ended` (a key offered is the server's and past its end), `bad_proof` (the signature does not verify); `failed` (the client left, or said nothing within `upgrade_timeout`) |
 | `reason` of a connection the HTTPS listener refused | `untrusted`, `limit` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |
-| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran) |
+| `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `expired` (the key that signed it in reached its end), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran) |
 | `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |

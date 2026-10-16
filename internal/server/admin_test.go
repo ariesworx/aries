@@ -99,7 +99,13 @@ func (c *conn) alive() bool {
 // with one key recorded for carol.
 func adminWorld(t *testing.T, lim Limits) *multi {
 	t.Helper()
-	m := newMulti(t, lim, nil)
+	return adminWorldAt(t, lim, nil)
+}
+
+// adminWorldAt is adminWorld on the clock ck, when it is not nil.
+func adminWorldAt(t *testing.T, lim Limits, ck *clock) *multi {
+	t.Helper()
+	m := newMulti(t, lim, ck)
 	m.project(t, projA, "alice=admin", "bob", "carol")
 	m.project(t, projB, "erin=admin", "carol")
 	if _, err := m.ctl.AddPrincipal(t.Context(), dana, "frank", ""); err != nil {

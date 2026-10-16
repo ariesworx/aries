@@ -161,6 +161,8 @@ type Server struct {
 	authFails buckets
 	// keys is the state of the keys file (Config.KeysFile).
 	keys keysFile
+	// ends is what the daemon knows of keys' ends (expiry.go).
+	ends keyEnds
 	// adding serializes `project add`, so that two do not take the same
 	// schema.
 	adding sync.Mutex
@@ -283,7 +285,8 @@ func New(cfg Config) (*Server, error) {
 		}
 		cfg.HTTPS = &h
 	}
-	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{}}
+	s := &Server{cfg: cfg, conns: map[net.Conn]owner{}, now: time.Now, started: time.Now(), unopened: map[string]store.Project{},
+		ends: keyEnds{wake: make(chan struct{}, 1), told: map[string]bool{}}}
 	s.writes = buckets{rate: cfg.Limits.WriteRate, burst: float64(cfg.Limits.WriteBurst)}
 	s.ctlWrites = buckets{rate: cfg.Limits.ControlWriteRate, burst: float64(cfg.Limits.ControlWriteBurst)}
 	s.refusals = sampler{n: cfg.Limits.RefusalLogs}
@@ -462,6 +465,9 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) (err error) {
 	}()
 	if s.cfg.ReapInterval > 0 {
 		s.wg.Go(func() { s.reapLoop(ctx) })
+		if s.cfg.Control != nil {
+			s.wg.Go(func() { s.expireLoop(ctx) })
+		}
 	}
 	if s.cfg.HTTPS != nil {
 		s.wg.Go(func() {
@@ -617,10 +623,12 @@ func (s *Server) tick(ctx context.Context, prune bool) {
 }
 
 // Prune deletes registry rows and read inbox items older than the limits
-// keep them (S-6, S-7), in every open store, and logs what it removed;
-// and lets go of the write buckets that have filled again.
+// keep them (S-6, S-7), in every open store, and the control store's
+// keys that ended more than store.KeyPruneAfter ago, and logs what it
+// removed; and lets go of the write buckets that have filled again.
 func (s *Server) Prune(ctx context.Context) {
 	s.each(func(pr *served) { pr.prune(ctx, s.cfg.Limits) })
+	s.pruneKeys(ctx)
 	now := s.now()
 	s.writes.prune(now)
 	s.ctlWrites.prune(now)

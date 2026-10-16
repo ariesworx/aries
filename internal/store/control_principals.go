@@ -229,7 +229,7 @@ func (c *Control) AddNewPrincipal(ctx context.Context, actor Actor, in NewPrinci
 		// administers or the creator is a server admin, so it is within
 		// the creator's reach.
 		for _, k := range parsed {
-			if _, err := w.addKey(ctx, name, k); err != nil {
+			if _, err := w.addKey(ctx, name, k, time.Time{}); err != nil {
 				return err
 			}
 		}
