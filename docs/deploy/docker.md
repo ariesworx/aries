@@ -113,8 +113,8 @@ on the volume.
 | `ARIES_ADMINS` | the first name | The server [admins](../server.md#admins), comma-separated. They reach every project and need no membership |
 | `ARIES_PROJECT` | random | The project UUID, used on the first start only |
 | `ARIES_HTTPS_PORT` | `8443` | The HTTPS listener's port on 127.0.0.1, which the server's URL names |
-| `ARIES_SSH` | unset | `1` serves SSH beside HTTPS: sshd runs, and ariesd writes the keys file it reads. Unset, sshd does not run, ariesd refuses the bridge and writes no keys file, as on a fresh server |
-| `ARIES_PORT` | `2222` | sshd's port on 127.0.0.1, with SSH on, also printed in `.aries.yaml` |
+| `ARIES_SSH` | unset | `1` serves SSH beside HTTPS: sshd runs, and ariesd writes the keys file it reads. Unset, sshd does not run, ariesd refuses the bridge and writes no keys file, as on a fresh server. With `1`, also add [compose.ssh.yaml](../../deploy/docker/compose.ssh.yaml) to the files, which publishes the port; without it sshd runs unreachable from the host |
+| `ARIES_PORT` | `2222` | sshd's port on 127.0.0.1, published by [compose.ssh.yaml](../../deploy/docker/compose.ssh.yaml) with SSH on, and printed in `.aries.yaml`. Nothing is published on it otherwise, so a second stack on the machine does not collide with this one on it |
 | `ARIES_TELEMETRY` | unset | `1` turns ariesd's telemetry on ([Telemetry](#telemetry)). Unset, ariesd exports nothing and opens no port, as on a server where nothing is configured |
 | `ARIES_TZ` | unset, UTC | The zone sshd and ariesd run in, as `TZ`: a POSIX zone such as `ARIES-14`, fourteen hours east of UTC, since the image holds no zone files. sshd reads a key's `expiry-time` without its `Z` in this zone; the smoke test runs the server at UTC+14 to show the `Z` is written ([Keys that end](../server.md#keys-that-end)) |
 | `ARIES_GRAFANA_PORT` | `3000` | Grafana's port on 127.0.0.1, with the `observe` profile ([Observe](#observe)) |
@@ -122,6 +122,14 @@ on the volume.
 
 Both ports are published on 127.0.0.1 alone, so nothing beyond your
 machine can reach them.
+
+With SSH, set `ARIES_SSH=1` and add the override that publishes its
+port, so that the default stack publishes no port 22 at all:
+
+```sh
+export COMPOSE_FILE=deploy/docker/compose.yaml:deploy/docker/compose.ssh.yaml
+ARIES_SSH=1 docker compose up -d --build --wait
+```
 
 ## Connect a scratch repository
 
