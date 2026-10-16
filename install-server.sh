@@ -659,11 +659,13 @@ apt_source() {
 create_database() {
 	step 3 'Create the role and the database'
 	if [ -n "$dsn_opt" ]; then
-		note "on the Postgres --dsn names, an administrator runs, once (docs/server.md, Managed services):"
+		note "on the Postgres --dsn names, its administrator runs, once, in psql (docs/server.md, Managed services):"
 		say "     $sql_role"
-		say "     GRANT aries TO CURRENT_USER;  -- where the administrator is not a superuser"
+		say "     \\password aries"
+		say "     GRANT aries TO CURRENT_USER;"
 		say "     $sql_database"
 		say "     $sql_revoke"
+		say "     REVOKE aries FROM CURRENT_USER;"
 		note "step 9 checks them, when ariesd first opens its database"
 		return 0
 	fi

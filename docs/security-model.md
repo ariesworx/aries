@@ -390,9 +390,10 @@ which keys `aries` offers decides who you are.
 
 ariesd signs in to Postgres as a role of its own, and the rows of its
 schemas are the history: the event log is the truth, and everything
-else is derived from it. A role that could do more than Aries's own
-work would let whoever holds it go around ariesd, rewrite the log as
-anyone, or read and write the server's files.
+else is derived from it. Whoever can sign in as that role can change
+the history behind ariesd's back, which is why only ariesd's own user
+can (below). A role with more rights than its own database would reach
+further: other databases, other roles, the server's files.
 
 So every command that opens the store first checks the role it
 connects as, in `pg_roles`, and refuses to continue, with the SQL that

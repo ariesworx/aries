@@ -17,8 +17,9 @@ Two containers. One runs sshd and ariesd, set up as in
 and sshd with a forced command per key. The other runs Postgres, from
 Docker's official `postgres:18` image, which ariesd reaches over the
 compose network as a Postgres on another machine: its role and database
-are made as [Managed services](../server.md#managed-services) says,
-with a generated password that only 0600 files hold. ariesd runs
+are made with step 2's statements, the role with a generated password
+that only 0600 files hold, as for
+[a managed service](../server.md#managed-services). ariesd runs
 without `--dev`, so it makes every check it makes on a real server,
 its database role's included. The files are in
 [deploy/docker](../../deploy/docker).

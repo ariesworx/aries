@@ -191,8 +191,8 @@ release key.
   (openssh-server, curl, openssl, sudo, gnupg): a dry run that changed
   nothing; a run, which checked the repository's key, installed PGDG's
   `postgresql-18` (18.6), made the role and the database, and did the
-  rest (24 changes); then a rerun and a dry run that found nothing to
-  change. On 24.04 the base image's `policy-rc.d` kept the package from
+  rest (24 changes, on 26.04); then a rerun and a dry run that found
+  nothing to change. On 24.04 the base image's `policy-rc.d` kept the package from
   starting its cluster, and the installer started it. That run stopped
   at step 3 on a fault of the installer's, since fixed, and the next run
   finished it, finding and adding the `REVOKE` of step 2 that a second
@@ -209,8 +209,8 @@ release key.
   `postgres:18` image in another container on the same network, its
   role and database made with a password as
   [Managed services](#managed-services) says: the installer installed
-  only `postgresql-client-18`, printed step 2's statements for the
-  administrator, wrote the password file, mode 0600 and owned by
+  only `postgresql-client-18`, printed the administrator's statements
+  of [Managed services](#managed-services), wrote the password file, mode 0600 and owned by
   `aries`, and a DSN that names it, and signed in with it; a rerun
   changed nothing; a run with another `--dsn` was refused; the password
   was in neither the installer's output nor the journal. The same
