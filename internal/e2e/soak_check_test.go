@@ -131,15 +131,15 @@ func (m *monitor) record(cl call) {
 			return
 		}
 		if c.By != cl.who.principal || c.Session != cl.who.session {
-			m.failLocked(c.ID, "%s: start answered a claim held by %s/%s", cl.who, c.By, c.Session)
+			m.failLocked(c.Issue, "%s: start answered a claim held by %s/%s", cl.who, c.By, c.Session)
 		}
-		k := issueEpoch{c.ID, c.Epoch}
+		k := issueEpoch{c.Issue, c.Epoch}
 		rec := m.takes[k]
 		switch {
 		case rec == nil:
 			m.takes[k] = &takeRec{who: cl.who, p: cl.p, at: c.ExpiresAt.Add(-leaseOf(a.Lease)), maxExp: c.ExpiresAt, take: a.Take}
 		case rec.who != cl.who:
-			m.failLocked(c.ID, "epoch %d acknowledged to two sessions: %s and %s", c.Epoch, rec.who, cl.who)
+			m.failLocked(c.Issue, "epoch %d acknowledged to two sessions: %s and %s", c.Epoch, rec.who, cl.who)
 		default:
 			rec.maxExp = maxTime(rec.maxExp, c.ExpiresAt)
 			rec.take = rec.take || a.Take
@@ -147,16 +147,16 @@ func (m *monitor) record(cl call) {
 	case proto.RenewArgs:
 		for _, c := range cl.res.(proto.ClaimsResult).Claims {
 			if !a.All && (c.By != cl.who.principal || c.Session != cl.who.session) {
-				m.failLocked(c.ID, "%s: renew answered %s/%s's claim (epoch %d)", cl.who, c.By, c.Session, c.Epoch)
+				m.failLocked(c.Issue, "%s: renew answered %s/%s's claim (epoch %d)", cl.who, c.By, c.Session, c.Epoch)
 				continue
 			}
-			k := issueEpoch{c.ID, c.Epoch}
+			k := issueEpoch{c.Issue, c.Epoch}
 			rec := m.takes[k]
 			switch {
 			case rec == nil:
 				m.takes[k] = &takeRec{who: cl.who, p: cl.p, maxExp: c.ExpiresAt}
 			case rec.who != cl.who:
-				m.failLocked(c.ID, "%s renewed epoch %d, which %s took", cl.who, c.Epoch, rec.who)
+				m.failLocked(c.Issue, "%s renewed epoch %d, which %s took", cl.who, c.Epoch, rec.who)
 			default:
 				rec.maxExp = maxTime(rec.maxExp, c.ExpiresAt)
 			}

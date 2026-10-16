@@ -270,7 +270,7 @@ func lockRelease(ctx context.Context, r *runner, args []string) error {
 		r.emit(out)
 		return nil
 	}
-	_, _ = fmt.Fprintf(r.env.Stdout, "released %s epoch %d\n", esc(out.Name), out.Released)
+	_, _ = fmt.Fprintf(r.env.Stdout, "released %s epoch %d\n", esc(out.Name), out.Epoch)
 	return nil
 }
 

@@ -108,8 +108,8 @@ func workServer(t *testing.T, dir string, refusePaths bool) (*mcp.ClientSession,
 		switch op {
 		case proto.OpStart:
 			id := args.(proto.StartArgs).ID
-			held = append(held, proto.Claim{ID: id, Epoch: 1})
-			return proto.StartResult{Issue: proto.Issue{ID: id, Type: "task"}, Claim: &proto.Claim{ID: id, Epoch: 1}}, nil
+			held = append(held, proto.Claim{Issue: id, Epoch: 1})
+			return proto.StartResult{Issue: proto.Issue{ID: id, Type: "task"}, Claim: &proto.Claim{Issue: id, Epoch: 1}}, nil
 		case proto.OpRenew:
 			if refusePaths && args.(proto.RenewArgs).Paths != nil {
 				return nil, refused
@@ -288,7 +288,7 @@ func TestShowAndReadyFiles(t *testing.T) {
 			return proto.ShowResult{Issue: proto.Issue{ID: "ar-c3d4", Title: "t", Status: "open", Type: "task"},
 				Files: &proto.Files{Paths: []proto.FilePath{{Path: "internal/", Source: proto.PathDeclared},
 					{Path: "a.go", Source: proto.PathCommit}}, More: 3,
-					Overlaps: []proto.Overlap{{ID: "ar-a1b2", By: "alice", Session: "s1"}}}}, nil
+					Overlaps: []proto.Overlap{{Issue: "ar-a1b2", By: "alice", Session: "s1"}}}}, nil
 		case proto.OpReady:
 			return proto.ListResult{Issues: []proto.Summary{{ID: "ar-c3d4", Title: "t", Status: "open",
 				Overlaps: []string{"ar-a1b2"}}}}, nil

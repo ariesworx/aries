@@ -121,11 +121,11 @@ func TestLateFinishTakenByAnother(t *testing.T) {
 	for _, it := range box.Items {
 		agentItems = append(agentItems, proto.InboxItem{Kind: it.Kind, Issue: it.Issue, Body: it.Body})
 	}
-	if !inboxSays(agentItems, "conflict", id, "was kept as comment "+cs[0].ID) {
+	if !inboxSays(agentItems, "conflict.parked", id, "was kept as comment "+cs[0].ID) {
 		t.Errorf("the agent's inbox = %+v; want a conflict item naming the comment", box.Items)
 	}
 	bobBox := decode[proto.InboxResult](t, bob.ok("inbox", "--json"))
-	if !inboxSays(bobBox.Items, "conflict", id, "alice's finish") {
+	if !inboxSays(bobBox.Items, "conflict.parked", id, "alice's finish") {
 		t.Errorf("bob's inbox = %+v; want a conflict item on the issue he holds", bobBox.Items)
 	}
 }

@@ -484,7 +484,7 @@ func TestCheckForeign(t *testing.T) {
 			want: "was answered show naming sb-abcdefgh, an issue of another project"},
 		{name: "another project's issue in a list", cl: call{out: acked, op: proto.OpReady, res: proto.ListResult{Issues: []proto.Summary{{ID: mine}, {ID: "sq-abcdefgh"}}}},
 			want: "naming sq-abcdefgh"},
-		{name: "another project's claim", cl: call{out: acked, op: proto.OpClaims, res: proto.ClaimsResult{Claims: []proto.Claim{{ID: theirs, By: "bob"}}}},
+		{name: "another project's claim", cl: call{out: acked, op: proto.OpClaims, res: proto.ClaimsResult{Claims: []proto.Claim{{Issue: theirs, By: "bob"}}}},
 			want: "was answered claims naming sb-abcdefgh"},
 		{name: "another project's issue in text", cl: call{out: acked, op: proto.OpInbox, res: proto.InboxResult{Items: []proto.InboxItem{{Issue: mine, Body: "see " + theirs + " too"}}}},
 			want: "naming sb-abcdefgh"},

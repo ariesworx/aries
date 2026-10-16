@@ -68,10 +68,10 @@ type LockResult struct {
 	WaitExpires time.Time `json:"wait_expires,omitzero"`
 }
 
-// LockReleaseResult says a hold was released.
+// LockReleaseResult says a hold was released: Epoch is the hold's.
 type LockReleaseResult struct {
-	Name     string `json:"name"`
-	Released int64  `json:"released"`
+	Name  string `json:"name"`
+	Epoch int64  `json:"epoch"`
 }
 
 // LockLeaveResult says whether a place was given up; when the caller

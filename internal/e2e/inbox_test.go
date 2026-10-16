@@ -121,7 +121,7 @@ func TestInboxLostClaimAndHandoff(t *testing.T) {
 	}
 	handoff, lost := box.Items[0], box.Items[1] // newest first
 	if lost.Kind != "claim.lost" || lost.Issue != id || lost.From != "bob" ||
-		handoff.Kind != "handoff" || handoff.Issue != id || handoff.Body != "write the tests" {
+		handoff.Kind != "issue.handoff" || handoff.Issue != id || handoff.Body != "write the tests" {
 		t.Fatalf("items: %+v", box.Items)
 	}
 	box = decode[mcpserver.Inbox](t, ag.content("inbox", map[string]any{"ack": []int64{lost.ID, handoff.ID}})[0])
@@ -174,7 +174,7 @@ func TestInboxMentionAndWatch(t *testing.T) {
 		Op   string          `json:"op"`
 		Item proto.InboxItem `json:"item"`
 	}](t, first)
-	if ev.Op != "inbox" || ev.Item.Kind != "mention" || ev.Item.Issue != id || ev.Item.From != "alice" ||
+	if ev.Op != "inbox" || ev.Item.Kind != "issue.mentioned" || ev.Item.Issue != id || ev.Item.From != "alice" ||
 		ev.Item.Body != "@bob can you look at this?" {
 		t.Fatalf("watch line: %s", first)
 	}

@@ -67,7 +67,7 @@ func TestFrame(t *testing.T) {
 			Deps:  []proto.Dep{{From: "ar-r2", To: "ar-r1", Type: "blocks"}},
 			Items: []proto.AcceptanceItem{{N: 1, Text: "one line per request", State: "ticked"}, {N: 2, Text: "request ids"}},
 			Files: &proto.Files{Paths: []proto.FilePath{{Path: "internal/log/log.go", Source: "declared"}},
-				Overlaps: []proto.Overlap{{ID: "ar-h1", By: "alice", Session: "cc-1234"}}},
+				Overlaps: []proto.Overlap{{Issue: "ar-h1", By: "alice", Session: "cc-1234"}}},
 		}})
 		return m
 	}

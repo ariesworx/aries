@@ -242,12 +242,12 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 			return nil
 		}
 		if out.Project == "" {
-			_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, in no project\n", esc(out.ID))
+			_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, in no project\n", esc(out.Name))
 		} else {
-			_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, a member of project %s\n", esc(out.ID), esc(out.ProjectName))
+			_, _ = fmt.Fprintf(r.env.Stdout, "principal %s added, a member of project %s\n", esc(out.Name), esc(out.ProjectName))
 		}
 		for _, k := range out.Keys {
-			_, _ = fmt.Fprintf(r.env.Stdout, "key %s added to %s\n", esc(k), esc(out.ID))
+			_, _ = fmt.Fprintf(r.env.Stdout, "key %s added to %s\n", esc(k), esc(out.Name))
 		}
 		r.warn(out.Warning)
 		return nil
@@ -287,8 +287,8 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 			r.emit(out)
 			return nil
 		}
-		_, _ = fmt.Fprintf(r.env.Stdout, "%s: %s\n", esc(out.ID), esc(out.State))
-		printReleased(r.env.Stdout, out.Released, out.ID)
+		_, _ = fmt.Fprintf(r.env.Stdout, "%s: %s\n", esc(out.Name), esc(out.State))
+		printReleased(r.env.Stdout, out.Released, out.Name)
 		r.warn(out.Warning)
 		return nil
 	case "whois":
@@ -415,8 +415,8 @@ func adminMember(ctx context.Context, r *runner, args []string) error {
 			r.emit(out)
 			return nil
 		}
-		_, _ = fmt.Fprintf(r.env.Stdout, "%s removed from project %s\n", esc(out.ID), esc(out.ProjectName))
-		printReleased(r.env.Stdout, out.Released, out.ID)
+		_, _ = fmt.Fprintf(r.env.Stdout, "%s removed from project %s\n", esc(out.Name), esc(out.ProjectName))
+		printReleased(r.env.Stdout, out.Released, out.Name)
 		r.warn(out.Warning)
 		return nil
 	}
@@ -439,23 +439,23 @@ func memberPending(ctx context.Context, r *runner, in proto.MemberSetArgs, shown
 	}
 	refusal := proto.Errf(proto.CodeConflict,
 		fmt.Sprintf("check each key with %s, then run `%s --accept-keys`; on a terminal, without --json, aries shows the keys and asks", in.Name, again),
-		fmt.Sprintf("%s was not added to project %s: it has %s, and each would sign in to the project too", shown.ID, shown.ProjectName, count(len(shown.Carried), "key")))
+		fmt.Sprintf("%s was not added to project %s: it has %s, and each would sign in to the project too", shown.Name, shown.ProjectName, count(len(shown.Carried), "key")))
 	if r.json {
 		return &refusedWith{err: refusal, key: "member", value: shown}
 	}
 	out := r.env.Stdout
-	_, _ = fmt.Fprintf(out, "%s has %s, and each would sign in to project %s too:\n", esc(shown.ID), count(len(shown.Carried), "key"), esc(shown.ProjectName))
+	_, _ = fmt.Fprintf(out, "%s has %s, and each would sign in to project %s too:\n", esc(shown.Name), count(len(shown.Carried), "key"), esc(shown.ProjectName))
 	printCarried(out, shown)
 	if !r.env.Terminal() {
 		return refusal
 	}
-	_, _ = fmt.Fprintf(out, "Add %s to project %s with these keys? [y/N] ", esc(shown.ID), esc(shown.ProjectName))
+	_, _ = fmt.Fprintf(out, "Add %s to project %s with these keys? [y/N] ", esc(shown.Name), esc(shown.ProjectName))
 	r.flush()
 	// A line that was not finished, or could not be read, is a no.
 	line, err := bufio.NewReader(r.env.Stdin).ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(line)); err != nil || (a != "y" && a != "yes") {
 		return proto.Errf(proto.CodeConflict, "nothing changed; run the command again to add them",
-			fmt.Sprintf("%s was not added to project %s", shown.ID, shown.ProjectName))
+			fmt.Sprintf("%s was not added to project %s", shown.Name, shown.ProjectName))
 	}
 	in.AcceptKeys = true
 	var added proto.MemberSetResult
@@ -467,7 +467,7 @@ func memberPending(ctx context.Context, r *runner, in proto.MemberSetArgs, shown
 	for _, k := range added.Carried {
 		if !slices.ContainsFunc(shown.Carried, func(s proto.CarriedKey) bool { return s.Fingerprint == k.Fingerprint }) {
 			r.warn(fmt.Sprintf("key %s was added to %s by %s after you were asked, and signs in to project %s too; check it, or undo with `aries admin member remove %s`",
-				k.Fingerprint, added.ID, k.AddedBy, added.ProjectName, added.ID))
+				k.Fingerprint, added.Name, k.AddedBy, added.ProjectName, added.Name))
 		}
 	}
 	return nil
@@ -497,7 +497,7 @@ func printCarried(w io.Writer, m proto.MemberSetResult) {
 	}
 	_ = tw.Flush()
 	if other {
-		_, _ = fmt.Fprintf(w, "ADMIN HERE no: whoever added the key is no admin of project %s; ask %s whether the key is theirs\n", esc(m.ProjectName), esc(m.ID))
+		_, _ = fmt.Fprintf(w, "ADMIN HERE no: whoever added the key is no admin of project %s; ask %s whether the key is theirs\n", esc(m.ProjectName), esc(m.Name))
 	}
 }
 
@@ -508,14 +508,14 @@ func printMemberSet(w io.Writer, m proto.MemberSetResult) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	switch m.Change {
 	case "added":
-		p("%s added to project %s as %s\n", esc(m.ID), esc(m.ProjectName), esc(m.Role))
+		p("%s added to project %s as %s\n", esc(m.Name), esc(m.ProjectName), esc(m.Role))
 	case "changed":
-		p("%s is now %s in project %s\n", esc(m.ID), esc(m.Role), esc(m.ProjectName))
+		p("%s is now %s in project %s\n", esc(m.Name), esc(m.Role), esc(m.ProjectName))
 	default:
-		p("%s is already %s in project %s\n", esc(m.ID), esc(m.Role), esc(m.ProjectName))
+		p("%s is already %s in project %s\n", esc(m.Name), esc(m.Role), esc(m.ProjectName))
 	}
 	if len(m.Carried) > 0 {
-		p("%s now signs in to project %s with %s:\n", esc(m.ID), esc(m.ProjectName), count(len(m.Carried), "key"))
+		p("%s now signs in to project %s with %s:\n", esc(m.Name), esc(m.ProjectName), count(len(m.Carried), "key"))
 		printCarried(w, m)
 	}
 }

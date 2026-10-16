@@ -1056,7 +1056,7 @@ func (cd *conductor) closedStore() {
 		s.mon.fail(id, "%s: %s could not read its claims: %v, %v", why, s.cfg.root, out, perr)
 		return
 	}
-	if slices.ContainsFunc(cs.Claims, func(c proto.Claim) bool { return c.ID == id }) {
+	if slices.ContainsFunc(cs.Claims, func(c proto.Claim) bool { return c.Issue == id }) {
 		s.mon.fail(id, "%s: the first request after the store opened still lists frank's claim on %s", why, id)
 	}
 	var by, session, after string

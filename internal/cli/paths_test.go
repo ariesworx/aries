@@ -19,10 +19,10 @@ func TestPrintFiles(t *testing.T) {
 			Paths: []proto.FilePath{{Path: "internal/store/", Source: proto.PathDeclared},
 				{Path: "a b.go", Source: proto.PathCommit}},
 			More:     3,
-			Overlaps: []proto.Overlap{{ID: "ar-a1b2", By: "alice", Session: "s1"}, {ID: "ar-c3d4", By: "bob", Session: "s2"}}},
+			Overlaps: []proto.Overlap{{Issue: "ar-a1b2", By: "alice", Session: "s1"}, {Issue: "ar-c3d4", By: "bob", Session: "s2"}}},
 			"\nlikely files:\n  internal/store/ (declared)\n  a b.go\n  and 3 more\n" +
 				"overlaps ar-a1b2, held by alice (s1)\noverlaps ar-c3d4, held by bob (s2)\n"},
-		{"overlaps alone", &proto.Files{Overlaps: []proto.Overlap{{ID: "ar-a1b2", By: "alice", Session: "s1"}}},
+		{"overlaps alone", &proto.Files{Overlaps: []proto.Overlap{{Issue: "ar-a1b2", By: "alice", Session: "s1"}}},
 			"\noverlaps ar-a1b2, held by alice (s1)\n"},
 	}
 	for _, tc := range tests {

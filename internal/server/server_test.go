@@ -225,7 +225,7 @@ func TestDispatchRoundTrip(t *testing.T) {
 	mustCall[proto.Empty](t, s, alice, proto.OpLabelAdd, proto.LabelArgs{ID: a.ID, Label: "y"})
 	mustCall[proto.Empty](t, s, alice, proto.OpLabelRm, proto.LabelArgs{ID: a.ID, Label: "x"})
 	c := mustCall[proto.CommentResult](t, s, bob, proto.OpComment, proto.CommentArgs{ID: a.ID, Body: "hello"})
-	cs := mustCall[proto.CommentsResult](t, s, alice, proto.OpComments, proto.IDArgs{ID: a.ID})
+	cs := mustCall[proto.CommentsResult](t, s, alice, proto.OpComments, proto.PageArgs{ID: a.ID})
 	if len(cs.Comments) != 1 || cs.Comments[0].ID != c.ID || cs.Comments[0].Author != "bob" || cs.Comments[0].Session != "s-b" {
 		t.Fatalf("comments: %+v", cs)
 	}
@@ -240,7 +240,7 @@ func TestDispatchRoundTrip(t *testing.T) {
 	if len(list.Issues) != 1 || list.Issues[0].Title != "renamed" {
 		t.Fatalf("list: %+v", list)
 	}
-	h := mustCall[proto.HistoryResult](t, s, alice, proto.OpHistory, proto.IDArgs{ID: a.ID})
+	h := mustCall[proto.HistoryResult](t, s, alice, proto.OpHistory, proto.PageArgs{ID: a.ID})
 	var ops []string
 	for _, e := range h.Events {
 		ops = append(ops, e.Op+"/"+e.Principal)
@@ -279,8 +279,8 @@ func TestDispatchErrors(t *testing.T) {
 			code: proto.CodeConflict, msg: "changed since rev 1 (now rev 2 by bob)"},
 		{name: "not found", op: proto.OpShow, args: proto.ShowArgs{ID: "ar-zzzzzzzz"},
 			code: proto.CodeNotFound, msg: "issue ar-zzzzzzzz not found", fix: "aries list"},
-		{name: "comments of a missing issue", op: proto.OpComments, args: proto.IDArgs{ID: "ar-zzzzzzzz"}, code: proto.CodeNotFound},
-		{name: "history of a missing issue", op: proto.OpHistory, args: proto.IDArgs{ID: "ar-zzzzzzzz"}, code: proto.CodeNotFound},
+		{name: "comments of a missing issue", op: proto.OpComments, args: proto.PageArgs{ID: "ar-zzzzzzzz"}, code: proto.CodeNotFound},
+		{name: "history of a missing issue", op: proto.OpHistory, args: proto.PageArgs{ID: "ar-zzzzzzzz"}, code: proto.CodeNotFound},
 		{name: "exists", op: proto.OpCreate, args: proto.CreateArgs{ID: b.ID, Title: "dup"},
 			code: proto.CodeExists, msg: "issue " + b.ID + " already exists", fix: "omit --id"},
 		{name: "cycle", op: proto.OpDepAdd, args: proto.DepArgs{From: b.ID, To: a.ID},
@@ -996,7 +996,7 @@ func TestDispatchWork(t *testing.T) {
 		show.Deps[0].To != a.ID || show.Deps[0].Type != "discovered-from" {
 		t.Fatalf("discovered: %+v", show)
 	}
-	cs := mustCall[proto.CommentsResult](t, s, bob, proto.OpComments, proto.IDArgs{ID: a.ID})
+	cs := mustCall[proto.CommentsResult](t, s, bob, proto.OpComments, proto.PageArgs{ID: a.ID})
 	if len(cs.Comments) != 2 || cs.Comments[1].Kind != "handoff" || cs.Comments[1].Body != "all yours" {
 		t.Fatalf("comments: %+v", cs)
 	}

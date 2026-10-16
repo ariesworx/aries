@@ -88,7 +88,7 @@ type FilePath struct {
 // Overlap is an issue another session holds whose paths overlap: the
 // issue, and its holder's principal and session.
 type Overlap struct {
-	ID      string `json:"id"`
+	Issue   string `json:"issue"`
 	By      string `json:"by"`
 	Session string `json:"session"`
 }

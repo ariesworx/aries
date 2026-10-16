@@ -107,7 +107,7 @@ func TestKeysFromTheStore(t *testing.T) {
 	// principal's key is not served, and an enabled one's is.
 	dana.stdin = readFile(t, bob.pub())
 	if got := decode[proto.KeyResult](t, dana.ok("admin", "key", "add", "bob", "-", "--json")); got !=
-		(proto.KeyResult{ID: fp, Principal: "bob", Type: "ssh-ed25519", Comment: "someone@example.com", Change: "added"}) {
+		(proto.KeyResult{Fingerprint: fp, Principal: "bob", Type: "ssh-ed25519", Comment: "someone@example.com", Change: "added"}) {
 		t.Errorf("key add from standard input --json: %+v", got)
 	}
 	bob.ok("list")
@@ -282,7 +282,7 @@ func TestAdminKeyCommands(t *testing.T) {
 	// Keys added in one write are as old as each other, and are listed by
 	// fingerprint.
 	together := slices.Sorted(slices.Values([]string{laptop.fingerprint(), desktop.fingerprint()}))
-	if added.ID != "bob" || added.Project != project || !slices.Equal(added.Keys, together) {
+	if added.Name != "bob" || added.Project != project || !slices.Equal(added.Keys, together) {
 		t.Errorf("principal add --key --key --json: %+v", added)
 	}
 	bob := laptop
@@ -299,7 +299,7 @@ func TestAdminKeyCommands(t *testing.T) {
 	if got := dana.ok("admin", "key", "add", "bob", phone.pub()); got != "bob already has key "+phone.fingerprint()+" (ssh-ed25519, someone@example.com)\n" {
 		t.Errorf("key add of a key bob has: %q", got)
 	}
-	if got := decode[proto.KeyResult](t, dana.ok("--json", "admin", "key", "add", "bob", phone.pub())); got.Change != "unchanged" || got.ID != phone.fingerprint() {
+	if got := decode[proto.KeyResult](t, dana.ok("--json", "admin", "key", "add", "bob", phone.pub())); got.Change != "unchanged" || got.Fingerprint != phone.fingerprint() {
 		t.Errorf("key add of a key bob has, --json: %+v", got)
 	}
 
@@ -408,7 +408,7 @@ func TestAdminKeyCommands(t *testing.T) {
 		t.Errorf("key remove: %q", got)
 	}
 	if got := decode[proto.KeyResult](t, dana.ok("admin", "key", "remove", phone.fingerprint(), "--json")); got !=
-		(proto.KeyResult{ID: phone.fingerprint(), Principal: "bob", Type: "ssh-ed25519", Comment: "someone@example.com"}) {
+		(proto.KeyResult{Fingerprint: phone.fingerprint(), Principal: "bob", Type: "ssh-ed25519", Comment: "someone@example.com"}) {
 		t.Errorf("key remove --json: %+v", got)
 	}
 	// Another server admin changes a server admin's keys.

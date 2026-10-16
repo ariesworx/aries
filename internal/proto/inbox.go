@@ -26,11 +26,11 @@ const (
 	EvEvent = "event"
 )
 
-// InboxItem is one inbox item. Kind is claim.lost, assigned, mention,
-// handoff, conflict, one of the gate kinds, or lock.granted or lock.lost,
-// which name no issue. Session is set when the item concerns one session
-// of the principal (a lost claim, a lock granted or lost), and empty
-// when any of its sessions may read it.
+// InboxItem is one inbox item. Kind is claim.lost, issue.assigned,
+// issue.mentioned, issue.handoff, conflict.parked, one of the gate kinds,
+// or lock.granted or lock.lost, which name no issue. Session is set when
+// the item concerns one session of the principal (a lost claim, a lock
+// granted or lost), and empty when any of its sessions may read it.
 type InboxItem struct {
 	ID      int64      `json:"id"`
 	Session string     `json:"session,omitempty"`

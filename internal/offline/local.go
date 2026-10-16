@@ -892,9 +892,10 @@ func withPark(args json.RawMessage) json.RawMessage {
 // a create does.
 func Target(e outbox.Entry) string {
 	var a struct {
-		ID   string `json:"id"`
-		Key  string `json:"key"`
-		From string `json:"from"`
+		ID    string `json:"id"`
+		Issue string `json:"issue"`
+		Key   string `json:"key"`
+		From  string `json:"from"`
 	}
 	_ = json.Unmarshal(e.Args, &a) // arguments that do not parse name nothing
 	switch e.Op {
@@ -902,6 +903,8 @@ func Target(e outbox.Entry) string {
 		return a.Key
 	case proto.OpDepAdd:
 		return a.From
+	case proto.OpHoursLog:
+		return a.Issue
 	}
 	return a.ID
 }

@@ -61,14 +61,14 @@ func TestConflictParkedAndResolved(t *testing.T) {
 
 	// Both sessions are told: the terminal's inbox, and the agent's.
 	in := decode[proto.InboxResult](t, alice.ok("inbox", "--json"))
-	if in.Conflicts != 1 || !hasKind(in.Items, "conflict") {
+	if in.Conflicts != 1 || !hasKind(in.Items, "conflict.parked") {
 		t.Errorf("alice's inbox = %+v; want a conflict item and the count", in)
 	}
 	p := decode[mcpserver.Prime](t, ag.ok("prime", nil))
 	if p.Conflicts != 1 {
 		t.Errorf("the agent's prime counts %d conflicts, want 1", p.Conflicts)
 	}
-	if out := ag.ok("inbox", nil); !strings.Contains(out, `"kind":"conflict"`) {
+	if out := ag.ok("inbox", nil); !strings.Contains(out, `"kind":"conflict.parked"`) {
 		t.Errorf("the agent's inbox = %s, want the conflict item", out)
 	}
 

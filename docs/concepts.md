@@ -343,10 +343,10 @@ transaction as its cause:
 | Item | When |
 |---|---|
 | `claim.lost` | Your lease ran out and the server ended the claim, another session took it over, someone else closed or released the issue, or, after your lease ran out, someone changed its status or assignee |
-| `handoff` | A handoff names you with `--to` |
-| `mention` | A comment, handoff or finish note says `@you`. Only principals the server has seen can be mentioned, and never yourself |
-| `assigned` | Someone else assigned you an issue |
-| `conflict` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; a `finish` or `handoff` of yours, queued the same way, was kept as a comment because the issue had moved on; or another principal's parked fields, or another session's late `finish` or `handoff` kept as a comment, on an issue you hold ([Conflicts](cli.md#conflicts)). An item about your own write reaches every session of yours; one about the issue you hold, the session that holds it |
+| `issue.handoff` | A handoff names you with `--to` |
+| `issue.mentioned` | A comment, handoff or finish note says `@you`. Only principals the server has seen can be mentioned, and never yourself |
+| `issue.assigned` | Someone else assigned you an issue |
+| `conflict.parked` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; a `finish` or `handoff` of yours, queued the same way, was kept as a comment because the issue had moved on; or another principal's parked fields, or another session's late `finish` or `handoff` kept as a comment, on an issue you hold ([Conflicts](cli.md#conflicts)). An item about your own write reaches every session of yours; one about the issue you hold, the session that holds it |
 
 `aries inbox` lists unread items and `--ack` marks them read. `aries watch`
 prints them as they arrive. An agent's `aries mcp` asks the server to push

@@ -29,7 +29,6 @@
 //	s       session id: the client's (hello), the effective one (welcome)
 //	m       machine name (hello)
 //	h       agent harness, such as claude-code (hello; may be empty)
-//	latest  latest release the server knows of (welcome; may be empty)
 //	pr      principal: the bridge's claim, and the welcome's echo of it
 //	k       the SHA-256 fingerprint of the key that authenticated (bridge)
 //	e       payload of an evt frame, such as a pushed inbox item
@@ -89,4 +88,19 @@
 // A client ignores frame types, and event ops, it does not know, so the
 // server can add them without a protocol bump; the server refuses unknown
 // types from clients.
+//
+// # Names
+//
+// v1.0.0 settled the names of ops, fields and inbox kinds (decision 88);
+// a later one follows the same rules. Writes are noun.verb (dep.add,
+// conflict.resolve) and lists a bare plural (gates, keys). An issue is
+// id in the arguments and results of an op about that one issue, and
+// issue where the record is something else: a claim, an overlap, an
+// hours entry, a memory, a conflict, an inbox item or an event; a gate
+// names its issues by their part, blocks and subject. A record that is a
+// principal names it name, and one that is a key fingerprint; another
+// record names a principal principal. Who did something is by for an
+// act, author for text, and X_by for a record's audit columns. An inbox
+// kind, like an event's op, is noun.verb (issue.mentioned,
+// conflict.parked).
 package proto

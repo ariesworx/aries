@@ -17,7 +17,7 @@ func snapshot() *Snapshot {
 	return &Snapshot{
 		Ready: []proto.Summary{{ID: "ar-r1", Title: "Write the parser", Status: "open", Priority: 1},
 			{ID: "ar-r2", Title: "Tidy the logs", Status: "open", Priority: 2, Overlaps: []string{"ar-h1"}}},
-		Held: []Held{{Claim: proto.Claim{ID: "ar-h1", By: "alice", Session: "cc-1234", Machine: "laptop", Epoch: 1,
+		Held: []Held{{Claim: proto.Claim{Issue: "ar-h1", By: "alice", Session: "cc-1234", Machine: "laptop", Epoch: 1,
 			ClaimedAt: t0.Add(-42 * time.Minute), ExpiresAt: t0.Add(5 * time.Minute)}, Title: "Fix the lexer", Priority: 0}},
 		Blocked: []proto.BlockedIssue{{Summary: proto.Summary{ID: "ar-b1", Title: "Ship it", Status: "open", Priority: 2},
 			BlockedBy: []string{"ar-r1", "ar-h1"}}},

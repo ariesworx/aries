@@ -425,7 +425,7 @@ func TestMonitorCatches(t *testing.T) {
 	exp := time.Date(2026, 1, 2, 3, 15, 0, 0, time.UTC)
 	start := func(who sessKey, epoch int64) call {
 		return call{who: who, op: proto.OpStart, out: acked, args: proto.StartArgs{ID: "ar-1"},
-			res: proto.StartResult{Issue: proto.Issue{ID: "ar-1"}, Claim: &proto.Claim{ID: "ar-1", By: who.principal, Session: who.session, Epoch: epoch, ExpiresAt: exp}}}
+			res: proto.StartResult{Issue: proto.Issue{ID: "ar-1"}, Claim: &proto.Claim{Issue: "ar-1", By: who.principal, Session: who.session, Epoch: epoch, ExpiresAt: exp}}}
 	}
 	update := func(who sessKey, rev, got int64, title string) call {
 		return call{who: who, op: proto.OpUpdate, out: acked, args: proto.UpdateArgs{ID: "ar-1", Rev: rev, Title: &title},
@@ -439,7 +439,7 @@ func TestMonitorCatches(t *testing.T) {
 		{name: "one epoch each", calls: []call{start(alice, 1), start(alice2, 2), start(alice2, 2)}},
 		{name: "one epoch acknowledged to two sessions", calls: []call{start(alice, 1), start(alice2, 1)}, want: "acknowledged to two sessions"},
 		{name: "a start answered with another's claim", calls: []call{{who: alice, op: proto.OpStart, out: acked, args: proto.StartArgs{},
-			res: proto.StartResult{Claim: &proto.Claim{ID: "ar-1", By: "bob", Session: "s1", Epoch: 1, ExpiresAt: exp}}}}, want: "answered a claim held by bob/s1"},
+			res: proto.StartResult{Claim: &proto.Claim{Issue: "ar-1", By: "bob", Session: "s1", Epoch: 1, ExpiresAt: exp}}}}, want: "answered a claim held by bob/s1"},
 		{name: "updates in turn", calls: []call{update(alice, 1, 2, "a"), update(alice2, 2, 3, "b")}},
 		{name: "an update answered a rev it skipped", calls: []call{update(alice, 1, 3, "a")}, want: "update at rev 1 answered rev 3"},
 		{name: "two updates acknowledged one rev", calls: []call{update(alice, 1, 2, "a"), update(alice2, 1, 2, "b")}, want: "a lost update"},

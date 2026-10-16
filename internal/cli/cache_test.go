@@ -21,7 +21,7 @@ func (a *away) keptAs(t *testing.T, principal string) {
 	}{
 		{proto.OpShow, proto.ShowArgs{ID: "ar-a1b2", Full: true}, proto.ShowResult{Issue: proto.Issue{ID: "ar-a1b2", Title: "Held work",
 			Status: "in_progress", Type: "task", Rev: 4, Body: "the plan"}}},
-		{proto.OpInbox, proto.InboxArgs{}, proto.InboxResult{Unread: 1, Items: []proto.InboxItem{{ID: 7, Kind: "handoff", Issue: "ar-a1b2", From: "bob", Body: "over to you"}}}},
+		{proto.OpInbox, proto.InboxArgs{}, proto.InboxResult{Unread: 1, Items: []proto.InboxItem{{ID: 7, Kind: "issue.handoff", Issue: "ar-a1b2", From: "bob", Body: "over to you"}}}},
 		{proto.OpDigest, proto.DigestArgs{}, proto.DigestResult{Totals: proto.DigestTotals{Closed: 3}}},
 	} {
 		if err := c.Keep(k.op, k.args, k.result); err != nil {

@@ -37,7 +37,7 @@ func TestDispatchPaths(t *testing.T) {
 
 	sh := mustCall[proto.ShowResult](t, s, bob, proto.OpShow, proto.ShowArgs{ID: cand.ID})
 	if sh.Files == nil || !slices.Equal(sh.Files.Paths, []proto.FilePath{{Path: "internal/store/", Source: proto.PathDeclared}}) ||
-		!slices.Equal(sh.Files.Overlaps, []proto.Overlap{{ID: held.ID, By: alice.Principal, Session: alice.Session}}) {
+		!slices.Equal(sh.Files.Overlaps, []proto.Overlap{{Issue: held.ID, By: alice.Principal, Session: alice.Session}}) {
 		t.Errorf("show %s files = %+v, want its declared prefix and %s held by alice", cand.ID, sh.Files, held.ID)
 	}
 	sh = mustCall[proto.ShowResult](t, s, bob, proto.OpShow, proto.ShowArgs{ID: held.ID})

@@ -51,21 +51,21 @@ func TestPlantedKeyIsShownBeforeItReachesAnotherProject(t *testing.T) {
 	}
 	before := seq()
 	set := mustAsk[proto.MemberSetResult](e, proto.OpMemberSet, proto.MemberSetArgs{Name: "victor"})
-	if set.Change != proto.MemberPending || set.Rev != 0 || set.ID != "victor" || set.Project != projB || set.ProjectName != "proj-b" || set.Role != "member" || set.Projects != 1 {
+	if set.Change != proto.MemberPending || set.Rev != 0 || set.Name != "victor" || set.Project != projB || set.ProjectName != "proj-b" || set.Role != "member" || set.Projects != 1 {
 		t.Errorf("member.set victor by erin, not accepting his keys = %+v; want pending, rev 0, the project and role asked for, and the 1 project he is in", set)
 	}
 	if len(set.Carried) != 1 {
 		t.Fatalf("member.set victor carries %+v, want his one key", set.Carried)
 	}
 	k := set.Carried[0]
-	if k.Fingerprint != planted.ID || k.Type != "ssh-ed25519" || k.Comment != "alice-second@example.com" || k.AddedBy != "alice" || k.AddedAt.IsZero() || k.AdderAdministers {
-		t.Errorf("the key shown to erin = %+v; want fingerprint %s, its type and comment, added by alice, when, and that alice does not administer b", k, planted.ID)
+	if k.Fingerprint != planted.Fingerprint || k.Type != "ssh-ed25519" || k.Comment != "alice-second@example.com" || k.AddedBy != "alice" || k.AddedAt.IsZero() || k.AdderAdministers {
+		t.Errorf("the key shown to erin = %+v; want fingerprint %s, its type and comment, added by alice, when, and that alice does not administer b", k, planted.Fingerprint)
 	}
 	if after := seq(); after != before {
 		t.Errorf("the unaccepted member.set recorded %d events, want none", after-before)
 	}
 	// Nothing was added, so the planted key reaches nothing yet.
-	if w, _, closed := dialKey(t, m.Server, asVictor, projB, planted.ID); closed || w.Err == nil || w.Err.Code != proto.CodeForbidden {
+	if w, _, closed := dialKey(t, m.Server, asVictor, projB, planted.Fingerprint); closed || w.Err == nil || w.Err.Code != proto.CodeForbidden {
 		t.Fatalf("the planted key in b before erin accepted = %+v (closed %v), want forbidden", w, closed)
 	}
 
@@ -73,18 +73,18 @@ func TestPlantedKeyIsShownBeforeItReachesAnotherProject(t *testing.T) {
 	// which is what she agreed to; she can list his keys from now on, and
 	// still not change them.
 	set = mustAsk[proto.MemberSetResult](e, proto.OpMemberSet, proto.MemberSetArgs{Name: "victor", AcceptKeys: true})
-	if set.Change != "added" || set.Rev != 1 || set.Projects != 2 || !slices.Equal(carried(set), []string{planted.ID}) {
+	if set.Change != "added" || set.Rev != 1 || set.Projects != 2 || !slices.Equal(carried(set), []string{planted.Fingerprint}) {
 		t.Errorf("member.set victor by erin, accepting = %+v; want added, 2 projects and the key that came with him", set)
 	}
 	list, perr := ask[proto.KeysResult](e, proto.OpKeys, proto.KeysArgs{Name: "victor"})
-	if perr != nil || len(list.Keys) != 1 || list.Keys[0].Fingerprint != planted.ID || list.Keys[0].AddedBy != "alice" {
+	if perr != nil || len(list.Keys) != 1 || list.Keys[0].Fingerprint != planted.Fingerprint || list.Keys[0].AddedBy != "alice" {
 		t.Errorf("keys of victor for erin, an admin of a project he belongs to = %+v, %v; want the key and who added it", list, perr)
 	}
 	for _, tc := range []struct {
 		op   string
 		args any
 	}{
-		{proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: planted.ID}},
+		{proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: planted.Fingerprint}},
 		{proto.OpKeyAdd, proto.KeyAddArgs{Name: "victor", Key: keyLine(t, "erins-own")}},
 	} {
 		if _, perr := ask[json.RawMessage](e, tc.op, tc.args); perr == nil || perr.Code != proto.CodeForbidden {

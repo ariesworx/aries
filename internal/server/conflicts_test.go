@@ -41,7 +41,7 @@ func TestConflictOps(t *testing.T) {
 		t.Errorf("conflict = %+v; want base, mine, theirs, who, and advice", c)
 	}
 	in := mustCall[proto.InboxResult](t, s, alice, proto.OpInbox, proto.InboxArgs{})
-	if in.Conflicts != 1 || len(in.Items) == 0 || in.Items[0].Kind != "conflict" {
+	if in.Conflicts != 1 || len(in.Items) == 0 || in.Items[0].Kind != "conflict.parked" {
 		t.Errorf("alice's inbox = %+v; want a conflict item and the count", in)
 	}
 	show := mustCall[proto.ShowResult](t, s, bob, proto.OpShow, proto.ShowArgs{ID: is.ID})
@@ -66,8 +66,8 @@ func TestConflictOps(t *testing.T) {
 		t.Errorf("after accepting = %+v, issue %+v; want the proposal applied and no conflict left", w, after.Issue)
 	}
 	if _, perr := call[proto.WriteResult](t, s, alice, proto.OpResolve, proto.ResolveArgs{ID: cid, Choice: proto.ChoiceMine}); perr == nil ||
-		perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "already resolved") {
-		t.Errorf("resolving it again = %v, want invalid", perr)
+		perr.Code != proto.CodeInvalid || !strings.Contains(perr.Message, "already resolved") || !strings.Contains(perr.Fix, "`aries resolve -h`") {
+		t.Errorf("resolving it again = %v, want invalid, with a fix naming `aries resolve -h`", perr)
 	}
 	if _, perr := call[proto.WriteResult](t, s, alice, proto.OpResolve, proto.ResolveArgs{ID: 999, Choice: proto.ChoiceMine}); perr == nil ||
 		perr.Code != proto.CodeNotFound || !strings.Contains(perr.Fix, "aries conflicts") {

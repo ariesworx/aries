@@ -10,7 +10,7 @@ import "time"
 const (
 	OpConflicts = "conflicts"        // ConflictsArgs → ConflictsResult
 	OpPropose   = "conflict.propose" // ProposeArgs → Empty
-	OpResolve   = "resolve"          // ResolveArgs → WriteResult
+	OpResolve   = "conflict.resolve" // ResolveArgs → WriteResult
 )
 
 // MaxShowConflicts bounds the conflicts show returns with an issue.

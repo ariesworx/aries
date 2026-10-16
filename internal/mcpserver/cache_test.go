@@ -19,7 +19,7 @@ func (h *heldWork) reply(op string, args any) (any, error) {
 	switch op {
 	case proto.OpStart:
 		return proto.StartResult{Issue: proto.Issue{ID: "ar-1", Title: "Held work", Status: "in_progress", Body: "the plan"},
-			Claim: &proto.Claim{ID: "ar-1", By: "alice", Epoch: 1},
+			Claim: &proto.Claim{Issue: "ar-1", By: "alice", Epoch: 1},
 			Items: []proto.AcceptanceItem{{N: 1, Text: "tests pass"}}}, nil
 	case proto.OpShow:
 		if a := args.(proto.ShowArgs); a.ID == "ar-2" {

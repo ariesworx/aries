@@ -81,7 +81,7 @@ func TestConnPushes(t *testing.T) {
 
 	// Encoded here, since push may stop the test, which only the test's
 	// own goroutine may do.
-	mention := push(t, proto.Push{Op: proto.EvInbox, Item: &proto.InboxItem{ID: 1, Kind: "mention"}})
+	mention := push(t, proto.Push{Op: proto.EvInbox, Item: &proto.InboxItem{ID: 1, Kind: "issue.mentioned"}})
 	lost := push(t, proto.Push{Op: proto.EvInbox, Item: &proto.InboxItem{ID: 2, Kind: "claim.lost"}})
 	resync := push(t, proto.Push{Op: proto.EvResync})
 	done := make(chan struct{})
@@ -115,7 +115,7 @@ func TestConnPushes(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if want := []string{"inbox:mention", "weather", "inbox:claim.lost", "resync"}; !slices.Equal(got, want) {
+	if want := []string{"inbox:issue.mentioned", "weather", "inbox:claim.lost", "resync"}; !slices.Equal(got, want) {
 		t.Fatalf("pushes = %v, want %v", got, want)
 	}
 }

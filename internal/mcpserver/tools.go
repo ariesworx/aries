@@ -825,7 +825,7 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	}
 	is := r.Issue
 	out := Issue{ID: is.ID, Title: is.Title, Status: is.Status, Priority: is.Priority, Type: is.Type, Rev: is.Rev,
-		Parent: is.ParentID, Assignee: is.Assignee, Owner: is.Owner, Labels: is.Labels, Body: is.Body,
+		Parent: is.Parent, Assignee: is.Assignee, Owner: is.Owner, Labels: is.Labels, Body: is.Body,
 		Design: is.Design, Acceptance: is.Acceptance, Notes: is.Notes, CloseReason: is.CloseReason, Truncated: is.Truncated,
 		Items: itemLines(r.Items), Similar: similarLine(r.Similar), DepsMore: r.DepsMore}
 	if u := r.Usage; u != nil {
@@ -838,7 +838,7 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 		}
 		out.FilesMore = f.More
 		for _, o := range f.Overlaps {
-			out.Overlaps = append(out.Overlaps, o.ID+" by "+o.By+"/"+o.Session)
+			out.Overlaps = append(out.Overlaps, o.Issue+" by "+o.By+"/"+o.Session)
 		}
 	}
 	if len(out.Items) > 0 {

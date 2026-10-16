@@ -207,10 +207,10 @@ func keyLabel(k proto.KeyResult) string {
 
 func printKeyAdded(w io.Writer, k proto.KeyResult) {
 	if k.Change == "unchanged" {
-		_, _ = fmt.Fprintf(w, "%s already has key %s %s\n", esc(k.Principal), esc(k.ID), keyLabel(k))
+		_, _ = fmt.Fprintf(w, "%s already has key %s %s\n", esc(k.Principal), esc(k.Fingerprint), keyLabel(k))
 		return
 	}
-	_, _ = fmt.Fprintf(w, "key %s %s added to %s\n", esc(k.ID), keyLabel(k), esc(k.Principal))
+	_, _ = fmt.Fprintf(w, "key %s %s added to %s\n", esc(k.Fingerprint), keyLabel(k), esc(k.Principal))
 }
 
 // printKeyRemoved says a key is gone from the store, and how many
@@ -219,7 +219,7 @@ func printKeyAdded(w io.Writer, k proto.KeyResult) {
 // the key is also a line of the hand-maintained authorized_keys file,
 // which still lets it in.
 func printKeyRemoved(w io.Writer, k proto.KeyResult) {
-	_, _ = fmt.Fprintf(w, "key %s removed from %s\n", esc(k.ID), esc(k.Principal))
+	_, _ = fmt.Fprintf(w, "key %s removed from %s\n", esc(k.Fingerprint), esc(k.Principal))
 	switch {
 	case k.Dropped == 1:
 		_, _ = fmt.Fprintln(w, "1 connection it had signed in was closed")

@@ -143,7 +143,7 @@ type PrincipalArgs struct {
 // store, PrincipalsCreated and MembersAdded. Disabling ends none of
 // them, and Warning then names the commands that list them.
 type PrincipalResult struct {
-	ID                string `json:"id"`
+	Name              string `json:"name"`
 	Rev               int64  `json:"rev"`
 	State             string `json:"state"`
 	Project           string `json:"project,omitempty"`
@@ -230,7 +230,7 @@ type MemberSetArgs struct {
 // counting this one once it is added. Every caller is shown these,
 // whether or not they may change the principal's keys.
 type MemberSetResult struct {
-	ID          string       `json:"id"`
+	Name        string       `json:"name"`
 	Rev         int64        `json:"rev"`
 	Project     string       `json:"project"`
 	ProjectName string       `json:"project_name"`
@@ -301,13 +301,13 @@ type MemberArgs struct {
 	Project string `json:"project,omitempty"`
 }
 
-// MemberRemoveResult is the membership removed: the principal as ID and
-// the project. Warning, when set, tells the admin what the removal
+// MemberRemoveResult is the membership removed: the principal as Name
+// and the project. Warning, when set, tells the admin what the removal
 // changed beyond the project: that admins of the principal's remaining
 // projects can now manage its keys. Released counts the claims the
 // removal ended.
 type MemberRemoveResult struct {
-	ID          string `json:"id"`
+	Name        string `json:"name"`
 	Project     string `json:"project"`
 	ProjectName string `json:"project_name"`
 	Warning     string `json:"warning,omitempty"`
@@ -335,7 +335,7 @@ type KeyAddArgs struct {
 // also says when the change is committed and the server could not write
 // the keys file sshd reads, which may then be out of date.
 type KeyResult struct {
-	ID               string `json:"id"`
+	Fingerprint      string `json:"fingerprint"`
 	Principal        string `json:"principal"`
 	Type             string `json:"type"`
 	Comment          string `json:"comment,omitempty"`

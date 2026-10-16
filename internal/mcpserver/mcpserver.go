@@ -185,8 +185,8 @@ func (c *claims) keep(still []proto.Claim) {
 	defer c.mu.Unlock()
 	now := map[string]int64{}
 	for _, cl := range still {
-		if e, ok := c.held[cl.ID]; ok && e == cl.Epoch {
-			now[cl.ID] = e
+		if e, ok := c.held[cl.Issue]; ok && e == cl.Epoch {
+			now[cl.Issue] = e
 		}
 	}
 	c.held = now

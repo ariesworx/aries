@@ -57,7 +57,7 @@ func lockRelease(ctx context.Context, pr *served, a store.Actor, in proto.LockRe
 	if err := pr.store.ReleaseLock(ctx, a, in.Name, in.Epoch); err != nil {
 		return nil, pr.mapErr(ctx, proto.OpLockRelease, in.Name, 0, err)
 	}
-	return proto.LockReleaseResult{Name: in.Name, Released: in.Epoch}, nil
+	return proto.LockReleaseResult(in), nil
 }
 
 func lockLeave(ctx context.Context, pr *served, a store.Actor, in proto.LockLeaveArgs) (any, *proto.Error) {

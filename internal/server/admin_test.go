@@ -269,13 +269,13 @@ func TestAdminRoles(t *testing.T) {
 	t.Run("project admin in their project", func(t *testing.T) {
 		a := conns["alice"]
 		hal := mustAsk[proto.PrincipalResult](a, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "hal"})
-		if hal != (proto.PrincipalResult{ID: "hal", Rev: 1, State: "active", Project: projA, ProjectName: "proj-a"}) {
+		if hal != (proto.PrincipalResult{Name: "hal", Rev: 1, State: "active", Project: projA, ProjectName: "proj-a"}) {
 			t.Errorf("principal.add hal = %+v", hal)
 		}
 		// carol already belongs to a project, so an admin of b could add
 		// her; alice changes a role in a, and reaches bob, who is in a only.
 		set := mustAsk[proto.MemberSetResult](a, proto.OpMemberSet, proto.MemberSetArgs{Name: "hal", Role: "admin"})
-		if set.Change != "changed" || set.Role != "admin" || set.Rev != 2 || set.ID != "hal" || set.Project != projA {
+		if set.Change != "changed" || set.Role != "admin" || set.Rev != 2 || set.Name != "hal" || set.Project != projA {
 			t.Errorf("member.set hal admin = %+v, want the role changed at rev 2", set)
 		}
 		if again := mustAsk[proto.MemberSetResult](a, proto.OpMemberSet, proto.MemberSetArgs{Name: "hal", Role: "admin"}); again.Change != "unchanged" {
@@ -295,7 +295,7 @@ func TestAdminRoles(t *testing.T) {
 			}
 		}
 		rm := mustAsk[proto.MemberRemoveResult](a, proto.OpMemberRemove, proto.MemberArgs{Name: "hal"})
-		if rm.ID != "hal" || rm.Project != projA || rm.Warning != "" {
+		if rm.Name != "hal" || rm.Project != projA || rm.Warning != "" {
 			t.Errorf("member.remove hal = %+v", rm)
 		}
 	})
@@ -337,7 +337,7 @@ func TestAdminRoles(t *testing.T) {
 		mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "carol"})
 		mustAsk[proto.PrincipalResult](d, proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "carol"})
 		none := mustAsk[proto.PrincipalResult](d, proto.OpPrincipalAdd, proto.PrincipalAddArgs{Name: "ivy", Unassigned: true})
-		if none.Project != "" || none.ID != "ivy" {
+		if none.Project != "" || none.Name != "ivy" {
 			t.Errorf("principal.add ivy to no project = %+v", none)
 		}
 		if of, err := m.ctl.ProjectsOf(t.Context(), "ivy"); err != nil || len(of) != 0 {
@@ -680,7 +680,7 @@ func TestAdminDrops(t *testing.T) {
 			t.Fatalf("carol has %d connections to a, want 2", got)
 		}
 		res := mustAsk[proto.MemberRemoveResult](d, proto.OpMemberRemove, proto.MemberArgs{Name: "carol"})
-		if res.ID != "carol" || res.Project != projA {
+		if res.Name != "carol" || res.Project != projA {
 			t.Errorf("member.remove = %+v", res)
 		}
 		if !c1.dropped() || !c2.dropped() {
@@ -706,7 +706,7 @@ func TestAdminDrops(t *testing.T) {
 	t.Run("an admin removes themselves", func(t *testing.T) {
 		m := adminWorld(t, Limits{})
 		a := mustDialTo(t, m.Server, alice, projA)
-		if res := mustAsk[proto.MemberRemoveResult](a, proto.OpMemberRemove, proto.MemberArgs{Name: "alice"}); res.ID != "alice" {
+		if res := mustAsk[proto.MemberRemoveResult](a, proto.OpMemberRemove, proto.MemberArgs{Name: "alice"}); res.Name != "alice" {
 			t.Errorf("member.remove of oneself = %+v, want the answer before the connection closes", res)
 		}
 		if !a.dropped() {
@@ -735,7 +735,7 @@ func TestAdminDrops(t *testing.T) {
 		inA, inB := mustDialTo(t, m.Server, carol, projA), mustDialTo(t, m.Server, carol, projB)
 		other := mustDialTo(t, m.Server, bob, projA)
 		res := mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "carol"})
-		if res.ID != "carol" || res.State != "disabled" || res.Rev != 2 {
+		if res.Name != "carol" || res.State != "disabled" || res.Rev != 2 {
 			t.Errorf("principal.disable = %+v", res)
 		}
 		if !inA.dropped() || !inB.dropped() {

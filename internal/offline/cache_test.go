@@ -43,7 +43,7 @@ func TestCacheKeepsWhatASessionRead(t *testing.T) {
 		Issue:   proto.Issue{ID: "ar-b", Title: "Started", Status: "in_progress"},
 		Handoff: &proto.Handoff{Comment: proto.Comment{Body: "half done"}},
 		Items:   []proto.AcceptanceItem{{N: 1, Text: "tests pass"}},
-		Claim:   &proto.Claim{ID: "ar-b", By: "alice", Epoch: 2},
+		Claim:   &proto.Claim{Issue: "ar-b", By: "alice", Epoch: 2},
 	})
 	keep(t, c, proto.OpInbox, proto.InboxArgs{Limit: 20}, proto.InboxResult{Unread: 4})
 	keep(t, c, proto.OpDigest, proto.DigestArgs{Since: "24h"}, proto.DigestResult{Totals: proto.DigestTotals{Closed: 2}})
@@ -129,7 +129,10 @@ func TestCacheReadsAnUnreadableFileAsAbsent(t *testing.T) {
 		{"empty", func(t *testing.T, file string, _ []byte) { write(t, file, nil) }},
 		{"not JSON", func(t *testing.T, file string, _ []byte) { write(t, file, []byte("\x00\x01garbage")) }},
 		{"another version", func(t *testing.T, file string, b []byte) {
-			write(t, file, []byte(strings.Replace(string(b), `"v":1`, `"v":99`, 1)))
+			write(t, file, []byte(strings.Replace(string(b), `"v":2`, `"v":99`, 1)))
+		}},
+		{"the version before the protocol's names settled", func(t *testing.T, file string, b []byte) {
+			write(t, file, []byte(strings.Replace(string(b), `"v":2`, `"v":1`, 1)))
 		}},
 		{"another key's", func(t *testing.T, file string, b []byte) {
 			write(t, file, []byte(strings.Replace(string(b), `"key":"show ar-a"`, `"key":"show ar-z"`, 1)))

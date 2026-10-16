@@ -448,6 +448,14 @@ The protocol supports one version back and one forward (principle 9), so the ser
 - **`dep.rm` honors its key.** It took `idem` and ignored it; it now applies a repeat once, as `dep.add` does, so a remove sent again after someone put the edge back leaves the edge. `aries dep remove` and the MCP `dep` tool send one. It is still never queued (§18.3).
 - **From v1.0.0 on,** rule 10's bump applies to every change: `Proto` and `ProtoMax` go up, and `ProtoMin` stays at the version before.
 
+**As built, 15 Oct 2026 (the protocol's names, decision 88).** Inside protocol 8, before any release carried it (decision 78), so with no bump: the surface review's §4 renames (questions 6 and 8). `internal/proto/doc.go` now states the rule they follow, and `TestWireNames` (`internal/proto`) pins each.
+- **Ops.** `resolve` is `conflict.resolve`, as its event is. The CLI command stays `aries resolve`.
+- **Fields.** An issue's `parent_id` is `parent`, as every argument already was; its `due_at`, and a summary's, is `due`, as `create` and `update` take it. A claim's and an overlap's `id` is `issue`, and so is `hours.log`'s argument. The principal a result of `principal.add`, `principal.disable`, `principal.enable`, `member.set` and `member.remove` names is `name`, and the key of `key.add` and `key.remove` is `fingerprint`. `lock.release`'s `released` is `epoch`, as `lock.leave`'s is.
+- **Removed.** An issue's `expires_at`, `ephemeral`, `pinned`, `template` and `metadata`, which only `import-bd` set and no client read: the store keeps them for `export-bd`. `IDArgs`, which no op took. `aries create --id` stays, for scripts that import, and no usage line or guide names it.
+- **Inbox kinds.** `assigned`, `mention`, `handoff` and `conflict` are `issue.assigned`, `issue.mentioned`, `issue.handoff` and `conflict.parked`. Migration 0002 renames the items already written.
+- **Not renamed.** A conflict's `field` and an event's before and after states name an issue's fields as the event log records them (`parent_id`, `due_at`): they are history, and the merge reads them from the log. A gate names its issues `blocks` and `subject`.
+- **The client's cache** is at entry version 2, so an answer kept under the names before is read as absent.
+
 ## 12. Developer experience
 
 Agreed 6 Oct 2026; each item lands in the stage shown in §13.

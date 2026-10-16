@@ -810,7 +810,7 @@ func TestDigest(t *testing.T) {
 func TestClaimsFollowTheSession(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
-	held := []proto.Claim{{ID: "ar-1", Epoch: 3}, {ID: "ar-2", Epoch: 1}}
+	held := []proto.Claim{{Issue: "ar-1", Epoch: 3}, {Issue: "ar-2", Epoch: 1}}
 	f := &fakeConn{who: "alice", reply: func(op string, args any) (any, error) {
 		switch op {
 		case proto.OpStart:
@@ -819,7 +819,7 @@ func TestClaimsFollowTheSession(t *testing.T) {
 			if id == "ar-2" {
 				epoch = 1
 			}
-			return proto.StartResult{Issue: proto.Issue{ID: id, Type: "task"}, Claim: &proto.Claim{ID: id, Epoch: epoch}}, nil
+			return proto.StartResult{Issue: proto.Issue{ID: id, Type: "task"}, Claim: &proto.Claim{Issue: id, Epoch: epoch}}, nil
 		case proto.OpRenew:
 			mu.Lock()
 			defer mu.Unlock()

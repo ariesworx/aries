@@ -289,7 +289,7 @@ A queued update that arrives after someone else changed the same field
 is parked as a conflict for a person to resolve
 ([Conflicts](cli.md#conflicts)). An agent hears of one through
 `prime`, which counts the open conflicts on its principal's work, and
-`inbox`, whose `conflict` items name the issue. `show` gives the
+`inbox`, whose `conflict.parked` items name the issue. `show` gives the
 issue's open `conflicts`: each one's `id`, `field`, `base`, `mine` and
 `theirs` (cut to fit the result), who made each side, the server's
 `advice`, and any proposal waiting.
@@ -393,7 +393,7 @@ issue meanwhile, and the issue's history says the lease had lapsed. If
 somebody did, or the issue was closed, it is kept as a comment on the
 issue, a `finish`'s `discovered` issues are still filed, and nothing
 else of it applies. The agent learns of it in its inbox, in the next
-tool result's `inbox: N new` line and in `prime`: a `conflict` item on
+tool result's `inbox: N new` line and in `prime`: a `conflict.parked` item on
 the issue, `your finish made at epoch 3, delivered late, was kept as
 comment …: the claim was taken since, by bob/… at epoch 4`. Its next
 step is to leave that issue alone: the new holder got an item too,

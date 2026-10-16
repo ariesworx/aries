@@ -540,7 +540,7 @@ func (ls *libSession) renew(ctx context.Context) {
 	}
 	still := map[string]bool{}
 	for _, c := range r.Claims {
-		still[c.ID] = true
+		still[c.Issue] = true
 	}
 	for id, h := range ls.held {
 		if !still[id] {

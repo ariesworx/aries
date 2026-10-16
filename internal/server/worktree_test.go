@@ -34,7 +34,7 @@ func TestWorktreeOnlyToItsAuthor(t *testing.T) {
 			return r.Handoff.Worktree
 		}},
 		{"history", func() string {
-			r := mustCall[proto.HistoryResult](t, s, bob, proto.OpHistory, proto.IDArgs{ID: c.ID})
+			r := mustCall[proto.HistoryResult](t, s, bob, proto.OpHistory, proto.PageArgs{ID: c.ID})
 			var all strings.Builder
 			for _, e := range r.Events {
 				all.Write(e.Before)
@@ -63,7 +63,7 @@ func TestWorktreeOnlyToItsAuthor(t *testing.T) {
 	if r.Handoff == nil || r.Handoff.Worktree != wt {
 		t.Errorf("alice's show: handoff %+v, want worktree %s", r.Handoff, wt)
 	}
-	h := mustCall[proto.HistoryResult](t, s, alice, proto.OpHistory, proto.IDArgs{ID: c.ID})
+	h := mustCall[proto.HistoryResult](t, s, alice, proto.OpHistory, proto.PageArgs{ID: c.ID})
 	found := false
 	for _, e := range h.Events {
 		found = found || strings.Contains(string(e.After), wt)
@@ -103,7 +103,7 @@ func TestWorktreeWithheldWhenUnreadable(t *testing.T) {
 				viewer store.Actor
 				shown  bool
 			}{{bob, tc.shown}, {alice, true}} {
-				h := mustCall[proto.HistoryResult](t, s, r.viewer, proto.OpHistory, proto.IDArgs{ID: c.ID})
+				h := mustCall[proto.HistoryResult](t, s, r.viewer, proto.OpHistory, proto.PageArgs{ID: c.ID})
 				var after json.RawMessage
 				for _, e := range h.Events {
 					if e.Op == string(store.OpCommentAdd) {

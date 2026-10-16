@@ -37,7 +37,7 @@ func TestLockOps(t *testing.T) {
 	if r := mustCall[proto.LockResult](t, s, bob, proto.OpLockRenew, proto.LockRenewArgs{Name: "deploy/prod"}); r.Held || r.Position != 1 {
 		t.Errorf("lock.renew of bob's place = %+v, want position 1", r)
 	}
-	if r := mustCall[proto.LockReleaseResult](t, s, alice, proto.OpLockRelease, proto.LockReleaseArgs{Name: "deploy/prod", Epoch: 1}); r.Released != 1 {
+	if r := mustCall[proto.LockReleaseResult](t, s, alice, proto.OpLockRelease, proto.LockReleaseArgs{Name: "deploy/prod", Epoch: 1}); r.Epoch != 1 {
 		t.Errorf("lock.release = %+v, want epoch 1 released", r)
 	}
 	r := mustCall[proto.LockResult](t, s, bob, proto.OpLockRenew, proto.LockRenewArgs{Name: "deploy/prod"})

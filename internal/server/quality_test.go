@@ -33,7 +33,7 @@ func TestDispatchIdempotency(t *testing.T) {
 	if fb := mustCall[proto.FinishResult](t, s, alice, proto.OpFinish, f); fb.ID != fa.ID || fb.Rev != fa.Rev || !slices.Equal(fb.Created, fa.Created) {
 		t.Errorf("replayed finish = %+v, want %+v", fb, fa)
 	}
-	cs := mustCall[proto.CommentsResult](t, s, alice, proto.OpComments, proto.IDArgs{ID: first.ID})
+	cs := mustCall[proto.CommentsResult](t, s, alice, proto.OpComments, proto.PageArgs{ID: first.ID})
 	if len(cs.Comments) != 2 {
 		t.Errorf("%d comments, want the comment and the handoff once each", len(cs.Comments))
 	}

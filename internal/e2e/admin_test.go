@@ -119,7 +119,7 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("principal add: %q", got)
 	}
 	if got := decode[proto.PrincipalResult](t, dana.ok("admin", "principal", "add", "bob", "--json")); got !=
-		(proto.PrincipalResult{ID: "bob", Rev: 1, State: "active", Project: project, ProjectName: "first"}) {
+		(proto.PrincipalResult{Name: "bob", Rev: 1, State: "active", Project: project, ProjectName: "first"}) {
 		t.Errorf("principal add --json: %+v", got)
 	}
 	if got := dana.ok("admin", "principal", "add", "ci-bot", "--no-project"); got != "principal ci-bot added, in no project\n" {
@@ -142,7 +142,7 @@ func TestAdminCommands(t *testing.T) {
 	if got := dana.ok("admin", "principal", "disable", "bob"); got != "bob: disabled\n" {
 		t.Errorf("principal disable: %q", got)
 	}
-	if got := decode[proto.PrincipalResult](t, dana.ok("--json", "admin", "principal", "enable", "bob")); got != (proto.PrincipalResult{ID: "bob", Rev: 3, State: "active"}) {
+	if got := decode[proto.PrincipalResult](t, dana.ok("--json", "admin", "principal", "enable", "bob")); got != (proto.PrincipalResult{Name: "bob", Rev: 3, State: "active"}) {
 		t.Errorf("principal enable --json: %+v", got)
 	}
 
@@ -154,7 +154,7 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("member add again: %q", got)
 	}
 	set := decode[proto.MemberSetResult](t, dana.ok("admin", "member", "add", "ci-bot", "--project", "first", "--json"))
-	if set.ID != "ci-bot" || set.Rev != 1 || set.Project != project || set.ProjectName != "first" || set.Role != "member" || set.Change != "added" ||
+	if set.Name != "ci-bot" || set.Rev != 1 || set.Project != project || set.ProjectName != "first" || set.Role != "member" || set.Change != "added" ||
 		set.Projects != 1 || set.Carried != nil {
 		t.Errorf("member add --json: %+v", set)
 	}
@@ -177,7 +177,7 @@ func TestAdminCommands(t *testing.T) {
 		t.Errorf("member remove: %q", got)
 	}
 	if got := decode[proto.MemberRemoveResult](t, alice.ok("admin", "member", "remove", "ci-bot", "--json")); got !=
-		(proto.MemberRemoveResult{ID: "ci-bot", Project: project, ProjectName: "first"}) {
+		(proto.MemberRemoveResult{Name: "ci-bot", Project: project, ProjectName: "first"}) {
 		t.Errorf("member remove --json: %+v", got)
 	}
 	// The new member works at once.

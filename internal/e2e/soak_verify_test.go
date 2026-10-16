@@ -494,23 +494,23 @@ func (s *soak) checkClaimsOp(ctx context.Context, p *sproj) {
 		now := r.Now.UnixMicro()
 		listed := map[string]bool{}
 		for i, got := range r.Claims {
-			listed[got.ID] = true
-			row, ok := after[got.ID]
-			want := proto.Claim{ID: row.issue, By: row.principal, Session: row.session, Machine: row.machine, Epoch: row.epoch,
+			listed[got.Issue] = true
+			row, ok := after[got.Issue]
+			want := proto.Claim{Issue: row.issue, By: row.principal, Session: row.session, Machine: row.machine, Epoch: row.epoch,
 				ClaimedAt: time.UnixMicro(row.claimedAt).UTC(), ExpiresAt: time.UnixMicro(row.expiresAt).UTC()}
 			switch {
 			case !ok:
-				s.mon.fail(got.ID, "claims lists %s held by %s/%s (epoch %d), which the claims table does not", got.ID, got.By, got.Session, got.Epoch)
+				s.mon.fail(got.Issue, "claims lists %s held by %s/%s (epoch %d), which the claims table does not", got.Issue, got.By, got.Session, got.Epoch)
 			case got != want:
-				s.mon.fail(got.ID, "claims lists %+v; the claims table holds %+v", got, want)
+				s.mon.fail(got.Issue, "claims lists %+v; the claims table holds %+v", got, want)
 			case row.expiresAt <= now:
-				s.mon.fail(got.ID, "claims lists %s, whose lease ran out at %s, before its now %s", got.ID, stamp(got.ExpiresAt), stamp(r.Now))
+				s.mon.fail(got.Issue, "claims lists %s, whose lease ran out at %s, before its now %s", got.Issue, stamp(got.ExpiresAt), stamp(r.Now))
 			}
 			if i > 0 {
 				prev := r.Claims[i-1]
-				if c := prev.ClaimedAt.Compare(got.ClaimedAt); c > 0 || c == 0 && prev.ID > got.ID {
-					s.mon.fail(got.ID, "claims lists %s (taken %s) after %s (taken %s): not longest held first",
-						got.ID, stamp(got.ClaimedAt), prev.ID, stamp(prev.ClaimedAt))
+				if c := prev.ClaimedAt.Compare(got.ClaimedAt); c > 0 || c == 0 && prev.Issue > got.Issue {
+					s.mon.fail(got.Issue, "claims lists %s (taken %s) after %s (taken %s): not longest held first",
+						got.Issue, stamp(got.ClaimedAt), prev.Issue, stamp(prev.ClaimedAt))
 				}
 			}
 		}

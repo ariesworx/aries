@@ -66,32 +66,27 @@ type WhoResult struct {
 
 // Issue is the full form of an issue, returned by show.
 type Issue struct {
-	ID          string          `json:"id"`
-	ParentID    string          `json:"parent_id,omitempty"`
-	Title       string          `json:"title"`
-	Body        string          `json:"body,omitempty"`
-	Design      string          `json:"design,omitempty"`
-	Acceptance  string          `json:"acceptance,omitempty"`
-	Notes       string          `json:"notes,omitempty"`
-	Status      string          `json:"status"`
-	Priority    int             `json:"priority"`
-	Type        string          `json:"type"`
-	Assignee    string          `json:"assignee,omitempty"`
-	Owner       string          `json:"owner,omitempty"`
-	DueAt       *time.Time      `json:"due_at,omitempty"`
-	DeferUntil  *time.Time      `json:"defer_until,omitempty"`
-	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
-	Ephemeral   bool            `json:"ephemeral,omitempty"`
-	Pinned      bool            `json:"pinned,omitempty"`
-	Template    bool            `json:"template,omitempty"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	CloseReason string          `json:"close_reason,omitempty"`
-	CreatedBy   string          `json:"created_by"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	ClosedAt    *time.Time      `json:"closed_at,omitempty"`
-	Rev         int64           `json:"rev"`
-	Labels      []string        `json:"labels,omitempty"`
+	ID          string     `json:"id"`
+	Parent      string     `json:"parent,omitempty"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body,omitempty"`
+	Design      string     `json:"design,omitempty"`
+	Acceptance  string     `json:"acceptance,omitempty"`
+	Notes       string     `json:"notes,omitempty"`
+	Status      string     `json:"status"`
+	Priority    int        `json:"priority"`
+	Type        string     `json:"type"`
+	Assignee    string     `json:"assignee,omitempty"`
+	Owner       string     `json:"owner,omitempty"`
+	Due         *time.Time `json:"due,omitempty"`
+	DeferUntil  *time.Time `json:"defer_until,omitempty"`
+	CloseReason string     `json:"close_reason,omitempty"`
+	CreatedBy   string     `json:"created_by"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ClosedAt    *time.Time `json:"closed_at,omitempty"`
+	Rev         int64      `json:"rev"`
+	Labels      []string   `json:"labels,omitempty"`
 	// Account is the issue's own account, empty when it inherits one;
 	// ShowResult.Usage has the one that applies.
 	Account string `json:"account,omitempty"`
@@ -108,8 +103,8 @@ type Summary struct {
 	// Overlaps, in ready, are the issues other sessions hold whose paths
 	// overlap this one's; ready lists such issues after the rest.
 	Overlaps []string `json:"overlaps,omitempty"`
-	// DueAt and DeferUntil are the issue's dates, in list and ready.
-	DueAt      *time.Time `json:"due_at,omitempty"`
+	// Due and DeferUntil are the issue's dates, in list and ready.
+	Due        *time.Time `json:"due,omitempty"`
 	DeferUntil *time.Time `json:"defer_until,omitempty"`
 }
 
@@ -500,11 +495,6 @@ type CommentResult struct {
 	ID string `json:"id"`
 }
 
-// IDArgs names one issue.
-type IDArgs struct {
-	ID string `json:"id"`
-}
-
 // PageArgs reads an issue's comments or history a page at a time, newest
 // page first: at most Limit entries (0 takes the server's default, 100;
 // at most 500, and about 1 MiB of text) from before the cursor Before,
@@ -558,7 +548,7 @@ type StartResult struct {
 // it; finish and handoff may pass it to refuse acting on a claim since
 // lost. ClaimedAt is when this holder took it.
 type Claim struct {
-	ID        string    `json:"id"`
+	Issue     string    `json:"issue"`
 	By        string    `json:"by"`
 	Session   string    `json:"session"`
 	Machine   string    `json:"machine"`

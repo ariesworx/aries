@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -73,6 +74,49 @@ func TestOpenNoMigrate(t *testing.T) {
 	}
 	if _, err := testDB(t, dsn).Open(t.Context(), DefaultSchema, Options{NoMigrate: true}); !errors.Is(err, ErrSchemaTooNew) {
 		t.Errorf("Open(NoMigrate) of a newer schema: %v, want ErrSchemaTooNew", err)
+	}
+}
+
+// TestMigrateInboxKinds: migration 2 gives the inbox items written with
+// the four bare kinds the noun.verb names v1.0.0 settled on (decision
+// 88), and leaves every other kind as it was.
+func TestMigrateInboxKinds(t *testing.T) {
+	t.Parallel()
+	dsn := newDSN(t)
+	s := openStore(t, dsn, Options{})
+	ctx := t.Context()
+	// Back to version 1, with an item of each kind written before 2.
+	if _, err := s.w.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version >= 2`); err != nil {
+		t.Fatal(err)
+	}
+	before := []string{"assigned", "mention", "handoff", "conflict", "claim.lost", "lock.granted"}
+	for i, k := range before {
+		if _, err := s.w.ExecContext(ctx, `INSERT INTO inbox (id, to_principal, kind, body, from_principal, at)
+  VALUES ($1, 'alice', $2, '', 'bob', NOW())`, i+1, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := testDB(t, dsn).Open(ctx, DefaultSchema, Options{Prefix: "tst"})
+	if err != nil {
+		t.Fatalf("Open of a schema at version 1: %v", err)
+	}
+	t.Cleanup(func() { _ = again.Close() })
+	rows, err := s.r.QueryContext(ctx, `SELECT kind FROM inbox ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, k)
+	}
+	want := []string{"issue.assigned", "issue.mentioned", "issue.handoff", "conflict.parked", "claim.lost", "lock.granted"}
+	if err := rows.Err(); err != nil || !slices.Equal(got, want) {
+		t.Errorf("after migration 2 the inbox's kinds are %q, %v; want %q", got, err, want)
 	}
 }
 

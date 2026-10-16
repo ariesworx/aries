@@ -75,7 +75,7 @@ func TestDispatchAdminOverrideInHistory(t *testing.T) {
 	c := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x"})
 	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: c.ID})
 	mustCall[proto.WriteResult](t, s, dana, proto.OpClose, proto.CloseArgs{ID: c.ID, Reason: "duplicate"})
-	h := mustCall[proto.HistoryResult](t, s, bob, proto.OpHistory, proto.IDArgs{ID: c.ID})
+	h := mustCall[proto.HistoryResult](t, s, bob, proto.OpHistory, proto.PageArgs{ID: c.ID})
 	var seen bool
 	for _, e := range h.Events {
 		if e.Op == string(store.OpAdminOverride) {

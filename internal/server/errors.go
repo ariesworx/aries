@@ -41,6 +41,8 @@ func command(op string) string {
 		return "admin key list"
 	case proto.OpPropose:
 		return "conflicts" // proposing is an agent's, over MCP; aries conflicts shows them
+	case proto.OpResolve:
+		return "resolve"
 	}
 	if adminOp(op) {
 		return "admin " + strings.ReplaceAll(op, ".", " ")

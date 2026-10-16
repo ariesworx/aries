@@ -71,7 +71,7 @@ func TestOwnKeyRemoval(t *testing.T) {
 			// Another of one's own keys is: its connections close, and this
 			// one stays.
 			res, perr := ask[proto.KeyResult](c, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: other})
-			if perr != nil || res.ID != other || res.Principal != me || res.Dropped != 1 || res.Warning != "" {
+			if perr != nil || res.Fingerprint != other || res.Principal != me || res.Dropped != 1 || res.Warning != "" {
 				t.Fatalf("key.remove of %s's other key by %s = %+v, %v; want it removed, 1 connection dropped and no warning", me, me, res, perr)
 			}
 			if !viaOther.dropped() {
@@ -88,7 +88,7 @@ func TestOwnKeyRemoval(t *testing.T) {
 			// allowed, and says that it could not check.
 			byFile := mustDialTo(t, m.Server, store.Actor{Principal: me, Session: "s-file-" + me, Machine: "desk"}, projA)
 			res, perr = ask[proto.KeyResult](byFile, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: third})
-			if perr != nil || res.ID != third || !strings.Contains(res.Warning, "ariesd could not check that key "+third+" is not the one this connection signed in with") {
+			if perr != nil || res.Fingerprint != third || !strings.Contains(res.Warning, "ariesd could not check that key "+third+" is not the one this connection signed in with") {
 				t.Errorf("key.remove of %s's own key on a connection that named no key = %+v, %v; want it removed, with a warning that it could not be checked", me, res, perr)
 			}
 		})

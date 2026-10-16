@@ -129,11 +129,11 @@ func TestDatesOnTheWire(t *testing.T) {
 	sh := mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: is.ID})
 	defer16 := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 	due := time.Date(2026, 10, 16, 18, 0, 0, 0, time.UTC)
-	if sh.Issue.DeferUntil == nil || !sh.Issue.DeferUntil.Equal(defer16) || sh.Issue.DueAt == nil || !sh.Issue.DueAt.Equal(due) {
-		t.Fatalf("show = defer %v, due %v; want %v and %v", sh.Issue.DeferUntil, sh.Issue.DueAt, defer16, due)
+	if sh.Issue.DeferUntil == nil || !sh.Issue.DeferUntil.Equal(defer16) || sh.Issue.Due == nil || !sh.Issue.Due.Equal(due) {
+		t.Fatalf("show = defer %v, due %v; want %v and %v", sh.Issue.DeferUntil, sh.Issue.Due, defer16, due)
 	}
 	ls := mustCall[proto.ListResult](t, s, alice, proto.OpList, proto.ListArgs{})
-	if len(ls.Issues) != 1 || ls.Issues[0].DueAt == nil || ls.Issues[0].DeferUntil == nil {
+	if len(ls.Issues) != 1 || ls.Issues[0].Due == nil || ls.Issues[0].DeferUntil == nil {
 		t.Errorf("list = %+v, want the issue with its dates", ls.Issues)
 	}
 	if _, perr := call[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "x", Due: "next tuesday"}); perr == nil ||
@@ -152,7 +152,7 @@ func TestDatesOnTheWire(t *testing.T) {
 	empty := ""
 	w := mustCall[proto.WriteResult](t, s, alice, proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: sh.Issue.Rev, Due: &empty, DeferUntil: &empty})
 	sh = mustCall[proto.ShowResult](t, s, alice, proto.OpShow, proto.ShowArgs{ID: is.ID})
-	if sh.Issue.Rev != w.Rev || sh.Issue.DueAt != nil || sh.Issue.DeferUntil != nil {
-		t.Errorf("show after clearing = due %v, defer %v; want neither", sh.Issue.DueAt, sh.Issue.DeferUntil)
+	if sh.Issue.Rev != w.Rev || sh.Issue.Due != nil || sh.Issue.DeferUntil != nil {
+		t.Errorf("show after clearing = due %v, defer %v; want neither", sh.Issue.Due, sh.Issue.DeferUntil)
 	}
 }

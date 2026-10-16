@@ -28,7 +28,7 @@ func benchSnapshot(gen int) *Snapshot {
 			BlockedBy: []string{"ar-r0000001", "ar-r0000002"}})
 	}
 	for i := range heldLimit {
-		s.Held = append(s.Held, Held{Title: title(i), Priority: i % 5, Claim: proto.Claim{ID: fmt.Sprintf("ar-h%07d", i), By: "alice",
+		s.Held = append(s.Held, Held{Title: title(i), Priority: i % 5, Claim: proto.Claim{Issue: fmt.Sprintf("ar-h%07d", i), By: "alice",
 			Session: "20000000-0000-4000-8000-000000000001", Machine: "laptop", Epoch: 3, ClaimedAt: at, ExpiresAt: at.Add(15 * time.Minute)}})
 	}
 	return s

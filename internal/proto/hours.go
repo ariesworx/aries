@@ -22,11 +22,11 @@ const (
 	OpPlans       = "plans"        // PlansArgs → PlansResult
 )
 
-// HoursLogArgs logs the caller's Seconds on the issue ID for the day On
+// HoursLogArgs logs the caller's Seconds on the issue Issue for the day On
 // (2006-01-02, UTC), empty for the server's today. Idem, an idempotency
 // key, makes a retry return the first entry.
 type HoursLogArgs struct {
-	ID      string `json:"id"`
+	Issue   string `json:"issue"`
 	Seconds int64  `json:"seconds"`
 	On      string `json:"on,omitempty"`
 	Note    string `json:"note,omitempty"`

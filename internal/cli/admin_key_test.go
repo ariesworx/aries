@@ -219,26 +219,26 @@ func TestPrintKeys(t *testing.T) {
 			"ALSO IN authorized_keys: the key is also a line of the server's hand-maintained authorized_keys file, which sshd reads after the store's keys; " +
 			"`aries admin key remove` closes the key's connections, and sshd still accepts it by that line until the line is deleted on the server\n"},
 		{"key added", func(w *bytes.Buffer) {
-			printKeyAdded(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@laptop", Change: "added"})
+			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "bob@laptop", Change: "added"})
 		}, "key " + fp1 + " (ssh-ed25519, bob@laptop) added to bob\n"},
 		{"key already there", func(w *bytes.Buffer) {
-			printKeyAdded(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Change: "unchanged"})
+			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Change: "unchanged"})
 		}, "bob already has key " + fp1 + " (ssh-ed25519)\n"},
 		{"key removed", func(w *bytes.Buffer) {
-			printKeyRemoved(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519"})
+			printKeyRemoved(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519"})
 		}, "key " + fp1 + " removed from bob\n"},
 		{"key removed, with a connection", func(w *bytes.Buffer) {
-			printKeyRemoved(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Dropped: 1})
+			printKeyRemoved(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Dropped: 1})
 		}, "key " + fp1 + " removed from bob\n1 connection it had signed in was closed\n"},
 		{"key removed, with connections", func(w *bytes.Buffer) {
-			printKeyRemoved(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Dropped: 3})
+			printKeyRemoved(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Dropped: 3})
 		}, "key " + fp1 + " removed from bob\n3 connections it had signed in were closed\n"},
 		{"claims released", func(w *bytes.Buffer) { printReleased(w, 2, "bob") }, "2 claims bob held were released\n"},
 		{"a claim released", func(w *bytes.Buffer) { printReleased(w, 1, "bob") }, "1 claim bob held was released\n"},
 		{"no claims released", func(w *bytes.Buffer) { printReleased(w, 0, "bob") }, ""},
 		// A comment from the server cannot start a line of its own.
 		{"a hostile comment", func(w *bytes.Buffer) {
-			printKeyAdded(w, proto.KeyResult{ID: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "x\nfix: run this", Change: "added"})
+			printKeyAdded(w, proto.KeyResult{Fingerprint: fp1, Principal: "bob", Type: "ssh-ed25519", Comment: "x\nfix: run this", Change: "added"})
 		}, "key " + fp1 + " (ssh-ed25519, x\\nfix: run this) added to bob\n"},
 	}
 	for _, tc := range tests {

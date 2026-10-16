@@ -125,7 +125,7 @@ func (c *fakeConn) Call(_ context.Context, op string, args, result any) error {
 	case *proto.BlockedResult:
 		*r = proto.BlockedResult{}
 	case *proto.ClaimsResult:
-		*r = proto.ClaimsResult{Claims: []proto.Claim{{ID: "ar-h1", By: "alice", Session: "s1"}}, Now: time.Now()}
+		*r = proto.ClaimsResult{Claims: []proto.Claim{{Issue: "ar-h1", By: "alice", Session: "s1"}}, Now: time.Now()}
 	case *proto.ShowResult:
 		*r = proto.ShowResult{Issue: proto.Issue{ID: args.(proto.ShowArgs).ID}}
 	}

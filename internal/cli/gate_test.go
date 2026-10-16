@@ -45,7 +45,7 @@ func TestPrintIssueGatesAndDates(t *testing.T) {
 	from := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
 	s := proto.ShowResult{
 		Issue: proto.Issue{ID: "ar-e1", Title: "Upgrade", Status: "open", Type: "task", Rev: 2, CreatedBy: "alice",
-			CreatedAt: created, UpdatedAt: created, DueAt: &due, DeferUntil: &from},
+			CreatedAt: created, UpdatedAt: created, Due: &due, DeferUntil: &from},
 		Gates: []proto.Gate{{ID: "ar-g1", Kind: "human", Approvers: []string{"carol"}}},
 	}
 	var b bytes.Buffer
@@ -73,7 +73,7 @@ func TestPrintListDates(t *testing.T) {
 	t.Parallel()
 	due := time.Date(2026, 10, 20, 17, 0, 0, 0, time.UTC)
 	var b bytes.Buffer
-	printList(&b, []proto.Summary{{ID: "ar-a1", Title: "dated", Status: "open", Priority: 2, DueAt: &due},
+	printList(&b, []proto.Summary{{ID: "ar-a1", Title: "dated", Status: "open", Priority: 2, Due: &due},
 		{ID: "ar-a2", Title: "plain", Status: "open", Priority: 2}})
 	want := "ar-a1  P2  open  dated  due 2026-10-20 17:00 UTC\nar-a2  P2  open  plain\n"
 	if b.String() != want {

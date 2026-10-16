@@ -250,8 +250,8 @@ func (m *Model) heldLines(serverNow time.Time) []line {
 	out := []line{heading("Held", len(m.snap.Held), m.snap.HeldMore)}
 	for _, h := range m.snap.Held {
 		c := h.Claim
-		mk, sel := m.mark(secHeld, c.ID)
-		l := line{spans: []span{mk, plainSpan(fmt.Sprintf("%s P%d %s/%s ", esc(c.ID), h.Priority, esc(c.By), cut(esc(c.Session), sessionMax))),
+		mk, sel := m.mark(secHeld, c.Issue)
+		l := line{spans: []span{mk, plainSpan(fmt.Sprintf("%s P%d %s/%s ", esc(c.Issue), h.Priority, esc(c.By), cut(esc(c.Session), sessionMax))),
 			styled(proto.Span(max(0, serverNow.Sub(c.ClaimedAt))), dim), plainSpan(" ")}, sel: sel}
 		if !c.ExpiresAt.After(serverNow) {
 			l.spans = append(l.spans, styled("[lapsed]", warn), plainSpan(" "))
@@ -363,7 +363,7 @@ func (m *Model) detailLines(width int, now time.Time) []line {
 	}
 	if f := sh.Files; f != nil {
 		for _, o := range f.Overlaps {
-			out = append(out, lineOf(styled(fmt.Sprintf("overlaps %s, held by %s/%s", esc(o.ID), esc(o.By), esc(o.Session)), warn)))
+			out = append(out, lineOf(styled(fmt.Sprintf("overlaps %s, held by %s/%s", esc(o.Issue), esc(o.By), esc(o.Session)), warn)))
 		}
 		for _, p := range f.Paths {
 			out = append(out, lineOf(plainSpan(fmt.Sprintf("file: %s (%s)", esc(p.Path), esc(p.Source)))))
