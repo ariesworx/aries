@@ -398,18 +398,21 @@ func TestInstallServerProfiles(t *testing.T) {
 			want:    []string{"profile: ssh-only", "transports: [ssh]", "  /etc/ssh/sshd_config.d/00-aries.conf", "  /var/lib/aries/.ssh/authorized_keys"},
 			without: []string{"https", "ufw", "admin.keys", "acme", "/etc/aries/tls"}},
 		// The bridge's AppArmor profile is SSH's: with SSH off nothing runs
-		// as sshd's forced command.
+		// as sshd's forced command, and the operator's rules, ariesd-default,
+		// take the binary's path instead.
 		{name: "AppArmor without SSH", args: []string{"--apparmor"},
-			want:    []string{"  /etc/apparmor.d/ariesd", "  /etc/apparmor.d/tunables/ariesd", "  /etc/systemd/system/ariesd.service.d/apparmor.conf"},
+			want: []string{"  /etc/apparmor.d/ariesd", "  /etc/apparmor.d/ariesd-default", "  /etc/apparmor.d/abstractions/ariesd-admin",
+				"  /etc/apparmor.d/tunables/ariesd", "  /etc/systemd/system/ariesd.service.d/apparmor.conf"},
 			without: append([]string{"ariesd-stdio"}, sshFiles...)},
 		{name: "AppArmor with SSH", args: []string{"--apparmor", "--enable-ssh"},
-			want: []string{"  /etc/apparmor.d/ariesd", "  /etc/apparmor.d/ariesd-stdio"}},
+			want:    []string{"  /etc/apparmor.d/ariesd", "  /etc/apparmor.d/ariesd-stdio", "  /etc/apparmor.d/abstractions/ariesd-admin"},
+			without: []string{"ariesd-default"}},
 		// --disable-ssh writes what SSH off writes, and removes what SSH on
 		// wrote: every SSH path.
 		{name: "turning SSH off", args: []string{"--disable-ssh", "--apparmor"},
 			want: []string{"transports: [https]", "  /etc/aries/admin.keys", "removes, where they are:", "  /etc/ssh/sshd_config.d/00-aries.conf",
 				"  /var/lib/aries/.ssh/authorized_keys", "  /var/lib/aries/.ssh/aries_keys", "  /var/lib/aries/.ssh/", "  /etc/systemd/system/ariesd.service.d/keys.conf",
-				"  /etc/apparmor.d/ariesd-stdio"},
+				"  /etc/apparmor.d/ariesd-stdio", "  /etc/apparmor.d/ariesd-default"},
 			without: append([]string{"ariesd-stdio"}, sshFiles...)},
 	}
 	for _, tc := range tests {
@@ -469,9 +472,10 @@ func TestInstallServerDisableSSHMatchesGuide(t *testing.T) {
 
 // TestAppArmorProfilesInstalledAndParsed holds the AppArmor profiles to
 // what installs and checks them: every file of deploy/apparmor but its
-// README and tunables is one the installer fetches, the guide's
-// commands install and CI's parser checks, in each of its jobs; and
-// the bridge's is SSH's alone.
+// README, tunables and abstractions is one the installer fetches, the
+// guide's commands install and CI's parser checks, in each of its jobs;
+// the bridge's is SSH's alone, and the default profile, which takes
+// the binary's path without SSH, is SSH off's.
 func TestAppArmorProfilesInstalledAndParsed(t *testing.T) {
 	t.Parallel()
 	entries, err := os.ReadDir(filepath.Join("..", "deploy", "apparmor"))
@@ -484,8 +488,8 @@ func TestAppArmorProfilesInstalledAndParsed(t *testing.T) {
 			profiles = append(profiles, e.Name())
 		}
 	}
-	if !slices.Equal(profiles, []string{"ariesd", "ariesd-stdio"}) {
-		t.Errorf("deploy/apparmor holds the profile files %v; want ariesd and ariesd-stdio, or change this test with what installs them", profiles)
+	if !slices.Equal(profiles, []string{"ariesd", "ariesd-default", "ariesd-stdio"}) {
+		t.Errorf("deploy/apparmor holds the profile files %v; want ariesd, ariesd-default and ariesd-stdio, or change this test with what installs them", profiles)
 	}
 	script, ci, section := read(t, installServer), read(t, ".github/workflows/ci.yml"), guideSection(t, "## Confine ariesd with AppArmor")
 	parse := "apparmor_parser -Q -K -I deploy/apparmor deploy/apparmor/" + strings.Join(profiles, " deploy/apparmor/") + "\n"
@@ -500,8 +504,16 @@ func TestAppArmorProfilesInstalledAndParsed(t *testing.T) {
 			t.Errorf("%s's \"Confine ariesd with AppArmor\" does not download deploy/apparmor/%s and install it as /etc/apparmor.d/%s", serverGuide, p, p)
 		}
 	}
-	if !strings.Contains(section, "Only with SSH on") {
-		t.Errorf("%s's \"Confine ariesd with AppArmor\" does not say the bridge's profile is installed only with SSH on", serverGuide)
+	for _, only := range []string{"Only with SSH on", "Only with SSH off"} {
+		if !strings.Contains(section, only) {
+			t.Errorf("%s's \"Confine ariesd with AppArmor\" does not say %q: the bridge's profile is SSH on's, the default profile SSH off's", serverGuide, only)
+		}
+	}
+	if !strings.Contains(section, "deploy/apparmor/abstractions/ariesd-admin\n") || !strings.Contains(section, "/etc/apparmor.d/abstractions/ariesd-admin\n") {
+		t.Errorf("%s's \"Confine ariesd with AppArmor\" does not download deploy/apparmor/abstractions/ariesd-admin and install it as /etc/apparmor.d/abstractions/ariesd-admin", serverGuide)
+	}
+	if !strings.Contains(script, "fetch deploy/apparmor/abstractions/ariesd-admin ") {
+		t.Errorf("%s does not fetch deploy/apparmor/abstractions/ariesd-admin", installServer)
 	}
 }
 
