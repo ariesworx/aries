@@ -25,7 +25,7 @@ func TestSetupInLinkedWorktree(t *testing.T) {
 		{main, []string{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "init"}},
 		{main, []string{"worktree", "add", "-q", "-b", "wt", wt}},
 	} {
-		cmd := exec.CommandContext(t.Context(), "git", c.args...)
+		cmd := exec.CommandContext(t.Context(), "git", c.args...) //nolint:gosec // test fixture
 		cmd.Dir = c.dir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", c.args, err, out)

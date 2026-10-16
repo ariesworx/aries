@@ -90,7 +90,7 @@ func TestLoadConfigWorktree(t *testing.T) {
 // gitIn runs git in dir, failing the test if it fails.
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "git", args...)
+	cmd := exec.CommandContext(t.Context(), "git", args...) //nolint:gosec // test fixture
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
