@@ -564,7 +564,7 @@ func applyPatch(ctx context.Context, w *wtx, before Issue, pp prepared) (Issue, 
 		if err := mustExist(ctx, w.tx, *patch.ParentID); err != nil {
 			return Issue{}, fmt.Errorf("parent: %w", err)
 		}
-		if err := checkEdge(ctx, w.tx, id, *patch.ParentID); err != nil {
+		if err := checkParent(ctx, w.tx, id, *patch.ParentID); err != nil {
 			return Issue{}, err
 		}
 	}

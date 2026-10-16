@@ -386,6 +386,8 @@ func TestErrorsNameTheNextStep(t *testing.T) {
 			"invalid: issue ar-x is closed\nfix: call reopen first"},
 		{"cycle", proto.Errf(proto.CodeCycle, "remove an edge with `aries dep remove`", "ar-a depends on ar-b, so this would make a cycle"),
 			"cycle: ar-a depends on ar-b, so this would make a cycle\nfix: remove an edge with dep (action rm), or choose another parent"},
+		{"parent waits", proto.Errf(proto.CodeCycle, proto.FixNothing+": ar-e waits on its open children by itself", "ar-c is under ar-e, which waits on it already, so this would make a cycle"),
+			"cycle: ar-c is under ar-e, which waits on it already, so this would make a cycle\nfix: nothing to do: a parent waits on its open children, and is not ready until they close"},
 		{"invalid", proto.Errf(proto.CodeInvalid, "correct it and retry; `aries update -h` lists the options", "title is empty"),
 			"invalid: title is empty\nfix: correct the arguments and retry"},
 		{"held at start", proto.Errf(proto.CodeConflict, "take that one with `aries start ar-y`", "ar-x is in progress by bob; next ready: ar-y"),

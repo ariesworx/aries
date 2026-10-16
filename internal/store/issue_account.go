@@ -37,7 +37,7 @@ func validAccount(a string) error {
 }
 
 // maxParentDepth bounds the walk up a parent chain. Parent links cannot
-// form a cycle (checkEdge), so this only stops a corrupt database from
+// form a cycle (checkParent), so this only stops a corrupt database from
 // looping.
 const maxParentDepth = 100
 

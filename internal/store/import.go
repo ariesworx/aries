@@ -266,7 +266,7 @@ func (s *Store) ImportIssue(ctx context.Context, actor Actor, in Issue) (ImportR
 			if err := mustExist(ctx, w.tx, in.ParentID); err != nil {
 				return fmt.Errorf("parent: %w", err)
 			}
-			return checkEdge(ctx, w.tx, in.ID, in.ParentID)
+			return checkParent(ctx, w.tx, in.ID, in.ParentID)
 		}
 		before, err := loadIssue(ctx, w.tx, in.ID)
 		var add []string

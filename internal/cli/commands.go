@@ -485,14 +485,24 @@ func printBlocked(w io.Writer, issues []proto.BlockedIssue) {
 	}
 	printSummaries(w, sums, func(i int) string {
 		b := issues[i]
-		s := "\tblocked by " + strings.Join(escAll(b.BlockedBy), ", ")
-		if b.More > 0 {
-			s += fmt.Sprintf(" and %d more", b.More)
+		var why []string
+		if len(b.BlockedBy) > 0 {
+			s := "blocked by " + strings.Join(escAll(b.BlockedBy), ", ")
+			if b.More > 0 {
+				s += fmt.Sprintf(" and %d more", b.More)
+			}
+			if b.Via != "" {
+				s += " (via " + esc(b.Via) + ")"
+			}
+			why = append(why, s)
 		}
-		if b.Via != "" {
-			s += " (via " + esc(b.Via) + ")"
+		switch {
+		case b.Children == 1:
+			why = append(why, "waiting on 1 open child")
+		case b.Children > 1:
+			why = append(why, fmt.Sprintf("waiting on %d open children", b.Children))
 		}
-		return s
+		return "\t" + strings.Join(why, "; ")
 	})
 }
 

@@ -380,7 +380,9 @@ WHERE i.status = 'in_progress'`
 }
 
 // blocked lists unclosed issues held back by unclosed blockers, as
-// Blocked does.
+// Blocked does. Unlike Blocked, it leaves out an issue that only waits on
+// its own open children: that is how a parent is while its work goes on,
+// not something to look at.
 func (q *digestQuery) blocked(ctx context.Context, d *Digest) error {
 	p := params{args: []any{q.now}}
 	fcond := q.filters(&p, "i.assignee", "i.id")

@@ -105,6 +105,9 @@ func (t DepType) Blocking() bool {
 // target is open. waits-for gates arrive with the gate runner.
 const readyBlocking = `'blocks','conditional-blocks'`
 
+// cycleBlocking lists the types Blocking reports, for the cycle check.
+const cycleBlocking = `'blocks','conditional-blocks','waits-for'`
+
 // Op names a mutation in the event log.
 type Op string
 
@@ -342,6 +345,9 @@ type BlockedIssue struct {
 	BlockedBy []IssueID
 	// Via is the ancestor whose blockers apply; empty when they are direct.
 	Via IssueID
+	// Children counts the issue's own unclosed children, which it waits
+	// on whether or not anything blocks it.
+	Children int
 }
 
 var labelPattern = lazyregexp.New(`^[^\s,\x00-\x1f]{1,64}$`)
