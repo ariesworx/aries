@@ -34,6 +34,10 @@ type fakeHTTPS struct {
 	answer http.HandlerFunc
 	// silent says nothing after the upgrade.
 	silent bool
+	// refuseAfterProof, when set, is the welcome's refusal sent right
+	// after the key proof, before the hello is read, as the server's
+	// handshake refuses a disabled principal; the fake then hangs up.
+	refuseAfterProof *proto.Error
 }
 
 func newFakeHTTPS(t *testing.T, edit func(*fakeHTTPS)) *fakeHTTPS {
@@ -102,6 +106,10 @@ func (f *fakeHTTPS) serve(w http.ResponseWriter, r *http.Request) {
 	sig, err := keyproof.ParseProof(m)
 	if err != nil || keyproof.Verify(offer.Keys[key], offer.URL, nonce, sig) != nil {
 		refuse(proto.Errf(proto.CodeAuth, "check your key", "the key proof does not verify"))
+		return
+	}
+	if f.refuseAfterProof != nil {
+		refuse(f.refuseAfterProof)
 		return
 	}
 	s := wsconn.Stream(c)
@@ -357,5 +365,24 @@ func TestDialChoosesTransport(t *testing.T) {
 	}
 	if _, err := Dial(t.Context(), cfg, dialOpts(bad)); err == nil || !strings.Contains(err.Error(), EnvTransport) {
 		t.Errorf("Dial with %s=telnet = %v, want a refusal naming it", EnvTransport, err)
+	}
+}
+
+// A server that refuses right after the key proof, without reading the
+// hello, and hangs up is reported by its refusal, whether or not the
+// hello could still be written.
+func TestDialHTTPSRefusedBeforeTheHello(t *testing.T) {
+	t.Parallel()
+	for range 20 {
+		f := newFakeHTTPS(t, func(f *fakeHTTPS) {
+			f.refuseAfterProof = proto.Errf(proto.CodeForbidden, "ask a server admin", "carol is disabled on this server")
+		})
+		cfg, getenv, pub := httpsUser(t, f, false, "")
+		f.known[ssh.FingerprintSHA256(pub)] = "carol"
+		_, err := Dial(t.Context(), cfg, dialOpts(getenv))
+		var pe *proto.Error
+		if !errors.As(err, &pe) || pe.Code != proto.CodeForbidden || pe.Message != "carol is disabled on this server" {
+			t.Fatalf("Dial to a server that refused before the hello = %v, want its refusal", err)
+		}
 	}
 }

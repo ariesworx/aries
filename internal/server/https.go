@@ -294,6 +294,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 		}
 		b, _ := json.Marshal(&proto.Frame{T: proto.FrameWelcome, Version: w.s.cfg.Version, Min: w.s.cfg.ProtoMin, Max: w.s.cfg.ProtoMax, Err: perr})
 		_ = c.Write(append(b, '\n'))
+		drain(c)
 		_ = c.Close()
 		return
 	}
@@ -318,6 +319,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 		}
 	})
 	w.s.serveConn(w.ctx, wsconn.Stream(c), given)
+	drain(c)
 	// Closing first ends a ping stuck behind a peer that reads nothing.
 	_ = c.Close()
 	close(done)
@@ -526,4 +528,22 @@ func (c *limitedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(func() { c.l.leave(c.addr) })
 	return err
+}
+
+// drainTime bounds how long drain reads what a peer sent before a close.
+const drainTime = time.Second
+
+// drain reads and drops what the peer has sent and the server has not
+// read, for at most drainTime, before c is closed. A refusal is often
+// written before the client's next message is read (the handshake
+// refuses a disabled principal before it reads the hello), and a socket
+// closed with unread data sends a reset, which can discard the refusal
+// before the client reads it. Read, the close is an orderly one.
+func drain(c *wsconn.Conn) {
+	_ = c.SetReadDeadline(time.Now().Add(drainTime))
+	for {
+		if _, err := c.Read(); err != nil {
+			return
+		}
+	}
 }

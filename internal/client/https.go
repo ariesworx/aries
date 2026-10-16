@@ -90,6 +90,12 @@ func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*C
 	c.trace, c.overHTTPS = opts.Trace, true
 	if err := c.enc.Encode(&proto.Frame{T: proto.FrameHello, Version: opts.Version, Proto: proto.Proto,
 		Project: cfg.Project, Session: opts.Session, Machine: opts.Machine, Harness: opts.Harness}); err != nil {
+		// The server may have refused and closed before reading the
+		// hello, as the bridge does over SSH: its refusal is still
+		// waiting to be read.
+		if w, rerr := c.next(); rerr == nil && w.T == proto.FrameWelcome && w.Err != nil {
+			return fail(&refusal{pe: w.Err, principal: w.Principal})
+		}
 		return gone("take the hello", err)
 	}
 	w, err := c.next()
