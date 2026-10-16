@@ -2388,3 +2388,257 @@ Everything: this is a design. In particular: the blocked derivation with many ga
 - **Runs out of order.** G1 took the last report as the truth, so a slow run of an older commit that failed after a newer one passed reopened the gate and held the work back again. A report now carries its CI run's number, `run` on `gate.pass` and `gate.fail` (`GateArgs.Run`, kept in the report), which `aries` reads from `GITHUB_RUN_NUMBER` or `CI_PIPELINE_IID`, or `--run N`: each rises with every run of the workflow or pipeline and is kept when a run is retried. The rule: a report of a lower run than the gate's last report changes nothing, in either direction, with one exception that fails closed: a failure of the commit that last passed (`sha`, either abbreviated) reopens the gate whatever its run. Reports that do not both carry a run are taken in the order they arrive, as in G1, as are reruns of one run; a rearm forgets the last report's run, so the order starts again, as it must for a workflow whose numbering does. Chosen over the run's start time, which neither GitHub Actions nor GitLab CI gives a job and which would rest on runners' clocks, and over comparing commits, which the server cannot order. GitHub numbers each workflow's runs apart, so one check is reported from one workflow (docs/ci.md says so). A report that loses is answered with the gate as it stands, which the CLI explains on stderr and exits 0. **Protocol:** `run` is a new argument, a protocol change under rule 10; no release has carried protocol 8, so on decisions 78 and 88 it joins 8 with no bump, and a server built before it refuses it as an unknown field.
 - **A gate that names no approvers tells its admins.** G0's gate told nobody, since the store asked `IsAdmin` of one principal at a time. `Options.ListAdmins` now lists them, which a server of many projects answers from the control store's index in memory (`Control.ProjectAdmins`: the project's admins by name, then the server admins, each active), and a single project from `admins:`. `gate.pending` goes to them, less the gate's creator, who may not pass it (decision 68), and at most `approvers_per_gate` of them, the project's own first, so a server of many admins tells a bounded few: the cap a gate's own list has, rather than a new setting. **And when it holds more:** a `dep add` that puts an issue directly behind an open human gate tells whom it waits for, named or admins, with the issue named (`gate.pending` again); the same edge added twice tells nobody twice. Work that a gate holds through a parent link or a blocker's edge tells nobody, as it did not before: those are many and are the gate's plan, which its approvers saw when it was added. The notices count against the sender's `notices_per_minute`, as every `gate.pending` does.
 - **Metrics and log events** (§20.9, owed by G0 and G1). `aries.gates` counts each change of a gate by `kind` (`human`, `ci`) and `event` (`added`, `passed`, `failed`, `waived`, `rearmed`), as §20.9 has it; and each is a log line at info, `gate.added`, `gate.passed`, `gate.failed`, `gate.waived` and `gate.rearmed`, with the fields `gate` (the id, of kind issue), `kind` and `by`, and for a ci gate `issue` (its subject), `check` and `run`. A check's name is text a person chose, so `check` is of kind local and stays in the journal, as a lock's name does; nothing else on the line is text. Both come from the store through `Observer.GateChanged`, once the write commits, with the gate as it left it and the request's context, so a report or a decision that changed nothing (a pass of a passed gate, a report of an older run, an idempotent add's replay) is neither counted nor logged. The observer now also logs, so ariesd gives each project store one whenever it has a log, telemetry or not (`StoreObserver(tel, log, project)`). §20.9's log event `gate.failed` is one of the five. `deploy/observability`'s dashboard has a panel of them; there is no alert, since how many gates a team passes or fails is its own business, not the server's health. The names are recorded in `TestNamesKept`'s golden files, as decision 88's promise allows additions.
+
+## 21. A project's workflow: the flow Aries enforces
+
+Proposed 16 Oct 2026 (aries-3yxddgjk), from §5, §12, §18, §20 and the flow this repository is built by. **Nothing here is decided or built.** Asked by the maintainer: Aries cannot mandate a flow of merge, review and testing for the agents working in a project, and decision 93 brings this design into the minor releases before v1.0.0. It reads beside §20 (gates), the organization memory design still to come (aries-iakie56e), the enterprise review's E2, E6 and E13, and Bearings §3.18 (policy as code), which it is meant to be the base of rather than a rival to.
+
+In short: a project gets one setting, its **workflow**, a document a project admin applies with `aries admin workflow set FILE`, never over MCP. For each issue type it names **default acceptance items**, which the server adds to every issue it creates, so that removing one is a waiver on the record; **required checks**, such as the ci gate `landed` of §20.4, without which an issue cannot be finished, so that closed means merged; an optional **review** before close and **approval** before start, each a human gate; and a **close-out checklist** that `handoff` and `finish` show and the harness carries out. The server applies all of it at create, from the setting in force then, and records which version it applied, so the event log still explains every issue. Defaults for a whole server cascade to its projects as a floor that a project may add to and never loosen, which is the rule §3.18's `policy.apply` needs. A server that CI cannot reach, as the dogfood server on a laptop cannot, has `landed` reported by `aries land`, run by a named person after pulling the default branch. No MCP tool, no tool argument and no MCP schema token are added; the protocol gains two ops, one bump.
+
+### 21.1 What exists today, and where it fails
+
+This repository runs on three conventions, as the v0.5.0 issues show:
+
+- **The pinned project memory `workflow`** (rev 3, 16 Oct 2026), ten steps, which `prime` shows every session: start and branch, test first, commit, a pull request from the template, `handoff` and never `finish`, never merge, merge and close together, clean up, a CI failure is yours, read-only tasks post and finish.
+- **Four acceptance items typed onto every issue that changes the repository:** "PR opened from the template, saying what ran and what was left to CI"; "Tests run as AGENTS.md's Test tiers require for the change"; "CI green on the PR"; "Reviewed and merged by the maintainer". `finish` refuses while any is open (§7, As built for stage 3, acceptance), which is what keeps step 5 honest.
+- **Gates** (§20.15): human gates and ci gates, with `landed` telling closed from landed, which nothing yet requires.
+
+| Step of the memory | Held today by | Where it fails | Held, with this design, by |
+|---|---|---|---|
+| 1. Start; branch; own worktree | `start`'s claim; `start` names a branch | The branch and the worktree are advice | Unchanged: Aries sees no worktree. The claim stays the guard |
+| 2. Test first; the test tiers | The item "Tests run…" | Present only if the person who filed the issue typed it | A default item, on every issue of the types the setting names |
+| 3. Commit with trailer | Nothing | The `Aries:` trailer is what `landed` reads | Unchanged; `aries land` and `--from-commit` report what they cannot find |
+| 4. A PR from the template | The item "PR opened…" | As step 2 | A default item |
+| 5. `handoff`, never `finish` | The item "Reviewed and merged…" left open | As step 2; and an agent may tick it | A required check: `finish` is refused until `landed` passes (§21.5) |
+| 6. Never merge | The host's branch protection | Not Aries's to enforce | Unchanged |
+| 7. Merge and close together | The coordinating session, by hand | A merged PR whose issue nobody finishes; a finished issue whose PR never merged | The `landed` pass closes the issue when nothing else is open (§21.5) |
+| 8. Clean up | The memory | Read once, forgotten at the end | The close-out checklist, shown by `handoff` and `finish` (§21.7) |
+| 9. A CI failure is yours | `gate.failed` in the holder's inbox, if a ci gate exists | No gate unless someone added one | Required checks make the gate (§21.5) |
+| 10. Read-only tasks post and finish | The memory | Its issues carry the four items, which do not apply | A type whose workflow names no items or checks (Question 13) |
+
+So the failures are of two kinds. What is typed by hand depends on whoever files the issue remembering, and an agent filing discovered work through `finish` never does. And nothing ties an issue's closing to what happened on the host: `close` is the closer's assertion (§20.1), and `landed` is recorded beside it, not required by it.
+
+### 21.2 Principles kept, and what they rule out
+
+- **The event log is the truth (principles 2, 3).** What the workflow added to an issue is written into the issue at create, in the create's own write, with the version of the setting in its event. A later change of the setting changes no issue already made; nothing is derived at read time from a setting the issue's log does not name.
+- **Rights are checked by the server, and MCP stays small (rule 12, decision 12).** Setting the workflow is an admin's act over `aries admin`; no tool sets, reads or bypasses it. Agents meet it as acceptance items, refusals with a fix, and lines in results they already receive.
+- **Enforced on the server, whatever the client.** Defaults and required checks apply to a `create` and a `finish` from a client of any protocol version, including one that never heard of a workflow: the server applies them in the write, and asks the client for nothing.
+- **Fail closed and loud (principle 6).** An issue that requires a check the server has no report of is not finished; the refusal says which check, who may report it and the next step (rule 11).
+- **The harness does the chores (principle 5).** A close-out step such as removing a worktree is the harness's; the server holds the text and shows it at the right moment, and does not pretend to know it was done.
+- **No runner, no outbound call (decision 67).** Required checks are the ci gates of §20.4, reported by a client. ariesd still polls nothing and receives no webhook; §21.8's laptop answer is a client too.
+- **What this rules out:** a rule language on the server; a workflow an agent can change or turn off; defaults recomputed on open issues when the setting changes; the server closing an issue on anything but a report a named principal made.
+
+### 21.3 The setting
+
+**Where it lives.**
+
+| Option | For | Against |
+|---|---|---|
+| **A. A row of the project's `settings` table (recommended)** | The table exists in project migration 0001 (`name`, `value` JSON, `source`, `updated_at`, `rev`) and nothing uses it yet; the project's writer writes it with an event in the project's log, beside the issues it governs, so `create` reads it in its own transaction; a single-project server and a server of many projects store it alike | The organization's default (§21.9) is elsewhere, in the control store |
+| B. A row of the control store, per project | One place for every project's setting, beside memberships | Every `create` reads across stores, or through the in-memory index, which then holds every project's workflow; the issue's log no longer holds the version it was made under |
+| C. The pinned memory, parsed | Nothing new to learn | Memories are agents' to write (`remember`); a setting that an agent's `remember` can change enforces nothing |
+
+**The document,** applied as a whole, in YAML or JSON. `aries` parses it, with the YAML parser it already links for `.aries.yaml`, and sends JSON, so ariesd gains no parser. What this repository would apply, with `alice` for its maintainer:
+
+```yaml
+# .aries/workflow.yaml: applied with `aries admin workflow set`
+version: 1
+ci: [ci-example]              # principals that may report a required check
+types:
+  default:                  # every type not named below
+    acceptance:
+      - PR opened from the template, saying what ran and what was left to CI
+      - Tests run as AGENTS.md's Test tiers require for the change
+      - text: CI green on the PR
+        check: build        # ticked by the check's pass (§21.5)
+      - text: Reviewed and merged by the maintainer
+        check: landed
+    checks: [landed]
+    closeout:
+      - Stop and remove any compose stack you started, never a shared one
+      - Delete files you left outside the repository
+      - Leave the session to be archived when its PR merges
+  epic:
+    acceptance: []
+    checks: []
+    approve: {approvers: [alice]}   # a human gate on the epic at create (§21.6)
+    closeout:
+      - git fetch --prune and git worktree prune; delete merged branches
+      - Put the main checkout back on main; archive finished sessions
+  chore:                    # read-only runs: post the result, then finish
+    acceptance: [The result is posted where the issue says]
+    checks: []
+```
+
+- **Keys.** `types` maps an issue type (`bug`, `feature`, `task`, `epic`, `chore`) or `default` to a **profile**: `acceptance` (items, each a line or a `{text, check}`), `checks` (required check names, `[a-z0-9][a-z0-9._-]{0,63}` as G1's), `review` and `approve` (§21.6), `closeout` (lines). A named type replaces `default` whole, so what a type gets is read in one place. `gate` cannot be named: a gate's lifecycle is §20's. `ci` names the principals that may report a required check.
+- **Checked at set:** the types and keys are known, so a typo is refused rather than ignored; each line passes `internal/safetext` and the secrets lint (`internal/secretscan`), as a memory does, since it will be copied into issues; every named principal is a member of the project; a bound check is among its profile's `checks`; the caps of §21.10.
+- **A version.** The row's `rev` is the workflow's version; `aries admin workflow set FILE --rev N` refuses a stale apply (rule 6). Each set records `workflow.set` with the document before and after.
+- **The file belongs in the repository,** reviewed in a pull request like the code it governs, as formulas are (decision 71); the server never reads the repository. `aries admin workflow diff FILE` prints what an apply would change, and `aries workflow check FILE` exits 1 when the server's differs, for a CI job that can reach the server.
+
+### 21.4 Default acceptance items, at create
+
+**How they are added.**
+
+| Option | For | Against |
+|---|---|---|
+| **A. Appended to the issue's acceptance text in the create's write (recommended)** | Items are already derived from the text (§7, As built for stage 3); `start`, `show`, `accept`, `finish`'s `ticked` and `waived`, the offline cache, conflicts and bd export need no change; S-3's rule already refuses an `update` that drops an open item, so an item leaves an issue only ticked or waived, on the record | The text grows a list the creator did not type; an item reworded in the text is a new item, the old one still to be waived, as today |
+| B. Derived at read from the setting in force | Nothing written | A change of the setting moves open issues' criteria mid-work, and the issue's log no longer explains them |
+| C. Rows of a table of their own | Defaults apart from the creator's | A second kind of item in every place items are read; nothing gained over A |
+
+**Rules (A).**
+- **Which writes.** `create`, the discovered issues of `finish`, and `graph.create` when G3 builds it. Not `ariesd import-bd`, whose issues are history; not templates, which get theirs when poured; not gates.
+- **Order and duplicates.** The profile's items follow the creator's, and an item whose text the creator already gave (the same hash as `acceptance_state` keys) is not added twice.
+- **Recorded.** The `issue.create` event's after state gains `workflow: {rev, type}` (and the organization's rev, §21.9), and the issue's `metadata` keeps the profile's required checks and gates, so a later change of the setting changes nothing on it.
+- **A change of type** (`update` of `type`) adds, in the same write, the new profile's items and checks that the issue lacks, recorded the same way; what the old type added stays until ticked or waived. Question 3.
+- **Waiving is the only way out,** with a reason (`accept` or `finish`'s `waived`), as for any item; `close --force` stays an admin's override with its `acceptance_overridden` record.
+- **No new argument.** `create` takes nothing new; a client of protocol 8 gets the defaults. `create`'s result gains `items`, how many the workflow added, a result field (no bump), which the CLI prints on stderr beside `similar`.
+
+### 21.5 Close means landed: required checks
+
+A profile's `checks` are names of §20.4's ci gates. **An issue whose profile requires a check cannot be finished until a ci gate of that check, with the issue as subject, has passed.**
+
+**The gate is made by the first report, not at create.** Making a ci gate per required check at every `create` would add one or two gate issues to every issue made. Instead, a report (`gate.pass` or `gate.fail` by subject and check) for an issue whose recorded profile requires that check, and that has no gate for it yet, makes the gate in the report's write, as `gate.add` would, with the workflow's `ci` principals as its `by`. A report for a check the profile does not require still needs a gate someone added, as in G1. So `aries gate pass --check landed --from-commit` works on every issue the workflow governs without anyone adding a gate.
+
+**What `finish` does meanwhile.**
+
+| Option | For | Against |
+|---|---|---|
+| **1. `finish` and `close` are refused while a required check has not passed; the passing report closes the issue (recommended)** | Closed means landed, for dependents, `ready`, digest and cost per outcome (enterprise review E8). It is already the memory's step 5 (handoff, never finish) and removes step 7's manual finish | An issue waits with no holder between handoff and merge; a team whose CI cannot report must have a way to (§21.8) |
+| 2. `finish` closes as today, shown "closed, not landed"; dependents stay blocked until it lands | The agent's flow is unchanged | A closed issue that blocks is a new rule in `blockedCTE`, `blocked`, the board and the soak's replay; a closed issue whose PR never merges looks done in every list |
+| 3. Display only, as G1 is | Nothing to build | What exists today; the maintainer asked for more |
+
+**Option 1 in detail.**
+- **The refusal.** `finish` and `close` of such an issue are refused with code `acceptance`, the code an open item already gets, naming the checks and their last reports, with the fix: `handoff` with the pull request's link and state `done`; the issue closes when the check passes. `aries mcp` words it as the next call. `close --force` by an admin and `gate.waive` (an admin, from `cli`, with a reason) remain the overrides, each recorded.
+- **Waiting to land.** After the agent's `handoff` the issue stays `in_progress`, holding nothing once the claim is released or lapses (§7, As built, authorization and holds), with a last handoff of state `done`. `digest` and `prime` list such issues as **awaiting landing**, with their checks' last reports; `ready` leaves them out, as it does everything in progress.
+- **Items bound to a check** (`{text, check}`) are ticked by that check's pass, in the pass's write, with `acceptance.tick` by the reporting principal; a failure after a pass unticks them (`acceptance.untick`), as a failure reopens the gate. An agent may still tick such an item itself; Question 6 asks whether only the check may.
+- **The closing pass.** When a pass leaves the subject with every required check passed and no item open, the same write closes it: `issue.close` by the reporting principal with `reason: landed`, ending any claim, and `gate.passed` to the assignee and the last handoff's author. When an item is still open, nothing closes, and the inbox item says what is left; whoever finishes it then is not refused.
+- **A revert.** A later failure of `landed` reopens the gate (G1) and, under option 1, reopens the issue (`issue.reopen` by the reporter, `reason: check failed`), telling its assignee, since closed meant landed. Question 5.
+
+### 21.6 Review and approval
+
+**Review before close.** A profile's `review: {approvers: [...]}` requires a person's pass before the issue can close, as a required check does: a human gate whose subject is the issue, made by the server in the create's write and holding nothing, so it never blocks the work's start; `finish` is refused until it passes, with the same code and a fix naming the approvers. It is passed as a human gate is (decision 68): by a principal it names, else a project admin, only from the session `cli`.
+
+**When it is worth having.** Where the host's branch protection requires a review, `landed` already means reviewed, and a second review in Aries is ceremony. Review is for what the host does not see: a design with no code, a decision, an operations task, or a host with no required reviews. So it is off by default and set per type. Question 7.
+
+**Approval before start.** A profile's `approve: {approvers: [...]}` makes, in the create's write, a human gate that blocks the new issue, so that it and every descendant stay out of `ready` until a person passes it (§20.3): an epic's plan approved before its children start (Bearings §3.13). Its `gate.pending` goes to the approvers as any gate's.
+
+**Who is the author.** Until agents are principals of their own (decision 8; enterprise review E2), an agent working under its person's key is that person, so "not the author" cannot be enforced between a person and their agents; the `cli` session is the speed bump, as for every human gate. When E2 lands, a profile gains `review.not_author: true`, refusing a pass by the principal, or the owner of the agent principal, that holds or last held the issue.
+
+### 21.7 The close-out checklist
+
+A profile's `closeout` lines are what the harness does when work ends: tear down what it started, archive the session, and, for an epic, prune worktrees and merged branches and put the main checkout back on `main` (the memory's step 8 and the issue's comment of 16 Oct 2026). Aries sees no worktree, container or session, so it cannot check any of it.
+
+| Option | For | Against |
+|---|---|---|
+| **A. Shown, not tracked (recommended)** | No self-attestation dressed as a check; no schema token; a result field, so no protocol change | Nothing records that it was done |
+| B. Ticked like acceptance items | A record | The agent ticks what nothing can verify; `finish` gains an argument (MCP tokens, a protocol bump) |
+
+- **Where it is shown.** In the results of `handoff` with state `done` and of `finish`, as `closeout`, which `aries mcp` puts as a short list after the result line, within the result's 2,000-token cap and dropped last; in the inbox item of a closing pass (§21.5), since the session that did the work may be gone by then; and for an epic, in the result of the `finish` or `close` that closes it, and in `digest` once its last child closed.
+- **Hooks.** A harness with a session-end hook may run its own close-out script; `aries setup` does not write one, since the steps are the team's and their commands differ by machine.
+
+### 21.8 When CI cannot reach the server
+
+`landed` is reported by a job running `aries` after the merge (§20.4, decision 67). A server on a laptop, as the dogfood server is, or behind a VPN or IAP a hosted runner cannot use, never hears from it, and under §21.5's option 1 nothing it governs would close.
+
+| Option | What it takes | What a pass is worth |
+|---|---|---|
+| **1. `aries land`, on a person's machine (recommended for one maintainer)** | A new command, over the existing `gate.pass`: after `git pull` on the default branch, it reads each commit since the last it reported (kept in the data directory, per project), takes the issue from the `Aries:` trailer or a merge commit's subject as `--from-commit` does, and reports `landed` with the commit, from the session `cli`. The workflow's `ci` names the person's principal. The coordinating session runs it at step 7, or a `post-merge` hook does, which `aries setup` may offer and never writes unasked | What the person's checkout saw on the default branch; as much as their key |
+| 2. A self-hosted runner, or a tunnel, that reaches the server | docs/ci.md's workflow on a runner inside the network, or with Tailscale, WireGuard or IAP (decision 65) | As G1's |
+| 3. A relay that polls the host's API | A client process holding a host token, built outside ariesd if asked (§20.4, option 3) | As the relay's key; deferred |
+| 4. No required checks | `checks: []`: the default items stay, and the memory's step 7 is a person's again | Nothing beyond today's |
+
+`aries land` asks the server nothing new: a pass of a closed gate is a no-op, so running it twice, or on two machines, is harmless; a commit that names no issue is skipped with a note (`--optional`'s rule); a report from it carries no `run`, so it is taken in the order it arrives (§20.15, runs out of order). `build`, which only CI runs, cannot be reported this way; a team in this case leaves `build` out of `checks` and keeps "CI green on the PR" an item the agent ticks.
+
+### 21.9 Many projects, and an organization's default
+
+**Within one server,** each project's workflow is its own row (§21.3, A), set by that project's admins; a server admin may set any. A server of one project, with `admins:` in the settings, works the same way.
+
+**An organization's default.** Bearings decision 31 (§3.15) makes the server the organization. A server admin applies a default for every project, `aries admin workflow set --server FILE`, kept in the control store (a `settings` table in a new control migration, with `workflow.set` in the control log and the audit stream) and held in the control index the daemon reads at no cost (§15.1, As built), as capabilities are.
+
+**How it cascades.** The effective profile of a type is computed by the daemon at create, from the server's default and the project's own:
+
+| In the server's default | In the project's |
+|---|---|
+| An item, check, review or approval marked `required: true` | Kept; the project cannot remove it. An apply that would is refused `invalid`, naming the line |
+| Anything else | A default the project may replace by naming the type |
+| Close-out lines | Shown before the project's |
+
+So the server's default is a **floor**, and a project may only add to it: the rule Bearings §3.18 gives `policy.apply`, "refusing a child looser than its parent". The create's event records both revs, `workflow: {server, project, type}`.
+
+**Staying compatible with what is to come.**
+- **Organization memory** (aries-iakie56e) is guidance agents read; the workflow is what the server enforces. They should share their addressing: a scope that is the server (organization) today, a portfolio later (Bearings §3.15's `scope_kind` and `scope`), a project last. Recommended: whichever is built first defines that scope key in the control store, and the other uses it; a server-level workflow and organization memory are two rows at the same scope.
+- **Portfolios** add one layer between server and project with the same floor rule, when §3.15 is built; nothing here changes.
+- **Policy as code** (Bearings §3.18). Its `projects/NAME.toml` lists "gates per project; reviewer constraints" among structural policy. This document is that part: Bearings' `policy-apply` principal calls the same `workflow.set`, and the second signer and the recorded commit are Bearings' additions on top, not a second store. Recommended: Bearings P0 builds on `workflow.set` and its floor check rather than beside them.
+- **Roles** (enterprise review E6). Today a project admin sets the project's workflow; when E6 brings narrower roles, a `policy` role (§3.18's `policy_owner`) may set it without the rest of a project admin's rights.
+- **Autonomy windows** (E13) bound what an agent may do unattended; a workflow says how any work must end. A window may later name a stricter workflow for the work done in it; nothing here assumes one.
+
+### 21.10 What changes on the server
+
+- **Ops.** `workflow.set` (project and server admins; the document, the expected rev, and `scope: project|server`) and `workflow` (a read of the project's document, the server's, and the effective profiles, by any member, so that `prime` can summarize it). Both are new ops, a protocol change under rule 10: **from v0.5.0 on, one bump** (`Proto` and `ProtoMax` 9, `ProtoMin` 8, release-versioning); a slice that merges before v0.5.0 is tagged joins 8 as decision 78 allows. Nothing else is an argument: defaults, required checks, gates made by a report, and the closing pass are the server's behavior on existing ops, so a protocol 8 client is held to the workflow as a 9 one is.
+- **Results** (no bump; clients ignore unknown fields): `create`'s `items`; `show`'s `workflow` (rev and type) and `checks` with the required ones marked; `handoff`'s and `finish`'s `closeout`; `digest`'s and `prime`'s `landing`, the issues awaiting landing.
+- **Migrations.** Project set: none; the `settings` table exists. Control set: `settings`, for the server's default (W4).
+- **Events** (rule 7): `workflow.set`, target `setting:workflow` (no issue id matches it, so the board's push does not carry it), with before and after; in the control log, the same for the server's default. `issue.create` and an `update` of type gain `workflow` in their after state. The report that makes a gate records `gate.add` before its `gate.pass` or `gate.fail`; a bound item's tick is `acceptance.tick` by the reporter; the closing pass is `issue.close` with `reason: landed`; a revert's is `issue.reopen` with `reason: check failed`.
+- **Inbox:** `gate.passed` and `gate.failed` to the subject's assignee and last handoff's author, as G1's are; no new kind.
+- **Errors:** `acceptance` for a `finish` or `close` held by a required check or review, with its fix; `invalid` for a setting refused at set, naming the key and line.
+- **Limits** (rule 18), each a `limits:` setting with a row in `docs/server.md`:
+
+  | Limit | Default |
+  |---|---|
+  | `workflow_bytes` (one document) | 16 KiB, at most 64 KiB |
+  | `workflow_items_per_type` | 20, at most 100 |
+  | `workflow_checks_per_type` | 5, at most `gate_checks` |
+  | `workflow_closeout_per_type` | 20, at most 100 |
+
+  A review's or approval's approvers are capped by `approvers_per_gate`, and the items an issue ends with by `acceptance_items_per_issue` (200): a `create` whose own items and the defaults together pass it is refused `invalid`, naming both counts.
+- **Telemetry and logs** (§16.4): the log event `workflow.set` (fields: project, by, rev, scope; no text); `aries.gates` already counts the gates reports make. A workflow's lines are a person's text and go on no metric or span (rule 2).
+- **Offline** (§18.3):
+
+  | Queued | Never queued |
+  |---|---|
+  | `create`, which gets the defaults in force when it is replayed, not when it was queued: the replay is the write. The queued answer says so ("workflow applies when sent"). `handoff`. `finish`, whose replay a required check may refuse, which then lands in the refused list with the fix to hand off | `workflow.set` (an admin's act, as every admin op); `gate.*`, as §20.9 has it, so `aries land` refuses offline and remembers nothing it did not report |
+
+  The cache keeps `workflow` with `prime`'s answer, so an offline `prime` shows the summary it last saw, saying so.
+- **MCP cost:** no tool and no argument, so **0 schema tokens** against the 3,000 (the 25 tools measure about 2,773 today). Results: `prime` gains one line, about 25 tokens of its 1,500 (`workflow rev 4: task, bug, feature: 4 items, landed; epic: approval`); the close-out list and the awaiting-landing lines are dropped last under their results' caps. The refusal's fix is reworded as the next call by `internal/mcpserver/errors.go`, as every refusal is.
+- **The pinned memory stays** for what no server can hold: branch names, worktrees, test first, never merge. It shrinks to those steps once W1 is built.
+
+### 21.11 Plan
+
+| Slice | Delivers | Gate |
+|---|---|---|
+| W0 | The setting: `workflow.set` and `workflow`, `aries admin workflow` set, show and diff, `aries workflow check`, validation, `workflow.set` events, the caps; default items at `create` and `finish`'s discovered issues, and on a change of type; `prime`'s line; docs/concepts.md and docs/server.md | An agent's `create` through MCP, and a protocol 8 client's, gets the profile's items; a later set changes no existing issue; the event names the rev; an agent cannot remove an item except by waiving; a set by a member is refused `forbidden`, and over MCP there is no way to try |
+| W1 | Required checks: the gate made by the first report, `finish` and `close` refused with the fix, items bound to checks, the closing pass, reopen on revert, awaiting landing in `digest` and `prime` | e2e: an issue whose profile requires `landed` is refused at `finish`; a CI principal's `--from-commit` pass with no gate added closes it and tells its assignee; a principal the workflow does not name is refused; a failure after reopens it. The soak's replay holds every `issue.close` of such an issue to a pass |
+| W2 | `aries land`, its state per project, the optional `post-merge` hook in `aries setup`; docs/ci.md's section for a server CI cannot reach | Two runs of `aries land` over the same commits report each once and change nothing the second time; a commit naming no issue is skipped with a note; offline it reports nothing and remembers nothing |
+| W3 | Review and approval per type | An epic created under `approve` keeps its children out of `ready` until an approver passes from `cli`; an issue under `review` cannot finish until passed; MCP within budget, unchanged |
+| W4 | Close-out lines in `handoff`, `finish`, the closing pass's inbox item and an epic's close | Golden-tested results, within their caps |
+| W5 | The server's default with the floor rule, in the control store, with organization memory's scope key | A project's apply that loosens a required line is refused, naming it; a server default applies to every project's next `create`; both revs on the event |
+
+W0 alone replaces the hand-typed items. W1 with W2 is what makes "closed" mean "landed" for this repository, whose server CI cannot reach. W3 and W4 are small; W5 waits for organization memory so the two share a scope.
+
+### 21.12 Decisions for the maintainer
+
+1. **The workflow is a project setting,** a row of the project's existing `settings` table, set as a whole document. Recommended (§21.3, A). Cost: the server's default lives in the control store, apart.
+2. **It is a file in the repository, applied by `aries admin workflow set`,** with `diff` and `check`, never over MCP. Recommended. Cost: an apply is a person's step after the pull request merges, until Bearings' `policy-apply` does it.
+3. **Defaults are appended to the acceptance text at create,** and on a change of type the new profile's are added and the old ones kept; an item leaves only by waiver. Recommended (§21.4, A). Cost: the text holds items its creator did not type.
+4. **A create queued offline gets the defaults in force at its replay.** Recommended. Cost: the queued answer cannot list them.
+5. **Close means landed:** `finish` and `close` are refused while a required check has not passed, the passing report closes the issue, and a later failure reopens it. Recommended (§21.5, option 1). Cost: an issue waits in progress with no holder until it lands; a team must have a way to report.
+6. **Items bound to a check are ticked by its pass;** an agent may still tick them too. Recommended, as the lighter rule. The alternative, only the check ticks a bound item, is stricter and refuses an agent's tick with a fix.
+7. **Review before close is per type and off by default; approval before start is per type, for epics.** Each is a human gate passed as decision 68 says. Recommended. Cost: "not the author" waits for agent identities (E2).
+8. **The close-out checklist is shown, not tracked.** Recommended (§21.7, A).
+9. **Project admins and server admins set it; a `policy` role later, with E6.** Recommended.
+10. **The server's default is a floor** that a project may add to and not loosen, in the control store, built with organization memory and sharing its scope. Recommended (§21.9). Bearings P0 then builds on `workflow.set`.
+11. **For a server CI cannot reach, `aries land`** run by a named person after pulling the default branch; a self-hosted runner or a tunnel documented; `checks: []` as the fallback. Recommended (§21.8, option 1).
+12. **One protocol bump** for W0's two ops, `ProtoMin` kept at 8; W1 to W4 add only behavior and result fields. Recommended.
+13. **Read-only work gets a type** whose profile has no pull-request items (this repository would use `chore`), not an exemption label, which an agent could add to escape the workflow. Recommended. Cost: filing such work with the right type matters.
+14. **Not retroactive:** a workflow applies to issues created after it is set. Recommended. The v0.5.0 issues keep the items typed onto them; a one-time `aries admin workflow apply --open`, recorded issue by issue, can be built if wanted.
+
+### 21.13 What this does not solve
+
+- **Aries sees no branch, test run or pull request.** An item such as "Tests run as the tiers require" is the agent's word when it ticks it; only bound checks are reported by something else.
+- **A check is as good as the key that reports it** (§20.13). From a laptop, `landed` means the maintainer's checkout saw the commit on the default branch.
+- **A person and their agents are one principal** until E2, so a review or approval from `cli` is a speed bump, not separation of duties.
+- **Never merging is the host's rule** (branch protection, a merge queue); Aries records what landed, not who pressed the button.
+- **The close-out steps are not checked.** A stack left running is found by `docker compose ls`, not by Aries.
+
+### 21.14 Not tested
+
+Everything: this is a design. In particular: what `create` costs when it reads the setting and, under W5, the control index; `digest`'s awaiting-landing query at 50,000 issues; and whether a `post-merge` hook is reliable across the harnesses' worktrees, which share one repository's hooks.
