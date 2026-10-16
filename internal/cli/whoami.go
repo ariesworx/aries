@@ -33,6 +33,7 @@ type whoami struct {
 type whoamiSignIn struct {
 	ID        string    `json:"id"`
 	Provider  string    `json:"provider"`
+	TrustRule string    `json:"trust_rule,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Scopes    []string  `json:"scopes"`
 }
@@ -80,7 +81,7 @@ func cmdWhoami(ctx context.Context, r *runner, args []string) error {
 	out := whoami{Principal: c.Principal(), Project: cfg.Project, Session: c.Session(), Key: c.Key(), Skipped: c.SkippedKeys(),
 		Server: whoamiServer{Transport: via, URL: cfg.Server.URL, Host: cfg.Server.Host, Port: cfg.Server.Port, User: cfg.Server.User}}
 	if s := c.SignIn(); s != nil {
-		out.SignIn = &whoamiSignIn{ID: s.Grant, Provider: s.Provider, ExpiresAt: s.ExpiresAt, Scopes: s.Scopes}
+		out.SignIn = &whoamiSignIn{ID: s.Grant, Provider: s.Provider, TrustRule: s.TrustRule, ExpiresAt: s.ExpiresAt, Scopes: s.Scopes}
 	}
 	if cfg.Server.Host != "" {
 		if pinned := cfg.Pinned(); len(pinned) == 1 {
@@ -118,7 +119,11 @@ func printWhoami(w io.Writer, me whoami) {
 	}
 	p("session", "%s", esc(me.Session))
 	if s := me.SignIn; s != nil {
-		p("signed in", "at %s, until %s (sign-in %s, scopes %s); `aries logout` ends it", esc(s.Provider), when(s.ExpiresAt), esc(s.ID),
+		by := ""
+		if s.TrustRule != "" {
+			by = "by trust rule " + esc(s.TrustRule) + " "
+		}
+		p("signed in", "%sat %s, until %s (sign-in %s, scopes %s); `aries logout` ends it", by, esc(s.Provider), when(s.ExpiresAt), esc(s.ID),
 			esc(strings.Join(s.Scopes, " ")))
 		return
 	}

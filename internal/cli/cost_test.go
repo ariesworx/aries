@@ -142,7 +142,7 @@ func TestCostUsage(t *testing.T) {
 		{"cost bad group", []string{"-C", empty, "cost", "--since", "7d", "--group-by", "team"}, "--group-by must be account, issue, epic, person or model"},
 		{"admin needs price", []string{"-C", empty, "admin"}, "admin needs price"},
 		{"admin unknown", []string{"-C", empty, "admin", "keys"}, `unknown admin command "keys"`},
-		{"admin flags alone", []string{"-C", empty, "admin", "--from", "2026-01-01"}, "admin needs price, plan, project, principal, member, key, invite, identity, signin or status"},
+		{"admin flags alone", []string{"-C", empty, "admin", "--from", "2026-01-01"}, "admin needs price, plan, project, principal, member, key, invite, identity, signin, trust or status"},
 		// Flags before the subcommand are the subcommand's: --from reaches
 		// price set, which names only the rates as missing.
 		{"flags before price", []string{"-C", empty, "admin", "--from", "2026-01-01", "--input", "1", "price", "set", "m"},

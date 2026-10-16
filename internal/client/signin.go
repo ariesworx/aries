@@ -49,6 +49,9 @@ type SignIn struct {
 	Principal string `json:"principal"`
 	Provider  string `json:"provider"`
 	Grant     string `json:"grant"`
+	// TrustRule is the trust rule a workload's sign-in matched, for
+	// `aries login --workload`; empty for a person's.
+	TrustRule string `json:"trust_rule,omitempty"`
 	// Key is the DPoP key the token is bound to.
 	Key *ecdsa.PrivateKey `json:"-"`
 }

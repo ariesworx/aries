@@ -144,6 +144,9 @@ type world struct {
 	// daemonOpts.signin, and secret its client secret's file.
 	issuer *oidctest.Issuer
 	secret string
+	// platform is the stand-in CI platform whose tokens service
+	// principals sign in with, with daemonOpts.workload.
+	platform *oidctest.Issuer
 	// web is the world's HTTPS front, when its users connect over HTTPS
 	// (https_test.go); nil otherwise.
 	web *front
@@ -197,6 +200,10 @@ type daemonOpts struct {
 	// stand-in issuer (world.issuer), to sign people in at: a server of
 	// many projects over HTTPS (transport.md §6).
 	signin bool
+	// workload gives the daemon a workload provider, github-actions,
+	// which is the world's stand-in platform (world.platform), whose
+	// tokens service principals sign in with (transport.md §7).
+	workload bool
 }
 
 // newWorld starts a daemon on a new database, unless o.noDaemon, and the
@@ -447,7 +454,11 @@ func (w *world) startMany() error {
 	if err != nil {
 		return fail(err)
 	}
-	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db, HTTPS: web, Login: login,
+	wl, err := w.workload(ctl.Now, web)
+	if err != nil {
+		return fail(err)
+	}
+	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db, HTTPS: web, Login: login, Workload: wl,
 		Open:     server.ProjectOpener(db, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
