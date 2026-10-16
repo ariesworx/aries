@@ -46,6 +46,11 @@ var (
 	// ErrBusy means the actor reached a cap on how much it may add in a
 	// time window, such as its usage records a day; it may retry later.
 	ErrBusy = errors.New("busy")
+	// ErrCommitUnknown means a write's COMMIT was sent and its answer
+	// never came back: the connection broke, or the write's context
+	// ended, while Postgres had it. The write may have been applied. It
+	// is no refusal, and a caller must not report it as one.
+	ErrCommitUnknown = errors.New("commit outcome unknown")
 
 	// errRetry marks a failure that rerunning the write resolves.
 	errRetry = errors.New("retry")

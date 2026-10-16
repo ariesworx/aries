@@ -979,6 +979,13 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 			// audit stream, if it made an event, precedes its answer.
 			s.Audit(ctx)
 		}
+		if perr == errUnanswered {
+			// The write may stand, so no refusal is sent for it: the
+			// connection closes, and the client takes the request as lost.
+			s.observeRequest(sess, f.Op, perr, start)
+			s.endRequest(span, sess, perr)
+			return
+		}
 		if perr != nil {
 			// A copy: a refusal may be a value shared between requests.
 			named := *perr

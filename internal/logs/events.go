@@ -38,6 +38,9 @@ const (
 	RequestRefused Event = "request.refused"
 	RequestFailed  Event = "request.failed"
 	RequestPart    Event = "request.part_failed"
+	// RequestUnknown: a write's COMMIT was sent and its answer lost, so
+	// it may stand; its connection is closed unanswered.
+	RequestUnknown Event = "request.commit_unknown"
 
 	// Projects and their stores.
 	ProjectAdded       Event = "project.added"
@@ -162,7 +165,7 @@ var events = []Event{
 	DaemonServing, AdminCheck, AdminWarning, SystemdNotify, LogSuppressed,
 	ConnAccept, ConnCapRefused, ConnPeerRefused, ConnOpened, ConnIdleClosed, ConnReadFailed, ConnWriteFailed, ConnAccessEnded,
 	ConnDropped, ConnKeyLookup, HandshakeFailed, AgentHarness, AgentRegister,
-	RequestDone, RequestRefused, RequestFailed, RequestPart,
+	RequestDone, RequestRefused, RequestFailed, RequestPart, RequestUnknown,
 	ProjectAdded, ProjectOpened, ProjectOpenFailed, ProjectNotOpened, ProjectClosed, ProjectCloseFailed,
 	StoreSchemaTooNew, StoreUnsafeAccount, ControlReload, ControlIndexStale,
 	ClaimExpired, ClaimReleased, LockExpired, LockReleased, GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed, ReaperFailed, ReaperPruneFailed, ReaperPruned, SweepFailed,

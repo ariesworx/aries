@@ -3196,6 +3196,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `request.refused` | info | A request was refused, with its `code`. Capped at `refusal_logs_per_minute` per principal |
 | `request.failed` | error | A request failed on the server, and its client was answered `unavailable`. The line with the client's `req` has the cause |
 | `request.part_failed` | error | A request was answered, without a part that could not be read: an issue's similar issues, its memories, a new member's keys |
+| `request.commit_unknown` | error | A write's commit was sent to Postgres and its answer never came back (the daemon was stopping, the request ran out of time, or the connection to Postgres broke), so the write may stand. The request is not answered: its connection is closed, as a dropped one would be, so that the client never takes a write that may stand for a refusal, and resends it with its idempotency key |
 | `project.added` | info | `aries admin project add` made a project |
 | `project.opened`, `project.closed` | info | A project's store was opened, or closed (`reason`: `idle`, `to make room` or `archived`) |
 | `project.open_failed` | error | A project's database could not be opened: at start, at a handshake, or for an `aries admin` change. Alert on it |
