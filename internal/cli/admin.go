@@ -23,7 +23,7 @@ import (
 // The server decides who may run what.
 
 // adminGroups are the first words `aries admin` takes.
-var adminGroups = []string{"price", "plan", "project", "principal", "member", "key", "invite", "identity", "status"}
+var adminGroups = []string{"price", "plan", "project", "principal", "member", "key", "invite", "identity", "signin", "status"}
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
@@ -32,6 +32,7 @@ const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | a
 	" | admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT" +
 	" | admin invite add NAME ADDRESS --provider P | list [--pending] | remove ID" +
 	" | " + identityUsage +
+	" | " + signInUsage +
 	" | admin status [-n N] [--after NAME]"
 
 // only refuses a flag the action does not take: any that was given and

@@ -43,6 +43,7 @@ import (
 	"github.com/ariesworx/aries/internal/iaptest"
 	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/oidc/oidctest"
 	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/server"
@@ -139,6 +140,10 @@ type world struct {
 	// history it may start behind (server.Config.AcceptHistory). The
 	// caller holds daemonMu.
 	acceptHistory time.Time
+	// issuer is the stand-in provider the daemon signs people in at, with
+	// daemonOpts.signin, and secret its client secret's file.
+	issuer *oidctest.Issuer
+	secret string
 	// web is the world's HTTPS front, when its users connect over HTTPS
 	// (https_test.go); nil otherwise.
 	web *front
@@ -188,6 +193,10 @@ type daemonOpts struct {
 	// IAP. https puts them on HTTPS in either run, for a test of HTTPS
 	// itself.
 	ssh, https bool
+	// signin gives the daemon a provider, corp, which is the world's
+	// stand-in issuer (world.issuer), to sign people in at: a server of
+	// many projects over HTTPS (transport.md §6).
+	signin bool
 }
 
 // newWorld starts a daemon on a new database, unless o.noDaemon, and the
@@ -434,7 +443,11 @@ func (w *world) startMany() error {
 		cancel()
 		return errors.Join(err, closeWeb(web), ctl.Close(), db.Close())
 	}
-	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db, HTTPS: web,
+	login, err := w.login(ctl.Now)
+	if err != nil {
+		return fail(err)
+	}
+	srv, err := server.New(server.Config{Control: ctl, Version: "v0.2.0", Postgres: db, HTTPS: web, Login: login,
 		Open:     server.ProjectOpener(db, ctl, store.Options{Now: o.now, Clock: clk, Limits: o.limits.Limits, Logger: o.logger, IdemWindow: time.Duration(o.limits.IdemWindow), AwayMax: time.Duration(o.limits.AwayMax)}, o.telemetry),
 		ProtoMin: o.protoMin, ProtoMax: o.protoMax, ReapInterval: o.reap, Limits: o.limits, Logger: o.logger,
 		KeysFile: w.keysFile, AuthorizedKeys: w.handFile, Clock: clk, AcceptHistory: w.acceptHistory, Telemetry: o.telemetry})
@@ -842,8 +855,14 @@ type user struct {
 	// now, if set, is the CLI's clock, in the user's time zone; unset,
 	// the CLI's default.
 	now func() time.Time
-	// stdin, if set, is what the CLI reads from standard input.
+	// stdin, if set, is what the CLI reads from standard input; input, if
+	// set, in its place, for a test that writes to it as the CLI runs.
 	stdin string
+	input io.Reader
+	// browser, if set, is the user's browser, which `aries login`
+	// opens (cli.Env.OpenBrowser); unset, there is none, and login
+	// prints the URL.
+	browser func(url string) error
 	// terminal says a person is at the CLI's input and output, so that it
 	// may ask them something.
 	terminal bool
@@ -947,7 +966,7 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		return -1
 	}
 	return cli.Run(ctx, append([]string{"-C", sub}, args...), cli.Env{
-		Stdin: strings.NewReader(cmp.Or(u.stdin, "from stdin\n")), Stdout: stdout, Stderr: stderr,
+		Stdin: u.stdinReader(), Stdout: stdout, Stderr: stderr, OpenBrowser: u.browser,
 		Getenv:   func(k string) string { return u.env[k] }, // no SSH_AUTH_SOCK: the key file is used
 		Hostname: func() (string, error) { return "laptop-test", nil },
 		Version:  version,
@@ -1242,4 +1261,12 @@ func TestDaemonDown(t *testing.T) {
 	if r.code != cli.ExitFailure || !strings.Contains(r.stderr, msg) || !strings.Contains(r.stderr, "fix: "+fix) {
 		t.Fatalf("aries ready with no daemon = exit %d\n%s\nwant %q and the fix %q", r.code, r.stderr, msg, fix)
 	}
+}
+
+// stdinReader is what the user's CLI reads from standard input.
+func (u *user) stdinReader() io.Reader {
+	if u.input != nil {
+		return u.input
+	}
+	return strings.NewReader(cmp.Or(u.stdin, "from stdin\n"))
 }

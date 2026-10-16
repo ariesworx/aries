@@ -16,6 +16,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,21 +155,51 @@ func (w *world) httpsKey(pub ssh.PublicKey) (principal, fingerprint string, ok b
 }
 
 // relay serves one request to the front: a WebSocket on /v1/connect is
-// relayed to the daemon; anything else, and a daemon that does not
-// answer, is answered as a proxy would.
+// relayed to the daemon, with a sign-in's Authorization and DPoP
+// headers, and the daemon's refusal of the upgrade as it came; any
+// other path is proxied to the daemon as a reverse proxy of the
+// operator's would (the sign-in's); and a daemon that does not answer
+// is answered as a proxy would.
 func (w *world) relay(wg *sync.WaitGroup, rw http.ResponseWriter, r *http.Request) {
 	f := w.web
-	if r.URL.Path != keyproof.ConnectPath {
-		http.NotFound(rw, r)
-		return
-	}
 	f.mu.Lock()
 	upstream := f.upstream
 	f.mu.Unlock()
+	if r.URL.Path != keyproof.ConnectPath {
+		if upstream == "" {
+			http.Error(rw, "the daemon does not answer", http.StatusBadGateway)
+			return
+		}
+		p := &httputil.ReverseProxy{
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(&url.URL{Scheme: "https", Host: upstream})
+				pr.Out.Host = pr.In.Host // the daemon never trusts it; a proxy may pass it or rewrite it
+			},
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: f.pool, MinVersion: tls.VersionTLS12}},
+			ErrorLog:  log.New(io.Discard, "", 0),
+		}
+		p.ServeHTTP(rw, r)
+		return
+	}
 	var up *wsconn.Conn
+	var resp *http.Response
 	var err error
 	if upstream != "" {
-		up, _, err = wsconn.Dial(r.Context(), "wss://"+upstream+keyproof.ConnectPath, &tls.Config{RootCAs: f.pool, MinVersion: tls.VersionTLS12}, nil, 0)
+		h := http.Header{}
+		for _, k := range []string{"Authorization", "DPoP"} {
+			if v := r.Header.Get(k); v != "" {
+				h.Set(k, v)
+			}
+		}
+		up, resp, err = wsconn.Dial(r.Context(), "wss://"+upstream+keyproof.ConnectPath, &tls.Config{RootCAs: f.pool, MinVersion: tls.VersionTLS12}, h, 0)
+	}
+	if err != nil && resp != nil {
+		// The daemon refused the upgrade: its answer goes back whole.
+		b, _ := io.ReadAll(resp.Body)
+		rw.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		rw.WriteHeader(resp.StatusCode)
+		_, _ = rw.Write(b)
+		return
 	}
 	if upstream == "" || err != nil {
 		http.Error(rw, "the daemon does not answer", http.StatusBadGateway)

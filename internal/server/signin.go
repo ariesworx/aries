@@ -596,7 +596,7 @@ type signedIn struct {
 // admit checks the token and DPoP proof of an upgrade to /v1/connect,
 // and returns the sign-in, or a refusal and a word for the log.
 func (a *authServer) admit(r *http.Request) (*proto.Frame, *signedIn, *proto.Error, string) {
-	again := "run `aries login`"
+	again := proto.FixSignIn
 	scheme, tok, _ := strings.Cut(r.Header.Get("Authorization"), " ")
 	switch {
 	case !strings.EqualFold(scheme, "DPoP"):
@@ -656,7 +656,7 @@ func (a *authServer) providerFailed(ctx context.Context, p *oidc.Provider, err e
 // endGrant closes the connections of sign-in id, which ended for
 // reason, each with a last frame that says so (decision 59).
 func (s *Server) endGrant(ctx context.Context, id, reason string) {
-	e := proto.Errf(proto.CodeAuth, "run `aries login` to sign in again", "your sign-in ended ("+strings.ReplaceAll(reason, "_", " ")+")")
+	e := proto.Errf(proto.CodeAuth, proto.FixSignIn+" to sign in again", "your sign-in ended ("+strings.ReplaceAll(reason, "_", " ")+")")
 	n := s.closeSessions(func(o owner) bool { return o.grant == id }, e)
 	s.cfg.Logger.InfoContext(ctx, "sign-in ended", "event", logs.SignInEnded, "grant", id, "reason", reason, "connections", n)
 }
@@ -717,7 +717,7 @@ func signInEnd(ctx context.Context, s *Server, sess *session, in proto.SignInEnd
 		return out, nil
 	}
 	out.Change = "ended"
-	e := proto.Errf(proto.CodeAuth, "run `aries login` to sign in again", "your sign-in ended (revoked)")
+	e := proto.Errf(proto.CodeAuth, proto.FixSignIn+" to sign in again", "your sign-in ended (revoked)")
 	out.Connections = s.closeSessions(func(o owner) bool { return o.grant == g.ID && o.sess != sess }, e)
 	if in := sess.signedIn; in != nil && in.grant == g.ID {
 		sess.ended = true

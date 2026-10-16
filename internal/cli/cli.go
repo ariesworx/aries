@@ -15,6 +15,7 @@ import (
 	"github.com/ariesworx/aries/internal/board"
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/safetext"
 )
@@ -78,6 +79,10 @@ type Env struct {
 	// a queue or a hold, and how long it gives a command to stop. Default
 	// time.After.
 	After func(time.Duration) <-chan time.Time
+	// OpenBrowser opens a URL in the person's browser, for `aries login`.
+	// Nil opens none: login prints the URL instead. cmd/aries sets
+	// OpenBrowser(runtime.GOOS).
+	OpenBrowser func(url string) error
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -142,7 +147,9 @@ func init() {
 		{"away", "away DURATION", "extend all your claims, e.g. before going offline (1m to the server's away_max, 7d by default)", cmdAway},
 		{"digest", "digest [--since 24h|7d|DATE|TIME] [--by PRINCIPAL] [--label L]", "summarize what closed, started, stalled, is blocked and was handed off", cmdDigest},
 		{"who", "who [--since DURATION] [-n N]", "list the agents at work and the issues each holds (seen in the last 5m)", cmdWho},
-		{"whoami", "whoami", "say which principal the server takes you for, and which key signed in", cmdWhoami},
+		{"whoami", "whoami", "say which principal the server takes you for, and which sign-in or key let you in", cmdWhoami},
+		{"login", loginUsage, "sign in at the server's identity provider, for the day; --url when no browser opens here", cmdLogin},
+		{"logout", "logout", "end your sign-in at the server, and remove it from this machine", cmdLogout},
 		{"cost", costUsage, "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person or model", cmdCost},
 		{"hours", hoursUsage, "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdHours},
 		{"remember", "remember KEY TEXT...|- [--scope S] [--tag T]... [--issue ID] [--rev N] [--pin]", "keep a memory for later sessions; --rev replaces one", cmdRemember},
@@ -480,6 +487,11 @@ func (r *runner) emit(v any) {
 	_, _ = fmt.Fprintf(out, "%s\n", safetext.JSON(r.withCached(b)))
 }
 
+// notef prints a line for the person on standard error, as aries's.
+func (r *runner) notef(format string, a ...any) {
+	_, _ = fmt.Fprintf(r.env.Stderr, "aries: "+format+"\n", a...)
+}
+
 // warn prints a warning the server sent with a result, on standard
 // error; an empty one prints nothing. With --json the warning is in the
 // document, and this is not called.
@@ -533,9 +545,12 @@ func (r *runner) clientOptions() client.Options {
 	// its own, in its request's metadata, sends that one instead
 	// (mcpserver, client.WithTrace), and every other request of the
 	// connection carries this one.
+	// A sign-in kept in the data directory is presented in place of a
+	// key over HTTPS; with no data directory, there is none to find.
+	data, _ := offline.DataDir(r.env.GOOS, r.env.Getenv, r.env.UserHomeDir)
 	return client.Options{Version: r.env.Version, Session: session,
 		Machine: host, Harness: client.HarnessFromEnv(r.env.Getenv), Getenv: r.env.Getenv, UserHomeDir: r.env.UserHomeDir,
-		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush}
+		Trace: client.TraceFromEnv(r.env.Getenv), OnPush: r.onPush, DataDir: data, Now: r.env.Now}
 }
 
 // call runs one operation, and keeps its answer when the cache keeps

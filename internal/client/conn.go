@@ -54,6 +54,13 @@ type Options struct {
 	// in order, on the connection's reader goroutine. It must return
 	// quickly and must not call the Conn: the next response waits for it.
 	OnPush func(proto.Push)
+	// DataDir is the user's data directory, where `aries login` keeps a
+	// sign-in (LoadSignIn). Over HTTPS a live sign-in for the server is
+	// presented in place of a key. Empty looks for none.
+	DataDir string
+	// Now is the time a sign-in's end and a DPoP proof are taken at.
+	// Default time.Now.
+	Now func() time.Time
 }
 
 // Conn is one session with ariesd. Calls are serialized. A reader
@@ -67,6 +74,9 @@ type Conn struct {
 	// identity files that could not be used (SkippedKeys).
 	key     KeyInfo
 	skipped []string
+	// signIn is the sign-in presented in place of a key, without its
+	// key, or nil.
+	signIn *SignIn
 
 	ssh   *ssh.Client
 	sess  *ssh.Session
@@ -152,6 +162,9 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 15 * time.Second
 	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
@@ -159,15 +172,26 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	var ended *SignIn
+	if via == TransportHTTPS && opts.DataDir != "" {
+		s, err := LoadSignIn(opts.DataDir, cfg.Server.URL)
+		if err != nil {
+			return nil, err
+		}
+		if s != nil && s.Live(opts.Now()) {
+			return dialSignedIn(ctx, cfg, opts, s)
+		}
+		ended = s
+	}
 	id, err := loadIdentity(cfg, opts.Getenv, opts.UserHomeDir)
 	if err != nil {
-		return nil, err
+		return nil, signInHint(err, via, ended)
 	}
 	defer id.close()
 	if via == TransportHTTPS {
 		c, err := dialHTTPS(ctx, cfg, opts, id)
 		if err != nil {
-			return nil, err
+			return nil, signInHint(err, via, ended)
 		}
 		c.key, c.skipped = id.used(), id.skipped
 		return c, nil
@@ -255,6 +279,10 @@ func Dial(ctx context.Context, cfg *Config, opts Options) (*Conn, error) {
 
 // Key says which key signed this connection in.
 func (c *Conn) Key() KeyInfo { return c.key }
+
+// SignIn is the sign-in this connection presented in place of a key,
+// without its token or key, or nil when a key signed in.
+func (c *Conn) SignIn() *SignIn { return c.signIn }
 
 // SkippedKeys says which default identity files aries found and could not
 // use for this connection, and why each.

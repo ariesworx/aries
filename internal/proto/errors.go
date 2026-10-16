@@ -126,4 +126,7 @@ const (
 	FixGate = "wait for"
 	// FixGateAdd: invalid, an issue is made a gate only by gate add.
 	FixGateAdd = "add a gate with"
+	// FixSignIn: auth, the caller's sign-in ended, was ended, or does
+	// not check out: the person signs in again, at a terminal.
+	FixSignIn = "run `aries login`"
 )

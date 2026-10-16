@@ -16,6 +16,7 @@ import (
 
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/clienttest"
+	"github.com/ariesworx/aries/internal/dpop"
 	"github.com/ariesworx/aries/internal/outbox"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -287,5 +288,38 @@ func withEnv(getenv func(string) string, key, value string) func(string) string 
 			return value
 		}
 		return getenv(k)
+	}
+}
+
+// TestWhoseSignedIn: with a live sign-in for the server's URL, the
+// writes queued over HTTPS are the sign-in's principal's, whatever the
+// keys would say; once it has ended, the keys say, as before.
+func TestWhoseSignedIn(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	const server = "https://aries.example.com"
+	cfg := fmt.Sprintf("project: %s\nserver:\n  url: %s\n", project, server)
+	if err := os.WriteFile(filepath.Join(r.dir, client.ConfigFile), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := r.newClient(t, nil)
+	k, err := dpop.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SaveSignIn(c.Getenv(EnvDataDir), &client.SignIn{Server: server, Token: "t", ExpiresAt: t0.Add(time.Hour),
+		Scopes: []string{"cli", "mcp"}, Principal: "alice", Provider: "corp", Grant: "g-1", Key: k}); err != nil {
+		t.Fatal(err)
+	}
+	l, cfgRead, err := c.Local()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if who := c.Whose(l, cfgRead); who != "alice" {
+		t.Errorf("Whose with alice's live sign-in = %q, want alice", who)
+	}
+	c.Now = func() time.Time { return t0.Add(2 * time.Hour) }
+	if who := c.Whose(l, cfgRead); who == "alice" {
+		t.Errorf("Whose with alice's sign-in ended = %q, want what the keys say", who)
 	}
 }

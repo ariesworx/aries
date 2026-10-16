@@ -837,7 +837,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 		// The sign-in's end closes the connection (decision 59), on the
 		// server's own timer, from the store's time now.
 		end := time.AfterFunc(in.ends.Sub(s.cfg.Control.Now()), func() {
-			s.endSession(sess, proto.Errf(proto.CodeAuth, "run `aries login` to sign in again",
+			s.endSession(sess, proto.Errf(proto.CodeAuth, proto.FixSignIn+" to sign in again",
 				fmt.Sprintf("your sign-in ended at %s", in.ends.Format(time.RFC3339))))
 			s.cfg.Telemetry.Record(telemetry.ConnectionsDropped, 1, telemetry.DropSignIn)
 		})
