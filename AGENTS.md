@@ -73,9 +73,11 @@ stage is in progress.
 ## Commands
 
 `scripts/gate.sh` runs the gate: the commands below, which are what CI
-runs (`.github/workflows/ci.yml`), in this order. Run it before opening a
-pull request, and report what its summary says a run on your machine did
-not cover. This block is the list of record; a test in `scripts/` fails
+runs (`.github/workflows/ci.yml`), in this order. CI runs it on every
+pull request, and the merge queue merges nothing it has not passed. On
+your machine, run what the change calls for (**Test tiers**, below),
+not the whole gate every time, and say in the pull request what you ran
+and what you left to CI. This block is the list of record; a test in `scripts/` fails
 when the script and the block differ, so change them together, and
 `ci.yml` with them.
 
@@ -102,6 +104,26 @@ process running, and names the test that probably did.
 `scripts/gate.sh --quick` is for the loop between edits and is
 not the gate: it skips `go mod verify`, govulncheck and the builds for
 other systems, and runs the tests without `-race` or `-shuffle`.
+
+**Test tiers.** Before a pull request, run what the change touches;
+CI does the rest ([CONTRIBUTING.md](CONTRIBUTING.md#what-to-run-before-a-pull-request)
+has the table):
+
+- Docs, design and comments: `go test ./scripts/`, which holds the docs
+  to the code.
+- Code: the touched packages' tests with `-race`, and
+  `scripts/gate.sh --quick`.
+- Concurrency (claims, locks, leases, the outbox and its replay, the
+  clock, the pool and retries): also `-count=3` on the touched tests,
+  and one short soak.
+- `deploy/docker`, the installer, AppArmor, `ariesd`'s start or the
+  transport: also one run of `deploy/docker/smoke.sh` in the modes the
+  change touches.
+- A release candidate: all of it, with the long and partition soaks,
+  `smoke.sh` in every mode, and the installer on a real machine.
+
+Don't rerun a whole suite after a rebase whose conflicts were in docs
+only: CI and the merge queue run it.
 
 **Tools.** Go is at the `go` line in `go.mod`, at its newest patch
 release, as CI installs it: on an older one govulncheck reports standard
