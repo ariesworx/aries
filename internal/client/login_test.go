@@ -65,7 +65,8 @@ func newFakeAS(t *testing.T) (*fakeAS, *Config) {
 				"code": string(f.refuse.Code), "fix": f.refuse.Fix})
 			return
 		}
-		jkt, err := dpop.NewVerifier(10).Verify(r.Header.Get("DPoP"), "POST", []string{f.url + "/oauth/token"}, "", time.Now())
+		proof, err := dpop.Check(r.Header.Get("DPoP"), "POST", []string{f.url + "/oauth/token"}, "", time.Now())
+		jkt := proof.JKT
 		sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
 		if err != nil || f.codes[r.PostForm.Get("code")] != base64.RawURLEncoding.EncodeToString(sum[:]) || r.PostForm.Get("machine") != "laptop" {
 			w.WriteHeader(http.StatusBadRequest)

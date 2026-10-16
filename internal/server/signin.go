@@ -448,6 +448,13 @@ func oauthError(rw http.ResponseWriter, status int, oauthCode string, e *proto.E
 // PKCE verifier and a DPoP proof, for a token bound to the proof's key.
 func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Pragma", "no-cache")
+	if ok, wait := a.heard(r); !ok {
+		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitAuthFailures)
+		a.refused(r, "", "auth_failures")
+		oauthError(rw, http.StatusTooManyRequests, "invalid_request", proto.Errf(proto.CodeBusy,
+			fmt.Sprintf("wait %s and run `aries login` again", wait), "too many refused sign-ins from this address"))
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		oauthError(rw, http.StatusBadRequest, "invalid_request", proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries", "the request is not a form"))
 		return
@@ -458,25 +465,27 @@ func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
 			"the server exchanges an authorization code alone"))
 		return
 	}
-	jkt, err := a.proofs.Verify(r.Header.Get("DPoP"), http.MethodPost, a.at(pathToken), "", a.now())
-	if err != nil {
-		e, _ := errors.AsType[*dpop.Error](err)
-		a.refused(r, "", "dpop_"+string(e.Reason))
-		code := proto.CodeAuth
-		if e.Reason == dpop.ReasonBusy {
-			code = proto.CodeBusy
-			a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitDPoPProofs)
-		}
-		oauthError(rw, http.StatusBadRequest, "invalid_dpop_proof", proto.Errf(code, "run `aries login` again; check this machine's clock", err.Error()))
-		return
-	}
 	hash := hashOf(f.Get("code"))
 	a.mu.Lock()
 	ic := a.codes[hash]
 	delete(a.codes, hash) // a code is spent once, whatever comes of it
 	a.mu.Unlock()
-	if ic == nil || !a.now().Before(ic.until) || f.Get("client_id") != ClientCLI || f.Get("redirect_uri") != ic.redirect {
+	now := a.now()
+	// The proof is checked here and remembered only once the code is
+	// shown to be live and this client's: anyone may sign a proof with a
+	// key of their own, and the proofs remembered are bounded, so that
+	// remembering one before would let anyone fill them (issue #160).
+	proof, err := dpop.Check(r.Header.Get("DPoP"), http.MethodPost, a.at(pathToken), "", now)
+	if err != nil {
+		e, _ := errors.AsType[*dpop.Error](err)
+		a.refused(r, "", "dpop_"+string(e.Reason))
+		a.failed(r)
+		oauthError(rw, http.StatusBadRequest, "invalid_dpop_proof", proto.Errf(proto.CodeAuth, "run `aries login` again; check this machine's clock", err.Error()))
+		return
+	}
+	if ic == nil || !now.Before(ic.until) || f.Get("client_id") != ClientCLI || f.Get("redirect_uri") != ic.redirect {
 		a.refused(r, "", "code")
+		a.failed(r)
 		oauthError(rw, http.StatusBadRequest, "invalid_grant", proto.Errf(proto.CodeAuth, "run `aries login` again",
 			"the sign-in's code is unknown, spent, older than a minute, or for another client or redirect"))
 		return
@@ -484,6 +493,7 @@ func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(f.Get("code_verifier")))
 	if base64.RawURLEncoding.EncodeToString(sum[:]) != ic.challenge {
 		a.refused(r, ic.provider, "pkce")
+		a.failed(r)
 		oauthError(rw, http.StatusBadRequest, "invalid_grant", proto.Errf(proto.CodeAuth, "run `aries login` again", "the PKCE verifier is not the sign-in's"))
 		return
 	}
@@ -491,7 +501,19 @@ func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
 		oauthError(rw, http.StatusForbidden, "access_denied", ic.refused)
 		return
 	}
-	a.grant(rw, r, ic, jkt)
+	if err := a.proofs.Spend(proof, now); err != nil {
+		e, _ := errors.AsType[*dpop.Error](err)
+		a.refused(r, ic.provider, "dpop_"+string(e.Reason))
+		if e.Reason == dpop.ReasonBusy {
+			a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitDPoPProofs)
+			oauthError(rw, http.StatusServiceUnavailable, "temporarily_unavailable", proto.Errf(proto.CodeBusy, "run `aries login` again in a minute", err.Error()))
+			return
+		}
+		a.failed(r)
+		oauthError(rw, http.StatusBadRequest, "invalid_dpop_proof", proto.Errf(proto.CodeAuth, "run `aries login` again", err.Error()))
+		return
+	}
+	a.grant(rw, r, ic, proof.JKT)
 }
 
 // grant has the store record the sign-in, and answers with its token.
@@ -617,22 +639,42 @@ func (a *authServer) admit(r *http.Request) (*proto.Frame, *signedIn, *proto.Err
 	if g.JKT == "" {
 		return nil, nil, proto.Errf(proto.CodeAuth, again, "this sign-in's token is not for aries"), telemetry.TokenBearer
 	}
-	jkt, err := a.proofs.Verify(r.Header.Get("DPoP"), http.MethodGet, a.at(keyproof.ConnectPath), tok, now)
-	if err != nil {
+	// The grant's key goes into the check, so that a proof by another
+	// key is refused before it is remembered (issue #160).
+	if err := a.proofs.Verify(r.Header.Get("DPoP"), http.MethodGet, a.at(keyproof.ConnectPath), tok, g.JKT, now); err != nil {
 		e, _ := errors.AsType[*dpop.Error](err)
-		if e.Reason == dpop.ReasonBusy {
+		switch e.Reason {
+		case dpop.ReasonKey:
+			return nil, nil, proto.Errf(proto.CodeAuth, again+"; the token and its key on this machine no longer match",
+				"the DPoP proof is signed by another key than the sign-in's"), telemetry.DPoPKey
+		case dpop.ReasonBusy:
 			a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitDPoPProofs)
 			return nil, nil, proto.Errf(proto.CodeBusy, "retry in a minute", err.Error()), telemetry.DPoPBusy
 		}
 		return nil, nil, proto.Errf(proto.CodeAuth, again+"; the token and its key on this machine no longer match, or this machine's clock is off",
 			err.Error()), "dpop_" + string(e.Reason)
 	}
-	if jkt != g.JKT {
-		return nil, nil, proto.Errf(proto.CodeAuth, again+"; the token and its key on this machine no longer match",
-			"the DPoP proof is signed by another key than the sign-in's"), telemetry.DPoPKey
-	}
 	return &proto.Frame{T: proto.FrameBridge, Principal: g.Principal},
 		&signedIn{grant: g.ID, hash: hashOf(tok), identity: g.Identity, provider: g.Provider, scopes: g.Scopes, ends: g.EndsAt}, nil, ""
+}
+
+// heard reports whether r's address is still heard at the token endpoint
+// (Limits.AuthFailureRate), as at /v1/connect, or else how long it must
+// wait. Behind a proxy every request is the proxy's, and the limit
+// does not apply.
+func (a *authServer) heard(r *http.Request) (bool, time.Duration) {
+	if a.s.cfg.HTTPS.TLS == nil {
+		return true, 0
+	}
+	return a.s.authFails.has(peerAddr(r.RemoteAddr).String(), a.s.now())
+}
+
+// failed counts a refusal at the token endpoint against r's address, as
+// a refused key proof is counted, unless behind a proxy.
+func (a *authServer) failed(r *http.Request) {
+	if a.s.cfg.HTTPS.TLS != nil {
+		a.s.authFails.take(peerAddr(r.RemoteAddr).String(), a.s.now())
+	}
 }
 
 // refused logs a refusal of the authorization server, sampled per

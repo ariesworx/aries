@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -53,35 +54,83 @@ func forged(t *testing.T, k *ecdsa.PrivateKey, h jose.Header, c map[string]any) 
 	return p
 }
 
-func TestVerify(t *testing.T) {
+func TestCheck(t *testing.T) {
 	t.Parallel()
 	k := newKey(t)
-	v := NewVerifier(100)
-	jkt, err := v.Verify(proof(t, k, "GET", connect, token, t0), "GET", []string{connect}, token, t0)
+	p, err := Check(proof(t, k, "GET", connect, token, t0), "GET", []string{connect}, token, t0)
 	if err != nil {
-		t.Fatalf("Verify(a good proof) = %v", err)
+		t.Fatalf("Check(a good proof) = %v", err)
 	}
-	if want := Thumbprint(&k.PublicKey); jkt != want {
-		t.Errorf("Verify = thumbprint %s, want the key's, %s", jkt, want)
+	if want := Thumbprint(&k.PublicKey); p.JKT != want {
+		t.Errorf("Check = thumbprint %s, want the key's, %s", p.JKT, want)
 	}
 	// htu is compared without its query, with the host's case and the
 	// default port as they come.
-	if _, err := v.Verify(proof(t, k, "GET", "https://Aries.Example.com:443/v1/connect?x=1", token, t0), "GET", []string{connect}, token, t0); err != nil {
-		t.Errorf("Verify(an htu with a query, a capital and :443) = %v, want it the same URL", err)
+	if _, err := Check(proof(t, k, "GET", "https://Aries.Example.com:443/v1/connect?x=1", token, t0), "GET", []string{connect}, token, t0); err != nil {
+		t.Errorf("Check(an htu with a query, a capital and :443) = %v, want it the same URL", err)
 	}
 	// Each of the server's URLs is its own: a proof for either passes.
-	if _, err := v.Verify(proof(t, k, "GET", "https://aries.internal.example.com/v1/connect", token, t0), "GET",
+	if _, err := Check(proof(t, k, "GET", "https://aries.internal.example.com/v1/connect", token, t0), "GET",
 		[]string{connect, "https://aries.internal.example.com/v1/connect"}, token, t0); err != nil {
-		t.Errorf("Verify(a proof for the server's second URL) = %v", err)
+		t.Errorf("Check(a proof for the server's second URL) = %v", err)
 	}
 	// At the token endpoint there is no access token yet, and no ath.
-	if _, err := v.Verify(proof(t, k, "POST", "https://aries.example.com/oauth/token", "", t0), "POST",
+	if _, err := Check(proof(t, k, "POST", "https://aries.example.com/oauth/token", "", t0), "POST",
 		[]string{"https://aries.example.com/oauth/token"}, "", t0); err != nil {
-		t.Errorf("Verify(a proof with no token) = %v", err)
+		t.Errorf("Check(a proof with no token) = %v", err)
 	}
 }
 
-func TestVerifyRefuses(t *testing.T) {
+// TestCheckRemembersNothing: Check is the proof alone, so that a server
+// remembers a proof only once the request it came with has earned it
+// (Spend): a request anyone can make with a key of their own never
+// fills the memory.
+func TestCheckRemembersNothing(t *testing.T) {
+	t.Parallel()
+	v := NewVerifier(1)
+	p := proof(t, newKey(t), "GET", connect, token, t0)
+	for range 3 {
+		if _, err := Check(p, "GET", []string{connect}, token, t0); err != nil {
+			t.Fatalf("Check(a good proof, again) = %v, want it passed: Check spends nothing", err)
+		}
+	}
+	checked, _ := Check(p, "GET", []string{connect}, token, t0)
+	if err := v.Spend(checked, t0); err != nil {
+		t.Fatalf("Spend(a proof only checked before) = %v", err)
+	}
+	if err := v.Spend(checked, t0); !isReason(err, ReasonReplayed) {
+		t.Errorf("Spend(the same proof again) = %v, want replayed", err)
+	}
+}
+
+// TestVerifyKey: a proof by another key than the token's is refused
+// before it is remembered, so that a token without its key cannot fill
+// the memory, and the holder's own proof still passes.
+func TestVerifyKey(t *testing.T) {
+	t.Parallel()
+	k := newKey(t)
+	jkt := Thumbprint(&k.PublicKey)
+	v := NewVerifier(1)
+	for range 3 {
+		err := v.Verify(proof(t, newKey(t), "GET", connect, token, t0), "GET", []string{connect}, token, jkt, t0)
+		if !isReason(err, ReasonKey) {
+			t.Errorf("Verify(a proof by another key) = %v, want reason %s", err, ReasonKey)
+		}
+	}
+	if n := v.Len(); n != 0 {
+		t.Errorf("Len() = %d after proofs by another key, want 0", n)
+	}
+	if err := v.Verify(proof(t, k, "GET", connect, token, t0), "GET", []string{connect}, token, jkt, t0); err != nil {
+		t.Errorf("Verify(the token's key's proof) = %v", err)
+	}
+}
+
+func isReason(err error, r Reason) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.Reason == r
+}
+
+func TestCheckRefuses(t *testing.T) {
 	t.Parallel()
 	k := newKey(t)
 	other := newKey(t)
@@ -126,10 +175,9 @@ func TestVerifyRefuses(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := NewVerifier(100).Verify(tc.proof, "GET", []string{connect}, token, t0)
-			var e *Error
-			if !errors.As(err, &e) || e.Reason != tc.reason {
-				t.Errorf("Verify(%s) = %v, want reason %s", tc.name, err, tc.reason)
+			_, err := Check(tc.proof, "GET", []string{connect}, token, t0)
+			if !isReason(err, tc.reason) {
+				t.Errorf("Check(%s) = %v, want reason %s", tc.name, err, tc.reason)
 			}
 		})
 	}
@@ -141,34 +189,57 @@ func TestVerifyRefuses(t *testing.T) {
 func TestReplay(t *testing.T) {
 	t.Parallel()
 	k := newKey(t)
+	jkt := Thumbprint(&k.PublicKey)
 	v := NewVerifier(2)
+	verify := func(p string, now time.Time) error { return v.Verify(p, "GET", []string{connect}, token, jkt, now) }
 	p := proof(t, k, "GET", connect, token, t0)
-	if _, err := v.Verify(p, "GET", []string{connect}, token, t0); err != nil {
+	if err := verify(p, t0); err != nil {
 		t.Fatal(err)
 	}
-	_, err := v.Verify(p, "GET", []string{connect}, token, t0.Add(30*time.Second))
-	if e, ok := errors.AsType[*Error](err); !ok || e.Reason != ReasonReplayed {
+	if err := verify(p, t0.Add(30*time.Second)); !isReason(err, ReasonReplayed) {
 		t.Errorf("Verify(the same proof again) = %v, want replayed", err)
 	}
-	if _, err := v.Verify(proof(t, k, "GET", connect, token, t0), "GET", []string{connect}, token, t0); err != nil {
+	if err := verify(proof(t, k, "GET", connect, token, t0), t0.Add(30*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	_, err = v.Verify(proof(t, k, "GET", connect, token, t0), "GET", []string{connect}, token, t0)
-	if e, ok := errors.AsType[*Error](err); !ok || e.Reason != ReasonBusy {
+	if err := verify(proof(t, k, "GET", connect, token, t0), t0.Add(30*time.Second)); !isReason(err, ReasonBusy) {
 		t.Errorf("Verify(a third proof with two remembered, the most) = %v, want busy", err)
 	}
-	later := t0.Add(Window + time.Second)
-	if _, err := v.Verify(proof(t, k, "GET", connect, token, later), "GET", []string{connect}, token, later); err != nil {
-		t.Errorf("Verify(a proof once the others aged out) = %v", err)
+	// The first ages out before the second, and makes room for one.
+	later := t0.Add(Window)
+	if err := verify(proof(t, k, "GET", connect, token, later), later); err != nil {
+		t.Errorf("Verify(a proof once the oldest aged out) = %v", err)
 	}
-	if n := v.Len(); n != 1 {
-		t.Errorf("Len() = %d once two proofs aged out and one came, want 1", n)
+	if err := verify(proof(t, k, "GET", connect, token, later), later); !isReason(err, ReasonBusy) {
+		t.Errorf("Verify(a proof with the second and the third still remembered) = %v, want busy", err)
+	}
+	v.Prune(later.Add(Window))
+	if n := v.Len(); n != 0 {
+		t.Errorf("Len() = %d once every proof aged out, want 0", n)
 	}
 	// A refused proof spends nothing.
 	bad := proof(t, k, "POST", connect, token, later)
-	_, _ = v.Verify(bad, "GET", []string{connect}, token, later)
-	if n := v.Len(); n != 1 {
-		t.Errorf("Len() = %d after a refused proof, want 1", n)
+	_ = verify(bad, later)
+	if n := v.Len(); n != 0 {
+		t.Errorf("Len() = %d after a refused proof, want 0", n)
+	}
+}
+
+// BenchmarkSpendFull backs the claim that a full memory refuses a proof
+// without walking every proof it holds.
+func BenchmarkSpendFull(b *testing.B) {
+	const most = 100_000
+	v := NewVerifier(most)
+	for i := range most {
+		if err := v.Spend(Verified{jti: fmt.Sprint(i)}, t0); err != nil {
+			b.Fatal(err)
+		}
+	}
+	p := Verified{jti: "one-more"}
+	for b.Loop() {
+		if err := v.Spend(p, t0.Add(time.Second)); !isReason(err, ReasonBusy) {
+			b.Fatalf("Spend(a proof past the bound) = %v, want busy", err)
+		}
 	}
 }
 
@@ -204,8 +275,7 @@ func FuzzVerify(f *testing.F) {
 	f.Add("eyJ0eXAiOiJkcG9wK2p3dCIsImFsZyI6IkVTMjU2In0.e30.eA")
 	f.Add("..")
 	f.Fuzz(func(t *testing.T, proof string) {
-		v := NewVerifier(10)
-		jkt, err := v.Verify(proof, "GET", []string{connect}, token, t0)
+		p, err := Check(proof, "GET", []string{connect}, token, t0)
 		if err != nil {
 			if _, ok := errors.AsType[*Error](err); !ok {
 				t.Fatalf("Verify(%q) = %v, not an *Error", proof, err)
@@ -215,7 +285,7 @@ func FuzzVerify(f *testing.F) {
 		var c claims
 		parts := strings.Split(proof, ".")
 		b, _ := base64.RawURLEncoding.DecodeString(parts[1])
-		if json.Unmarshal(b, &c) != nil || c.HTM != "GET" || jkt == "" {
+		if json.Unmarshal(b, &c) != nil || c.HTM != "GET" || p.JKT == "" {
 			t.Fatalf("Verify(%q) accepted claims %+v", proof, c)
 		}
 	})

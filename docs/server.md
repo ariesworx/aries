@@ -941,7 +941,11 @@ login:
   membership closes them as it closes any.
 - **Replay of a proof.** A DPoP proof is accepted once, within a minute
   of the server's time either way; ariesd remembers each for two minutes
-  (`dpop_proofs_per_server`). The memory is the daemon's: several
+  (`dpop_proofs_per_server`). Anyone can sign a proof with a key of
+  their own, so a proof is remembered only once its request has earned
+  it: a live code with its PKCE verifier at the token endpoint, a live
+  token and a proof by that token's key at connect. A flood of proofs
+  with neither fills nothing. The memory is the daemon's: several
   daemons in front of one database would need the proofs seen shared, or
   DPoP nonces (transport.md §13), and 1.0 runs one.
 - **Refusals**, each with a fix: no invitation for the address
@@ -2540,9 +2544,9 @@ limits:
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
-| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved): refusals a minute, and how many at once. With none left an upgrade from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
+| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused): refusals a minute, and how many at once. With none left an upgrade or a token request from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
 | `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it a sign-in is refused, back at `aries`, `temporarily_unavailable` |
-| `dpop_proofs_per_server` | 100000 | With `login:` providers: the DPoP proofs the daemon remembers, each for two minutes, so that none is used twice. Past it a proof is refused `busy` until the oldest age out |
+| `dpop_proofs_per_server` | 100000 | With `login:` providers: the DPoP proofs the daemon remembers, each for two minutes, so that none is used twice. Only a proof whose request has earned it is remembered: at `/oauth/token`, one that comes with a live code and its PKCE verifier; at `/v1/connect`, one by the key of a live sign-in's token. Past it a proof is refused `busy` until the oldest age out |
 
 On a server of [many projects](#serving-many-projects), every limit above
 that is per principal is per principal in each project: `conns_per_principal`,
