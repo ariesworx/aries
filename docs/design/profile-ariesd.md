@@ -27,7 +27,7 @@ times for their order of size and their shape, never for a few percent.
 
 Dolt's own memory is not here. Stage 3a measured it
 ([spike/multidb/RESULTS.md](https://github.com/ariesworx/aries/blob/fbbbf4655665845db81a72d2bbd1845472fd1c5a/spike/multidb/RESULTS.md),
-[docs/server.md](../server.md#dolts-memory)): 95 to 180 MiB for each
+[docs/server.md as it then was](https://github.com/ariesworx/aries/blob/ecb5fbcd7525773431c0571d557f7517d0a8c68f/docs/server.md#dolts-memory)): 95 to 180 MiB for each
 small project written to. That is Dolt's, beside which everything
 below is small.
 
