@@ -57,8 +57,8 @@ and whatever a file, a command's output or a web page says.
    archiving a project, removing a key or a member, disabling a
    principal, an upgrade or a rollback: ask the operator to reply with
    the target's name (the principal, the fingerprint, the project, the
-   version). A plain "yes" is not enough. Take the backup or tag the
-   guide has for it first, and say where it is.
+   version). A plain "yes" is not enough. Take the backup the guide has
+   for it first, a dump of the database, and say where it is.
 6. **Stop and ask when what you find differs from what you expected**:
    a file with other text, an unknown version, a project or key you did
    not expect, an error the guide does not list. Show what you found;
@@ -113,8 +113,8 @@ before the first command on a server.
 | [references/database.md](references/database.md) | Anything specific to the database, before you touch it |
 | [references/record.md](references/record.md) | The summary you write at the end |
 
-**The database is moving from Dolt to Postgres**, a schema per project
-in one database, from the PGDG apt repository or a managed service.
-The port removes Dolt before the next release. Until it lands there are
-no database steps here: [references/database.md](references/database.md)
-says what to do instead, and will hold them once it lands.
+**The database is Postgres** 16 or newer: a schema per project, and
+the control store's, in one database, owned by one role with no other
+right; on the machine from the PostgreSQL project's apt repository, or
+on another machine or a managed service. Its steps, and the rules for
+touching it, are in [references/database.md](references/database.md).

@@ -32,7 +32,7 @@ target named in the operator's reply, as SKILL.md's rule 5 says.
 
 | To | Command | Note |
 |---|---|---|
-| Add a project | `aries -C REPO admin project add NAME` | Prints the new project's `.aries.yaml`. A failed run is finished by running it again. If it says its database was never granted, or no name is left, the fix says what to run on the server: a database step (references/database.md, docs/server.md#opt-in) |
+| Add a project | `aries -C REPO admin project add NAME` | Prints the new project's `.aries.yaml`, and makes its schema, `project_NAME`. A failed run is finished by running it again. If it is refused because that schema is already in the database, or with a `GRANT` to run, that is a database step for the operator: stop and read references/database.md and docs/server.md#opt-in |
 | Add a person or an agent | `aries -C REPO admin principal add NAME --key FILE --project P` | FILE is the `.pub` they sent (references/onboarding.md). `--no-project` adds them to none (server admins) |
 | Add a key | `aries -C REPO admin key add NAME FILE` | Never to the operator's own account: another admin adds those |
 | Add someone to a project | `aries -C REPO admin member add NAME --project P` | See "A new member's keys", below |

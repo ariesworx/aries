@@ -9,5 +9,5 @@
   "homepage": "https://github.com/ariesworx/aries/blob/main/docs/server.md#operate-a-server-with-claude-code",
   "repository": "https://github.com/ariesworx/aries",
   "license": "AGPL-3.0-only",
-  "keywords": ["aries", "operations", "server", "ssh", "dolt"]
+  "keywords": ["aries", "operations", "server", "ssh", "postgres"]
 }
