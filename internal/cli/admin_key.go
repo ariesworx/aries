@@ -128,14 +128,15 @@ func adminKey(ctx context.Context, r *runner, args []string) error {
 		return usagef(usage, "admin key needs add, list or remove")
 	}
 	switch {
+	case pos[0] == "list" && *addedBy != "":
+		err = only(fs, usage, "key list --added-by", "added-by", "n", "after")
 	case pos[0] == "add":
-		if err := only(fs, usage, "key add", "expires"); err != nil {
-			return err
-		}
-	case pos[0] != "list" || *addedBy == "":
-		if err := only(fs, usage, "key "+pos[0]+", without --added-by,"); err != nil {
-			return err
-		}
+		err = only(fs, usage, "key add, without --added-by,", "expires")
+	default:
+		err = only(fs, usage, "key "+pos[0]+", without --added-by,")
+	}
+	if err != nil {
+		return err
 	}
 	switch pos[0] {
 	case "add":

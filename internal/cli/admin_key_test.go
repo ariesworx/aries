@@ -39,6 +39,7 @@ func TestAdminKeyUsage(t *testing.T) {
 		{"--expires is a time with its zone", []string{"admin", "key", "add", "bob", "a.pub", "--expires", "2026-12-31"},
 			"--expires takes a duration such as 12h or 30d, or a time such as 2026-12-31T17:00:00Z"},
 		{"key list takes no --expires", []string{"admin", "key", "list", "bob", "--expires", "1h"}, "key list, without --added-by, does not take --expires"},
+		{"key list --added-by takes no --expires", []string{"admin", "key", "list", "--added-by", "dana", "--expires", "1h"}, "key list --added-by does not take --expires"},
 		{"key remove takes no --expires", []string{"admin", "key", "remove", "SHA256:x", "--expires", "1h"}, "key remove, without --added-by, does not take --expires"},
 		{"principal list takes no key", []string{"admin", "principal", "list", "--key", "a.pub"}, "principal list does not take --key"},
 		{"principal disable takes no key", []string{"admin", "principal", "disable", "bob", "--key", "a.pub"}, "principal disable does not take --key"},
