@@ -358,8 +358,9 @@ only to your own principal, because it is a path on your machine.
 
 ## The inbox
 
-Every principal has an inbox. The server adds an item in the same
-transaction as its cause:
+Every principal has an inbox in each project. The server adds an item
+in the same transaction as its cause, except a sign-in's, which follows
+it in each of your projects:
 
 | Item | When |
 |---|---|
@@ -367,6 +368,7 @@ transaction as its cause:
 | `issue.handoff` | A handoff names you with `--to` |
 | `issue.mentioned` | A comment, handoff or finish note says `@you`. Only principals the server has seen can be mentioned, and never yourself |
 | `issue.assigned` | Someone else assigned you an issue |
+| `signin.granted` | You signed in (`aries login`): in every active project you are a member of, from `ariesd`, with the provider, the flow, the client, the machine it said it was and when the sign-in ends. If it was not you, end it with the `aries admin signin end ID` the item names; `aries logout` on that machine ends it too. It names no address and no token, and the per-minute limit on notices never drops it |
 | `conflict.parked` | An update of yours, queued while the server was away, parked fields someone else had changed, or was kept as a comment because the issue was closed meanwhile; a `finish` or `handoff` of yours, queued the same way, was kept as a comment because the issue had moved on; or another principal's parked fields, or another session's late `finish` or `handoff` kept as a comment, on an issue you hold ([Conflicts](cli.md#conflicts)). An item about your own write reaches every session of yours; one about the issue you hold, the session that holds it |
 
 `aries inbox` lists unread items and `--ack` marks them read. `aries watch`

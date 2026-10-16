@@ -131,6 +131,18 @@ func TestSignInEndToEnd(t *testing.T) {
 	if strings.Contains(out+who+js, s.Token) {
 		t.Error("aries printed the token")
 	}
+	// The sign-in is announced in her inbox, with how to end it, and
+	// with no token or address.
+	inbox := alice.ok("inbox")
+	if !strings.Contains(inbox, "signin.granted from ariesd") || !strings.Contains(inbox, "`aries admin signin end "+s.Grant+"`") ||
+		!strings.Contains(inbox, "laptop-test") {
+		t.Errorf("aries inbox after signing in =\n%s\nwant the sign-in announced, naming %s and laptop-test", inbox, s.Grant)
+	}
+	for _, secret := range []string{s.Token, "alice@example.com"} {
+		if strings.Contains(inbox, secret) {
+			t.Errorf("aries inbox holds %q:\n%s", secret, inbox)
+		}
+	}
 	if runtime.GOOS != "windows" {
 		for _, f := range []string{"token.json", "dpop.key"} {
 			st, err := os.Stat(filepath.Join(client.SignInDir(data, w.web.url), f))

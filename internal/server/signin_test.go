@@ -265,8 +265,15 @@ func wsCall(t *testing.T, c *wsconn.Conn, id uint64, op string, args any) *proto
 // welcome.
 func helloAs(t *testing.T, c *wsconn.Conn, session string) *proto.Frame {
 	t.Helper()
+	return helloIn(t, c, projA, session)
+}
+
+// helloIn sends a hello for project in session on c and returns the
+// welcome.
+func helloIn(t *testing.T, c *wsconn.Conn, project, session string) *proto.Frame {
+	t.Helper()
 	s := wsconn.Stream(c)
-	if err := proto.NewEncoder(s).Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Project: projA, Session: session, Machine: "laptop-a"}); err != nil {
+	if err := proto.NewEncoder(s).Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Project: project, Session: session, Machine: "laptop-a"}); err != nil {
 		t.Fatalf("send the hello: %v", err)
 	}
 	_ = c.SetReadDeadline(time.Now().Add(patience))
@@ -319,6 +326,69 @@ func TestSignIn(t *testing.T) {
 		if !regexp.MustCompile(`event=` + regexp.QuoteMeta(ev) + ` audit=true .* principal=alice session=signin .* subject=alice`).MatchString(w.log.String()) {
 			t.Errorf("the audit stream has no %s line for alice, as subject:\n%s", ev, w.log.String())
 		}
+	}
+}
+
+// TestSignInAnnounced: each sign-in is announced to the principal's
+// inbox in every project it is a member of (identity.md §13), with the
+// provider, the flow, the client, the machine and how to end it, and
+// with no token, address, subject or issuer. A project it is not a
+// member of, or one archived, is not even opened.
+func TestSignInAnnounced(t *testing.T) {
+	t.Parallel()
+	w := newSignInWorld(t, nil)
+	w.project(t, projB, "alice")
+	w.project(t, projC, "alice")
+	if _, err := w.ctl.ArchiveProject(t.Context(), dana, projC); err != nil {
+		t.Fatal(err)
+	}
+	const projD = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+	w.project(t, projD, "bob")
+	opened := map[string]int{projC: w.opened(projC), projD: w.opened(projD)}
+	a := newAttempt(t)
+	ans := w.mustSignIn(t, a)
+
+	for _, project := range []string{projA, projB} {
+		c, perr := w.connectWith(t, a, ans.AccessToken, "")
+		if perr != nil {
+			t.Fatalf("connect with the token = %v", perr)
+		}
+		if wel := helloIn(t, c, project, proto.CLISession); wel.Err != nil {
+			t.Fatalf("the welcome to %s = %v", project, wel.Err)
+		}
+		f := wsCall(t, c, 1, proto.OpInbox, proto.InboxArgs{})
+		if f.Err != nil {
+			t.Fatalf("inbox in %s = %v", project, f.Err)
+		}
+		var page proto.InboxResult
+		if err := json.Unmarshal(f.OK, &page); err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != 1 || page.Unread != 1 {
+			t.Fatalf("alice's inbox in %s after signing in = %+v, want one unread item", project, page)
+		}
+		it := page.Items[0]
+		if it.Kind != "signin.granted" || it.From != "ariesd" || it.Issue != "" || it.Session != "" {
+			t.Errorf("the item in %s = %+v, want signin.granted from ariesd, for every session, naming no issue", project, it)
+		}
+		for _, want := range []string{"corp", store.FlowLoopback, ClientCLI, "laptop-a", "`aries admin signin end " + ans.Grant + "`", "`aries logout`"} {
+			if !strings.Contains(it.Body, want) {
+				t.Errorf("the item in %s says %q, which does not name %q", project, it.Body, want)
+			}
+		}
+		for _, secret := range []string{ans.AccessToken, "alice@example.com", "00000000-0000-4000-8000-00000000a11c", w.iss.URL} {
+			if strings.Contains(it.Body, secret) {
+				t.Errorf("the item in %s says %q, which holds %q", project, it.Body, secret)
+			}
+		}
+	}
+	for id, before := range opened {
+		if n := w.opened(id) - before; n != 0 {
+			t.Errorf("the store of %s, archived or not alice's, was opened %d times for her sign-in, want 0", id, n)
+		}
+	}
+	if strings.Contains(w.log.String(), "signin.announce_failed") {
+		t.Errorf("the log has an announcement that failed:\n%s", w.log.String())
 	}
 }
 

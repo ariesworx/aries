@@ -92,30 +92,33 @@ var PrincipalPattern = lazyregexp.New(`^[a-z][a-z0-9._-]{0,63}$`)
 var mentionPattern = lazyregexp.New(`(?:^|[^A-Za-z0-9._@+-])@([a-z][a-z0-9._-]{0,63})`)
 
 // unlimitedKinds are the items the Notices limit does not count.
-var unlimitedKinds = []InboxKind{InboxClaimLost, InboxLockGranted, InboxLockLost}
+var unlimitedKinds = []InboxKind{InboxClaimLost, InboxLockGranted, InboxLockLost, InboxSignIn}
 
 // notify records an item in w's transaction and queues it to be pushed
 // once the transaction commits. Nothing is written for the actor's own
 // principal, unless the item concerns one of its other sessions or is a
 // conflict item, and nothing past the Notices limit on what the actor
-// sent the recipient in the last minute; claim.lost, lock.granted and
-// lock.lost items, and items for the actor's own principal, are exempt
-// from the limit. Recording an item may mark the recipient's oldest
-// unread items read (capUnread).
+// sent the recipient in the last minute; claim.lost, lock.granted,
+// lock.lost and signin.granted items, and items for the actor's own
+// principal, are exempt from the limit. Recording an item may mark the
+// recipient's oldest unread items read (capUnread).
 func (w *wtx) notify(ctx context.Context, it InboxItem) error {
 	if it.To == w.actor.Principal && (it.Session == "" || it.Session == w.actor.Session) && it.Kind != InboxConflict {
 		return nil
 	}
 	// The limit keeps one principal from flooding another's inbox; what
 	// the actor is told of its own writes floods nobody's. A lease's end,
-	// and a lock's grant, are the recipient's own business, which another
-	// principal's writes only happen to cause.
+	// a lock's grant and a sign-in are the recipient's own business,
+	// which another principal's writes only happen to cause, and a
+	// sign-in's notice is never to be dropped.
 	if !slices.Contains(unlimitedKinds, it.Kind) && it.To != w.actor.Principal {
+		var p params
+		q := `SELECT COUNT(*) FROM inbox WHERE to_principal = ` + p.add(it.To) + ` AND from_principal = ` + p.add(w.actor.Principal)
+		for _, k := range unlimitedKinds {
+			q += ` AND kind <> ` + p.add(string(k))
+		}
 		var sent int
-		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox
-  WHERE to_principal = $1 AND from_principal = $2 AND kind NOT IN ($3, $4, $5) AND at > $6`,
-			it.To, w.actor.Principal, string(InboxClaimLost), string(InboxLockGranted), string(InboxLockLost),
-			w.now.Add(-time.Minute)).Scan(&sent); err != nil {
+		if err := w.tx.QueryRowContext(ctx, q+` AND at > `+p.add(w.now.Add(-time.Minute)), p.args...).Scan(&sent); err != nil {
 			return fmt.Errorf("count notices: %w", err)
 		}
 		if sent >= w.lim.Notices {

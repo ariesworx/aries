@@ -2487,7 +2487,7 @@ limits:
 | `sessions_per_principal` | 256 | A principal's rows in the `who` registry; a new session past it drops the least recently seen |
 | `agent_keep` | `7d` | How long an unseen registry row is kept. A principal's latest row is always kept, so it stays mentionable |
 | `unread_per_principal` | 1000 | A principal's unread inbox items; past it, the oldest are marked read (still under `inbox --all`) |
-| `notices_per_minute` | 10 | Mentions, assignments and handoffs one principal can send another a minute; the rest are not delivered. Lost claims, and locks granted or lost, always are |
+| `notices_per_minute` | 10 | Mentions, assignments and handoffs one principal can send another a minute; the rest are not delivered. Lost claims, locks granted or lost, and sign-ins always are |
 | `inbox_keep` | `30d` | How long a read inbox item is kept |
 | `idem_window` | `7d` | How long an idempotency key gives back its request's result: a write a client sends again with the same key within it, as an outbox does after an outage, applies once and gets the first answer. A key used longer ago is refused with `stale`, saying its request was applied then, and nothing is written; the same key with other arguments is `conflict`. It is how long a write can wait on a person's machine and still be delivered without them. From `1h` to `365d`. Keys are kept on the events they stamped whatever this is, so it bounds no table: a key is never applied twice, however late it comes back |
 | `conns_per_server` | 1024 | Connections past the handshake, refused with `busy` beyond it. Twice this caps the sockets the daemon holds in all; at that cap a new connection is let in and the one that has waited longest without a hello is closed |
@@ -2967,6 +2967,7 @@ time=2026-10-12T09:30:00.123Z level=INFO msg=request project=0190a8a0-0000-7000-
 | `signin.granted` | info | A person signed in (`principal`, `provider`, `grant`, `flow`) |
 | `signin.refused` | info | A step of a sign-in was refused (`reason`, `provider`): before the provider, sampled per address; after it, by the refusal's code |
 | `signin.ended` | info | A sign-in ended before its end (`grant`, `reason`: `logout`, `revoked`, `identity_removed`), with the `connections` it closed |
+| `signin.announce_failed` | error | A sign-in could not be announced in the inbox of one of its principal's projects (`principal`, `grant`, and `project` when it was one project's store), which could not be opened or written. The sign-in stands, and the audit stream has it |
 | `signin.provider_failed` | warn | A provider's discovery document, keys or token endpoint could not be reached or read (`provider`, `err`), sampled per provider. Sign-ins at it fail until it answers; `aries admin status` shows the failure |
 | `tls.cert_reloaded` | info | The certificate files changed and were read again |
 | `tls.cert_reload_failed` | error | The certificate files changed and could not be read; the listener keeps the certificate it had. Alert on it |

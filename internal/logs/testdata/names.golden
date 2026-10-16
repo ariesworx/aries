@@ -71,6 +71,7 @@ event request.done
 event request.failed
 event request.part_failed
 event request.refused
+event signin.announce_failed
 event signin.ended
 event signin.granted
 event signin.provider_failed

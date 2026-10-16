@@ -46,6 +46,9 @@ const (
 	FlowCard     = "card"
 )
 
+// signInFlows are the flows, as the grants table's check has them.
+var signInFlows = []string{FlowLoopback, FlowURL, FlowDevice, FlowWorkload, FlowCard}
+
 // Why a sign-in ended before its end.
 const (
 	EndLogout          = "logout"
@@ -105,7 +108,7 @@ func (in SignIn) validate() error {
 		return bad("the token's hash is not SHA-256 in hex")
 	case in.Lifetime <= 0:
 		return bad("a lifetime is required")
-	case !slices.Contains([]string{FlowLoopback, FlowURL, FlowDevice, FlowWorkload, FlowCard}, in.Flow):
+	case !slices.Contains(signInFlows, in.Flow):
 		return bad("flow %q is not one", in.Flow)
 	case in.ClientID == "" || len(in.ClientID) > 64 || len(in.JKT) > 64 || in.Resource == "":
 		return bad("a client id, a resource and a key thumbprint of at most 64 bytes are required")
