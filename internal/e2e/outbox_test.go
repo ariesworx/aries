@@ -88,16 +88,17 @@ func TestOutageWritesArriveOnceCLI(t *testing.T) {
 		t.Errorf("a queued comment printed %q", out)
 	}
 	// Nothing that takes a claim, or ends something, is queued.
+	down, fix := w.down()
 	for _, args := range [][]string{{"start", other}, {"close", other}} {
 		r := alice.run("v0.2.0", args...)
-		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: ariesd is not running on the server\n") ||
+		if r.code != cli.ExitFailure || !strings.Contains(r.stderr, "aries: "+down+"\n") ||
 			!strings.Contains(r.stderr, "this was not queued for later, since ") {
 			t.Errorf("aries %s with the server away = exit %d, %q; want it to fail, saying it was not queued", strings.Join(args, " "), r.code, r.stderr)
 		}
 	}
 	// --no-queue: a script that must know.
 	if r := alice.run("v0.2.0", "--no-queue", "comment", other, "must arrive now"); r.code != cli.ExitFailure || r.stdout != "" ||
-		r.stderr != "aries: ariesd is not running on the server\nfix: ask the server admin to start it (`systemctl start ariesd`)\n" {
+		r.stderr != "aries: "+down+"\nfix: "+fix+"\n" {
 		t.Errorf("aries --no-queue comment with the server away = exit %d, %q, %q; want the failure as without an outbox", r.code, r.stdout, r.stderr)
 	}
 	if out := alice.ok("outbox"); !strings.HasPrefix(out, "alice's outbox: 5 waiting, 0 refused\nserver unreachable since ") {
@@ -542,7 +543,7 @@ func (u *user) configure(from, to string) {
 // or drops it.
 func TestRekeyedServerKeepsTheOutbox(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t, daemonOpts{})
+	w := newWorld(t, daemonOpts{ssh: true}) // a server rebuilt with a new host key: SSH's
 	alice, bob := w.newUser("alice", ""), w.newUser("bob", "")
 	id := strings.TrimSpace(alice.ok("create", "Commented on before the rebuild"))
 	w.stop()

@@ -23,8 +23,8 @@ func TestWhoami(t *testing.T) {
 	alice.env = map[string]string{"ARIES_SESSION": "s-alice"}
 	aliceKey := filepath.Join(alice.repo, "id_ed25519")
 
-	want := fmt.Sprintf("principal  alice\nproject    %s\nserver     aries@127.0.0.1:%d, host key %s\nsession    s-alice\nkey        %s, from the file %s, which key: in .aries.yaml names\n",
-		project, w.addr.Port, w.hostFpr, alice.fingerprint(), aliceKey)
+	want := fmt.Sprintf("principal  alice\nproject    %s\n%ssession    s-alice\nkey        %s, from the file %s, which key: in .aries.yaml names\n",
+		project, w.serverLine(w.hostFpr), alice.fingerprint(), aliceKey)
 	if got := alice.ok("whoami"); got != want {
 		t.Errorf("aries whoami =\n%swant\n%s", got, want)
 	}

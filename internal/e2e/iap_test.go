@@ -34,7 +34,7 @@ func (u *user) viaIAP() {
 // key is still checked at the far end of it.
 func TestIAP(t *testing.T) {
 	// Serial: puts a stand-in gcloud on the process's PATH (iaptest.Install).
-	w := newWorld(t, daemonOpts{})
+	w := newWorld(t, daemonOpts{ssh: true}) // IAP carries SSH
 	gcloud := iaptest.Install(t, iaptest.Bridge)
 	alice := w.newUser("alice", "")
 	alice.viaIAP()

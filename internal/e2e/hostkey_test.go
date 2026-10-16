@@ -19,7 +19,7 @@ import (
 // alone is refused after the switch, naming the key it was offered.
 func TestHostKeyRotation(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t, daemonOpts{})
+	w := newWorld(t, daemonOpts{ssh: true}) // host keys are SSH's
 	alice, bob, carol := w.newUser("alice", ""), w.newUser("bob", ""), w.newUser("carol", "")
 	id := strings.TrimSpace(alice.ok("create", "Commented on across a rotation"))
 	old, next := w.hostFpr, newHostKey(t)
