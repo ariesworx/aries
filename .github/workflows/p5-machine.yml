@@ -72,6 +72,8 @@ jobs:
           set -euo pipefail
           test -d /sys/kernel/security/apparmor
           sudo aa-status --enabled
+          # The image's package index is stale: its apparmor-utils is gone from the mirrors.
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends apparmor-utils
           uname -r
           apparmor_parser --version | head -n 1
