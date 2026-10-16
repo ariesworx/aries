@@ -34,7 +34,7 @@ var limitNames = []string{
 	"https_conns_per_server", "https_conns_per_addr", "https_header_bytes", "https_header_timeout", "https_body_bytes",
 	"upgrade_timeout", "ws_message_bytes", "auth_failures_per_minute", "auth_failure_burst",
 	// server.Limits, the sign-in's, in the daemon's memory
-	"signins_pending_per_server", "dpop_proofs_per_server",
+	"signins_pending_per_server", "signins_pending_per_addr", "dpop_proofs_per_server",
 }
 
 // yamlKeys returns the YAML keys of t's fields, inlined structs' among

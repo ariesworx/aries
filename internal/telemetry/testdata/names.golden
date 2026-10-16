@@ -190,6 +190,7 @@ value aries.limit.refusals limit plans_per_project
 value aries.limit.refusals limit prices_per_project
 value aries.limit.refusals limit principals_per_server
 value aries.limit.refusals limit projects_per_server
+value aries.limit.refusals limit signins_pending_per_addr
 value aries.limit.refusals limit signins_pending_per_server
 value aries.limit.refusals limit telemetry.max_requests
 value aries.limit.refusals limit usage_per_day

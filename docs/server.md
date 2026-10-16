@@ -872,7 +872,7 @@ login:
       client_id: aries
       client_secret_file: /etc/aries/corp-secret   # 0600; the secret is never in this file
       ca_file: /etc/aries/corp-ca.pem              # the internal CA of the provider's certificate, in place of the system's
-      domains: [example.com]      # the token's address must be at one of these
+      domains: [example.com]      # the token's address must be at one of these, and verified
       require: {hd: example.com}  # claims that must have these values
     - name: corp-offline
       kind: oidc
@@ -925,12 +925,18 @@ login:
   the provider each time, and a token of an older sign-in is refused.
   Entra's is held to `tid` (the tenant), `ver` (the version), and its
   subject is `oid`; its address counts as verified only with `xms_edov`.
+  With `domains`, an address the provider does not say is verified is
+  refused, since it may be anyone's. An `iss` on the provider's answer
+  (RFC 9207), which most providers do not send, must be the provider's
+  issuer; another is refused before its code is spent.
 - **Who signs in.** The token's issuer and subject name an identity
   bound before, whatever address the token says; or else its address,
   which the provider says is verified, binds the open invitation of that
   address at that provider ([Identities and
   invitations](#identities-and-invitations)), once. Nobody else signs
-  in.
+  in. Since a bound identity is matched by issuer and subject alone,
+  `ariesd serve` refuses two providers with one issuer, which would each
+  sign in the other's people past its own `require` and `domains`.
 - **The token** is 256 random bits and more, of which only the SHA-256
   is kept, bound to a P-256 key `aries` makes at each sign-in (DPoP, RFC
   9449): presented without a proof by that key it is refused, so a token
@@ -975,7 +981,7 @@ The server's paths for sign-in, with `login:` providers:
 |---|---|
 | `GET /.well-known/oauth-authorization-server` | The authorization server's metadata (RFC 8414): its endpoints, PKCE S256, DPoP ES256, `iss` in the response |
 | `GET /oauth/authorize` | Where `aries login` opens the browser: checks `aries`'s request (its client, its loopback redirect, PKCE, state), and sends the browser on to the provider with the server's own PKCE, state, nonce and `prompt=login` |
-| `GET /auth/callback` | Where the provider sends the browser back; the server exchanges the code and sends the browser to `aries`'s loopback address with a code of its own, good for a minute and once |
+| `GET /auth/callback` | Where the provider sends the browser back; the server exchanges the code and sends the browser to `aries`'s loopback address with a code of its own, good for a minute and once, and as `iss` the one of `public_urls` that `aries` named |
 | `POST /oauth/token` | Where `aries` spends that code, with its PKCE verifier and a DPoP proof, for the token |
 | `POST /oauth/revoke` | Ends the sign-in a token is of, and closes its connections (RFC 7009); `aries logout` calls it |
 
@@ -1047,8 +1053,9 @@ then be true, and what ariesd cannot check:
 - **`public_urls` names what clients use,** the proxy's URL. A proxy
   that serves Aries under a path strips it.
 - **The limits per address are the proxy's.** Every connection comes
-  from it, so `https_conns_per_addr` and `auth_failures_per_minute` do
-  not apply behind one; keep the proxy's own.
+  from it, so `https_conns_per_addr`, `auth_failures_per_minute` and
+  `signins_pending_per_addr` do not apply behind one; keep the proxy's
+  own.
 
 Client certificates do not pass a proxy, so smart cards checked by
 ariesd itself (1.x) need TLS at ariesd.
@@ -2634,8 +2641,9 @@ limits:
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
-| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused): refusals a minute, and how many at once. With none left an upgrade or a token request from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
-| `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it a sign-in is refused, back at `aries`, `temporarily_unavailable` |
+| `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused), and sign-ins refused past `signins_pending_per_addr`: refusals a minute, and how many at once. With none left an upgrade, a token request or a sign-in begun from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
+| `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it the oldest is let go of, and counted, so that sign-ins never meant to finish cannot refuse a person's; one let go of tells `aries login` to run again |
+| `signins_pending_per_addr` | 16 | With `login:` providers: of those, the ones started from one client address. One more is refused, back at `aries`, `temporarily_unavailable`, and counts against the address's `auth_failures_per_minute`; an address with none left is refused sign-ins too, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
 | `dpop_proofs_per_server` | 100000 | With `login:` providers: the DPoP proofs the daemon remembers, each for two minutes, so that none is used twice. Only a proof whose request has earned it is remembered: at `/oauth/token`, one that comes with a live code and its PKCE verifier; at `/v1/connect`, one by the key of a live sign-in's token. Past it a proof is refused `busy` until the oldest age out |
 
 On a server of [many projects](#serving-many-projects), every limit above
@@ -3500,7 +3508,7 @@ number of series cannot grow with what clients send:
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |
 | `project` | The project's UUID, only for a project a connection was admitted to. At most as many as the `projects_per_server` limit, and `other` past that |
 | `reason` of a dropped connection | `membership`, `disabled`, `archived`, `key` (the access that let it in ended), `expired` (the key that signed it in reached its end), `idle` (`idle_timeout`), `limit` (a socket past twice `conns_per_server`), `access` (the access ended while the handshake ran), `signin` (its sign-in ended: at its end, a logout, or an admin's word) |
-| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute`; with `login:` providers, `grants_per_principal`, `signins_pending_per_server`, `dpop_proofs_per_server` |
+| `limit` | `conns_per_server`, `conns_per_principal`, `handshakes_per_principal`, `handshake_sockets` (twice `conns_per_server`), `writes_per_second`, `control_writes_per_second`, `open_stores_per_server`, `telemetry.max_requests`, `projects_per_server`, `principals_per_server`, `keys_per_principal`, `members_per_project`, `identities_per_principal`, `invites_per_server`, `prices_per_project`, `plans_per_project`, `hours_per_day`, `usage_per_day`, `locks_per_project`, `waiters_per_lock`, `lock_waits_per_principal`; with HTTPS on, `https_conns_per_server`, `https_conns_per_addr`, `auth_failures_per_minute`; with `login:` providers, `grants_per_principal`, `signins_pending_per_server`, `signins_pending_per_addr`, `dpop_proofs_per_server` |
 | `migrated` | `true` when opening the store applied a migration |
 | `event` of a claim | `take`, `renew`, `release`, `expire` |
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |

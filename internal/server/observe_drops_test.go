@@ -37,6 +37,9 @@ func TestMetricsOfDrops(t *testing.T) {
 	if closed || w.Err != nil {
 		t.Fatalf("carol's handshake by her key: closed %t, %+v", closed, w)
 	}
+	// The welcome is written before the server tracks the connection;
+	// once a request is answered it does, and the removal finds it.
+	mustAsk[proto.WhoResult](keyed, proto.OpWho, proto.WhoArgs{})
 	if rm := mustAsk[proto.KeyResult](d, proto.OpKeyRemove, proto.KeyRemoveArgs{Fingerprint: carols}); rm.Dropped != 1 {
 		t.Fatalf("key.remove dropped %d connections, want carol's 1", rm.Dropped)
 	}
@@ -48,6 +51,7 @@ func TestMetricsOfDrops(t *testing.T) {
 	b1, b2 := mustDialTo(t, m.Server, bob, projA), mustDialTo(t, m.Server, store.Actor{Principal: "bob", Session: "s-b2", Machine: "desk"}, projA)
 	is := mustAsk[proto.CreateResult](b1, proto.OpCreate, proto.CreateArgs{Title: "bob's"})
 	mustAsk[proto.StartResult](b1, proto.OpStart, proto.StartArgs{ID: is.ID})
+	mustAsk[proto.WhoResult](b2, proto.OpWho, proto.WhoArgs{}) // tracked, as above
 	mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "bob"})
 	if !b1.dropped() || !b2.dropped() {
 		t.Fatal("bob's connections were not closed")
@@ -55,6 +59,7 @@ func TestMetricsOfDrops(t *testing.T) {
 
 	// A project archived: everyone's connections to it, and their claims.
 	e := mustDialTo(t, m.Server, erin, projB)
+	mustAsk[proto.WhoResult](e, proto.OpWho, proto.WhoArgs{}) // tracked, as above
 	c := mustDialTo(t, m.Server, carol, projB)
 	held := mustAsk[proto.CreateResult](c, proto.OpCreate, proto.CreateArgs{Title: "carol's"})
 	mustAsk[proto.StartResult](c, proto.OpStart, proto.StartArgs{ID: held.ID})

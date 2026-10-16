@@ -69,6 +69,8 @@ type Issuer struct {
 	// now is the issuer's clock.
 	now   func() time.Time
 	codes map[string]grant
+	// answerIss is the iss its authorization responses carry, or none.
+	answerIss string
 }
 
 type grant struct {
@@ -133,6 +135,16 @@ func (i *Issuer) AuthAge(d time.Duration) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.authAge = d
+}
+
+// AnswerIssuer sets the iss the authorization endpoint's redirects carry
+// (RFC 9207): the issuer's URL, as a provider that supports it sends, or
+// another, as a provider in a mix-up would. Empty, the default, sends
+// none.
+func (i *Issuer) AnswerIssuer(iss string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.answerIss = iss
 }
 
 // Clock sets the issuer's clock, for iat, exp and auth_time.
@@ -228,8 +240,12 @@ func (i *Issuer) authorize(w http.ResponseWriter, r *http.Request) {
 	i.mu.Lock()
 	i.codes[code] = grant{nonce: q.Get("nonce"), challenge: q.Get("code_challenge"), redirect: q.Get("redirect_uri"),
 		person: i.person, authTime: i.now().Add(-i.authAge)}
+	answerIss := i.answerIss
 	i.mu.Unlock()
 	v := url.Values{"code": {code}, "state": {q.Get("state")}}
+	if answerIss != "" {
+		v.Set("iss", answerIss)
+	}
 	http.Redirect(w, r, q.Get("redirect_uri")+"?"+v.Encode(), http.StatusFound) //nolint:gosec // a test stand-in, redirecting where its test asks
 }
 

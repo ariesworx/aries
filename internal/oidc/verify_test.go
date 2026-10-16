@@ -1,12 +1,16 @@
 package oidc
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -250,6 +254,85 @@ func TestFetchedKeys(t *testing.T) {
 	}
 	if s := v.Status(); s.Source != SourceFetch || s.ReadAt.IsZero() || len(s.KeyIDs) != 1 {
 		t.Errorf("Status() = %+v, want fetched, one key", s)
+	}
+}
+
+// stallingKeys serves a key set from memory: the first fetch at once,
+// and each later one only once the test releases it.
+type stallingKeys struct {
+	jwks    []byte
+	fetches atomic.Int64
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *stallingKeys) RoundTrip(r *http.Request) (*http.Response, error) {
+	if s.fetches.Add(1) > 1 {
+		s.entered <- struct{}{}
+		select {
+		case <-s.release:
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
+	}
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": {"application/json"}},
+		Body: io.NopCloser(bytes.NewReader(s.jwks)), Request: r}, nil
+}
+
+// TestKeyFetchHoldsNoLock: while the key set is fetched for a key id the
+// verifier does not know, a token of a key it holds still verifies and
+// the status report still answers; a token of the same new key waits
+// for that fetch and verifies by it, with no second fetch.
+func TestKeyFetchHoldsNoLock(t *testing.T) {
+	t.Parallel()
+	iss := oidctest.New(t)
+	clk := newClock()
+	keys := &stallingKeys{jwks: iss.JWKS(), entered: make(chan struct{}, 2), release: make(chan struct{})}
+	v := NewFetchVerifier(baseConfig(iss, clk.Now), iss.URL+"/keys", &http.Client{Transport: keys})
+	now := clk.Now()
+	claims := map[string]any{"iss": iss.URL, "sub": "s", "aud": oidctest.ClientID, "iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix()}
+	if _, err := v.Verify(t.Context(), iss.Sign(claims), Expect{}); err != nil {
+		t.Fatalf("Verify(a token of the issuer's key) = %v", err)
+	}
+	// The provider rotates: its key is published under a new id.
+	keys.jwks = iss.JWKSAs("rotated")
+	clk.Add(time.Minute)
+	rotated := iss.SignAs("rotated", claims)
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	wg.Go(func() {
+		_, err := v.Verify(t.Context(), rotated, Expect{})
+		errs <- err
+	})
+	<-keys.entered // the fetch for "rotated" is under way, and stalled
+	wg.Go(func() {
+		_, err := v.Verify(t.Context(), rotated, Expect{})
+		errs <- err
+	})
+	done := make(chan error, 1)
+	wg.Go(func() {
+		_ = v.Status()
+		_, err := v.Verify(t.Context(), iss.Sign(claims), Expect{})
+		done <- err
+	})
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Verify(a known key) during a fetch = %v", err)
+		}
+	case <-time.After(FetchTimeout / 2):
+		t.Error("Status and Verify of a known key waited on a fetch of the key set")
+	}
+	close(keys.release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("Verify(the rotated key) = %v, want it verified by the one fetch", err)
+		}
+	}
+	if n := keys.fetches.Load(); n != 2 {
+		t.Errorf("the key set was fetched %d times, want 2: once at first and once for the rotated key", n)
 	}
 }
 

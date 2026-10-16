@@ -101,9 +101,10 @@ const (
 )
 
 // authServer is the sign-in's state in the daemon's memory: sign-ins in
-// progress and the codes not yet spent, both bounded
-// (Limits.SignInsPending) and lost at a restart, which costs a person a
-// second `aries login`; and the DPoP proofs seen, bounded
+// progress and the codes not yet spent (signInHolds), bounded in all
+// (Limits.SignInsPending) and per address (Limits.SignInsPendingPerAddr)
+// and lost at a restart, which costs a person a second `aries login`;
+// and the DPoP proofs seen, bounded
 // (Limits.DPoPProofs). Several daemons in front of one database would
 // each hold their own, so that a proof replayed to another daemon within
 // its window would pass (transport.md §13).
@@ -114,17 +115,17 @@ type authServer struct {
 	names     []string // the providers' names, in the settings' order
 	proofs    *dpop.Verifier
 
-	mu      sync.Mutex
-	pending map[string]*pendingSignIn // by the server's state at the provider
-	codes   map[string]*issuedCode    // by the code's hash
+	mu   sync.Mutex
+	held *signInHolds // guarded by mu
 }
 
 // pendingSignIn is a sign-in sent to the provider and not yet back.
 type pendingSignIn struct {
 	provider *oidc.Provider
-	// The client's request.
-	redirect, challenge, state string
-	scopes                     []string
+	// The client's request. resource is the public URL it named, which
+	// is iss on the way back and what the sign-in is for.
+	redirect, challenge, state, resource string
+	scopes                               []string
 	// The server's own request to the provider.
 	verifier, nonce string
 	until           time.Time
@@ -134,6 +135,7 @@ type pendingSignIn struct {
 // the provider said signed in, or why the sign-in was refused.
 type issuedCode struct {
 	redirect, challenge string
+	resource            string
 	scopes              []string
 	provider            string
 	id                  *oidc.Identity
@@ -152,8 +154,12 @@ func newAuthServer(s *Server, login Login) (*authServer, error) {
 	case login.TokenLifetime > MaxTokenLifetime:
 		return nil, fmt.Errorf("login: token_lifetime %s is over %s", proto.Span(login.TokenLifetime), proto.Span(MaxTokenLifetime))
 	}
+	perAddr := s.cfg.Limits.SignInsPendingPerAddr
+	if s.cfg.HTTPS.TLS == nil {
+		perAddr = 0 // behind a proxy, every request is the proxy's
+	}
 	a := &authServer{s: s, login: login, providers: map[string]*oidc.Provider{}, proofs: dpop.NewVerifier(s.cfg.Limits.DPoPProofs),
-		pending: map[string]*pendingSignIn{}, codes: map[string]*issuedCode{}}
+		held: newSignInHolds(s.cfg.Limits.SignInsPending, perAddr)}
 	for _, p := range login.Providers {
 		if _, dup := a.providers[p.Name()]; dup {
 			return nil, fmt.Errorf("login: two providers are named %s", p.Name())
@@ -241,10 +247,11 @@ func loopback(raw string) bool {
 	return err == nil && ip.IsLoopback()
 }
 
-// redirectWith sends the browser to redirect with v and the server's
-// issuer, as RFC 6749 §4.1.2 and RFC 9207 have it.
-func (a *authServer) redirectWith(rw http.ResponseWriter, r *http.Request, redirect string, v url.Values) {
-	v.Set("iss", a.base())
+// redirectWith sends the browser to redirect with v and iss, the
+// server's public URL the client named, as RFC 6749 §4.1.2 and RFC 9207
+// have it: the client holds iss to its own URL.
+func (a *authServer) redirectWith(rw http.ResponseWriter, r *http.Request, redirect, iss string, v url.Values) {
+	v.Set("iss", iss)
 	http.Redirect(rw, r, redirect+"?"+v.Encode(), http.StatusFound) //nolint:gosec // redirect is a loopback address authorize checked, or the one a sign-in in progress holds
 }
 
@@ -261,9 +268,25 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 		signInPage(rw, http.StatusBadRequest, "This sign-in was not started by aries: the client or its redirect is not one this server knows. Run `aries login` again.")
 		return
 	}
+	resource := a.base()
+	if res := q.Get("resource"); slices.Contains(a.s.cfg.HTTPS.URLs, res) {
+		resource = res
+	}
 	back := func(code, why string) {
 		a.refused(r, "", code)
-		a.redirectWith(rw, r, redirect, url.Values{"error": {code}, "error_description": {why}, "state": {q.Get("state")}})
+		a.redirectWith(rw, r, redirect, resource, url.Values{"error": {code}, "error_description": {why}, "state": {q.Get("state")}})
+	}
+	// Anyone may start a sign-in, and each is held for a while, so an
+	// address is held to its share, and one that keeps asking past it
+	// is refused as one that keeps failing to sign in is. Behind a
+	// proxy every request is the proxy's, so neither applies.
+	addr := peerAddr(r.RemoteAddr).String()
+	if a.held.perAddr == 0 {
+		addr = ""
+	} else if ok, wait := a.s.authFails.has(addr, a.s.now()); !ok {
+		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitAuthFailures)
+		back("temporarily_unavailable", fmt.Sprintf("too many refused sign-ins from this address; wait %s", wait))
+		return
 	}
 	scopes := strings.Fields(cmp.Or(q.Get("scope"), proto.ScopeCLI+" "+proto.ScopeMCP))
 	state := q.Get("state")
@@ -277,7 +300,7 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 	case state == "" || len(state) > 512 || !safetext.ValidLine(state):
 		back("invalid_request", "a state of at most 512 printable characters is required")
 		return
-	case slices.ContainsFunc(scopes, func(s string) bool { return s != proto.ScopeCLI && s != proto.ScopeMCP }):
+	case len(scopes) == 0 || slices.ContainsFunc(scopes, func(s string) bool { return s != proto.ScopeCLI && s != proto.ScopeMCP }):
 		back("invalid_scope", "aries signs in for the scopes cli and mcp")
 		return
 	case q.Get("resource") != "" && !slices.Contains(a.s.cfg.HTTPS.URLs, q.Get("resource")):
@@ -293,12 +316,15 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 		back("invalid_request", fmt.Sprintf("this server signs people in at %s; choose one with `aries login --provider NAME`", strings.Join(a.names, ", ")))
 		return
 	}
-	ps := &pendingSignIn{provider: p, redirect: redirect, challenge: q.Get("code_challenge"), state: state, scopes: scopes,
-		verifier: rand.Text() + rand.Text(), nonce: rand.Text(), until: a.now().Add(signInWait)}
+	ps := &pendingSignIn{provider: p, redirect: redirect, challenge: q.Get("code_challenge"), state: state, resource: resource, scopes: scopes,
+		verifier: rand.Text() + rand.Text(), nonce: rand.Text()}
 	up := rand.Text()
-	if !a.hold(func() { a.pending[up] = ps }) {
-		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSignInsPending)
-		back("temporarily_unavailable", "the server has the most sign-ins in progress it holds; retry in a minute")
+	if !a.holdPending(addr, up, ps) {
+		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSignInsPendingPerAddr)
+		a.s.authFails.take(addr, a.s.now())
+		back("temporarily_unavailable", fmt.Sprintf("this address has %d sign-ins in progress, the most the server holds from one address; "+
+			"finish one in its browser tab, or wait for one to lapse, %d minutes after it began",
+			a.held.perAddr, int(signInWait/time.Minute)))
 		return
 	}
 	sum := sha256.Sum256([]byte(ps.verifier))
@@ -306,7 +332,7 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 		Redirect: a.base() + pathCallback, MaxAge: a.login.FreshAuth})
 	if err != nil {
 		a.mu.Lock()
-		delete(a.pending, up)
+		a.held.takePending(up)
 		a.mu.Unlock()
 		a.providerFailed(r.Context(), p, err)
 		back("temporarily_unavailable", fmt.Sprintf("the server cannot reach the provider %s; retry, and if it persists tell the server's admin", p.Name()))
@@ -315,34 +341,31 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, to, http.StatusFound)
 }
 
-// hold runs add, which adds a sign-in in progress or a code, unless the
-// server holds Limits.SignInsPending of them, once those that expired
-// are let go of.
-func (a *authServer) hold(add func()) bool {
+// holdPending holds ps, started from addr, under the server's state at
+// the provider, up, unless addr holds Limits.SignInsPendingPerAddr
+// already. Its time is taken under mu, so that each kind signInHolds holds
+// is added in the order it lapses.
+func (a *authServer) holdPending(addr, up string, ps *pendingSignIn) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if len(a.pending)+len(a.codes) >= a.s.cfg.Limits.SignInsPending {
-		a.expire(a.now())
-		if len(a.pending)+len(a.codes) >= a.s.cfg.Limits.SignInsPending {
-			return false
-		}
+	now := a.now()
+	ps.until = now.Add(signInWait)
+	held, evicted := a.held.addPending(now, addr, up, ps)
+	a.mu.Unlock()
+	if evicted {
+		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSignInsPending)
 	}
-	add()
-	return true
+	return held
 }
 
-// expire lets go of the sign-ins and codes whose time has passed. The
-// caller holds mu.
-func (a *authServer) expire(now time.Time) {
-	for k, p := range a.pending {
-		if !now.Before(p.until) {
-			delete(a.pending, k)
-		}
-	}
-	for k, c := range a.codes {
-		if !now.Before(c.until) {
-			delete(a.codes, k)
-		}
+// holdCode holds ic, for the sign-in addr started, under the code's hash.
+func (a *authServer) holdCode(addr, hash string, ic *issuedCode) {
+	a.mu.Lock()
+	now := a.now()
+	ic.until = now.Add(codeLife)
+	evicted := a.held.addCode(now, addr, hash, ic)
+	a.mu.Unlock()
+	if evicted {
+		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSignInsPending)
 	}
 }
 
@@ -351,7 +374,7 @@ func (a *authServer) expire(now time.Time) {
 func (a *authServer) prune(ctx context.Context) {
 	now := a.now()
 	a.mu.Lock()
-	a.expire(now)
+	a.held.expire(now)
 	a.mu.Unlock()
 	a.proofs.Prune(now)
 	if n, err := a.s.cfg.Control.PruneSignIns(ctx, now.Add(-a.login.PruneAfter)); err != nil {
@@ -368,16 +391,21 @@ func (a *authServer) prune(ctx context.Context) {
 func (a *authServer) callback(rw http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	a.mu.Lock()
-	ps := a.pending[q.Get("state")]
-	delete(a.pending, q.Get("state"))
+	ps, addr := a.held.takePending(q.Get("state"))
 	a.mu.Unlock()
 	if ps == nil || !a.now().Before(ps.until) {
 		a.refused(r, "", "unknown_state")
-		signInPage(rw, http.StatusBadRequest, "This sign-in is not one the server is waiting for, or it took longer than 10 minutes. Run `aries login` again.")
+		signInPage(rw, http.StatusBadRequest, "This sign-in is not one the server is waiting for: it took longer than 10 minutes, "+
+			"or the server let it go to make room for newer ones. Run `aries login` again.")
 		return
 	}
-	ic := &issuedCode{redirect: ps.redirect, challenge: ps.challenge, scopes: ps.scopes, provider: ps.provider.Name(), until: a.now().Add(codeLife)}
-	if e := q.Get("error"); e != "" {
+	ic := &issuedCode{redirect: ps.redirect, challenge: ps.challenge, resource: ps.resource, scopes: ps.scopes, provider: ps.provider.Name()}
+	if iss, sent := q["iss"]; sent && (len(iss) != 1 || iss[0] != ps.provider.AnswerIssuer()) {
+		// RFC 9207: an answer from another issuer is a mix-up of
+		// providers, and its code is not spent.
+		ic.refused = proto.Errf(proto.CodeAuth, "run `aries login` again; if it recurs, tell the server's admin",
+			fmt.Sprintf("the answer said to be from %s names another issuer (iss)", ps.provider.Name()))
+	} else if e := q.Get("error"); e != "" {
 		ic.refused = proto.Errf(proto.CodeForbidden, "run `aries login` again; if the provider refuses you again, ask its administrator",
 			fmt.Sprintf("the provider %s refused the sign-in (%s)", ps.provider.Name(), safeWord(e)))
 	} else {
@@ -387,13 +415,8 @@ func (a *authServer) callback(rw http.ResponseWriter, r *http.Request) {
 		a.refusedSignIn(r.Context(), ps.provider.Name(), ic.refused)
 	}
 	code := rand.Text() + rand.Text()
-	if !a.hold(func() { a.codes[hashOf(code)] = ic }) {
-		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitSignInsPending)
-		a.redirectWith(rw, r, ps.redirect, url.Values{"error": {"temporarily_unavailable"},
-			"error_description": {"the server has the most sign-ins in progress it holds; retry in a minute"}, "state": {ps.state}})
-		return
-	}
-	a.redirectWith(rw, r, ps.redirect, url.Values{"code": {code}, "state": {ps.state}})
+	a.holdCode(addr, hashOf(code), ic)
+	a.redirectWith(rw, r, ps.redirect, ps.resource, url.Values{"code": {code}, "state": {ps.state}})
 }
 
 // verify exchanges the provider's code and checks its ID token, or says
@@ -447,6 +470,8 @@ func oauthError(rw http.ResponseWriter, status int, oauthCode string, e *proto.E
 // token is the token endpoint: the server's code spent, with aries's
 // PKCE verifier and a DPoP proof, for a token bound to the proof's key.
 func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
+	// RFC 6749 §5.1, whatever the listener sets on every response.
+	rw.Header().Set("Cache-Control", "no-store")
 	rw.Header().Set("Pragma", "no-cache")
 	if ok, wait := a.heard(r); !ok {
 		a.s.cfg.Telemetry.Count(telemetry.LimitRefusals, telemetry.LimitAuthFailures)
@@ -467,8 +492,7 @@ func (a *authServer) token(rw http.ResponseWriter, r *http.Request) {
 	}
 	hash := hashOf(f.Get("code"))
 	a.mu.Lock()
-	ic := a.codes[hash]
-	delete(a.codes, hash) // a code is spent once, whatever comes of it
+	ic := a.held.takeCode(hash) // a code is spent once, whatever comes of it
 	a.mu.Unlock()
 	now := a.now()
 	// The proof is checked here and remembered only once the code is
@@ -529,10 +553,10 @@ func (a *authServer) grant(rw http.ResponseWriter, r *http.Request, ic *issuedCo
 	}
 	tok := rand.Text() + rand.Text() // 256 random bits and more, base32
 	g, err := a.s.cfg.Control.SignIn(r.Context(), store.SignIn{Provider: ic.provider, Issuer: ic.id.Issuer, Subject: ic.id.Subject,
-		Address: ic.id.Address, Verified: ic.id.Verified, ClientID: ClientCLI, Scopes: ic.scopes, JKT: jkt, Resource: a.base(),
+		Address: ic.id.Address, Verified: ic.id.Verified, ClientID: ClientCLI, Scopes: ic.scopes, JKT: jkt, Resource: ic.resource,
 		Flow: flow, Machine: machine, Lifetime: a.login.TokenLifetime, TokenHash: hashOf(tok)})
 	if err != nil {
-		e := a.signInErr(ic.provider, err)
+		e := a.signInErr(r.Context(), ic.provider, err)
 		a.refusedSignIn(r.Context(), ic.provider, e)
 		status := http.StatusForbidden
 		if e.Code == proto.CodeUnavailable || e.Code == proto.CodeBusy {
@@ -554,7 +578,7 @@ func (a *authServer) grant(rw http.ResponseWriter, r *http.Request, ic *issuedCo
 
 // signInErr words the store's refusal of a sign-in at provider, for the
 // person signing in: their own address, which no log line holds.
-func (a *authServer) signInErr(provider string, err error) *proto.Error {
+func (a *authServer) signInErr(ctx context.Context, provider string, err error) *proto.Error {
 	if se, ok := errors.AsType[*store.SignInError](err); ok {
 		switch se.Reason {
 		case store.SignInLapsed:
@@ -575,7 +599,7 @@ func (a *authServer) signInErr(provider string, err error) *proto.Error {
 		return proto.Errf(proto.CodeBusy, "run `aries logout` on a machine you no longer use, or ask an admin to end a sign-in with `aries admin signin end ID`",
 			strings.TrimPrefix(ce.Error(), store.ErrInvalid.Error()+": "))
 	}
-	a.s.cfg.Logger.Error("record a sign-in", "event", logs.RequestFailed, "provider", provider, "err", err)
+	a.s.cfg.Logger.ErrorContext(ctx, "record a sign-in", "event", logs.RequestFailed, "provider", provider, "err", err)
 	return proto.Errf(proto.CodeUnavailable, "retry; if it persists, the server's admin should check the ariesd log", "the server could not record the sign-in")
 }
 

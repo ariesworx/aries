@@ -171,6 +171,8 @@ func TestProviderRules(t *testing.T) {
 		{"the domain required", Settings{Domains: []string{"Example.com"}}, claims(nil), nil, true},
 		{"another domain", Settings{Domains: []string{"example.org"}}, claims(nil), ErrNotAllowed, false},
 		{"a domain required and no address", Settings{Domains: []string{"example.com"}}, claims(map[string]any{"email": nil}), ErrNotAllowed, false},
+		{"a domain required and the address unverified", Settings{Domains: []string{"example.com"}}, claims(map[string]any{"email_verified": false}),
+			ErrNotAllowed, false},
 		{"a claim required", Settings{Require: map[string]string{"hd": "example.com"}}, claims(map[string]any{"hd": "example.com"}), nil, true},
 		{"a claim required, another value", Settings{Require: map[string]string{"hd": "example.com"}}, claims(map[string]any{"hd": "example.org"}), ErrNotAllowed, false},
 		{"a claim required, absent", Settings{Require: map[string]string{"hd": "example.com"}}, claims(nil), ErrNotAllowed, false},
@@ -244,6 +246,35 @@ func TestEntra(t *testing.T) {
 	} {
 		if _, err := p.Check(t.Context(), iss.Sign(tc.claims), Expect{}); err == nil {
 			t.Errorf("Check(Entra, %s) = nil error, want a refusal", tc.name)
+		}
+	}
+}
+
+// TestAnswerIssuer: the iss of a provider's authorization responses is
+// its tokens' issuer, but for Entra's version 1 tokens, whose responses
+// come from the tenant's v2.0 endpoint.
+func TestAnswerIssuer(t *testing.T) {
+	t.Parallel()
+	const tenant = "00000000-0000-4000-8000-0000000000e1"
+	for _, tc := range []struct {
+		name string
+		s    Settings
+		want string
+	}{
+		{"oidc", Settings{Kind: KindOIDC, Issuer: "https://sso.example.com/realms/example"}, "https://sso.example.com/realms/example"},
+		{"entra, version 2", Settings{Kind: KindEntra, Authority: "https://login.example.com/", Tenant: tenant, TokenVersion: 2},
+			"https://login.example.com/" + tenant + "/v2.0"},
+		{"entra, version 1", Settings{Kind: KindEntra, Authority: "https://login.example.com", Tenant: tenant, TokenVersion: 1,
+			Issuer: "https://sts.example.com/" + tenant + "/"}, "https://login.example.com/" + tenant + "/v2.0"},
+	} {
+		s := tc.s
+		s.Name, s.ClientID = "corp", oidctest.ClientID
+		p, err := Open(s, options(newClock()))
+		if err != nil {
+			t.Fatalf("Open(%s) = %v", tc.name, err)
+		}
+		if got := p.AnswerIssuer(); got != tc.want {
+			t.Errorf("Open(%s).AnswerIssuer() = %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }
