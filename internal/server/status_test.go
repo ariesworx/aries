@@ -276,6 +276,25 @@ func TestFileConnections(t *testing.T) {
 	}
 }
 
+// TestWelcomedIsCounted: a connection the client has been welcomed on
+// is one the daemon counts, from the welcome on, with no request sent.
+// The welcome was written before the connection was recorded, so an
+// admin's `key list` or `status` asked right after another's welcome
+// could miss it (the soak's fileKey, run 38976956093).
+func TestWelcomedIsCounted(t *testing.T) {
+	t.Parallel()
+	m := adminWorld(t, Limits{})
+	for i := 1; i <= 30; i++ {
+		_ = mustDialTo(t, m.Server, carol, projA) // by authorized_keys: names no key
+		if got := m.fileConns("carol"); got != i {
+			t.Fatalf("after %d welcomes by the hand-maintained file, key list counts %d", i, got)
+		}
+		if got := m.connections("carol", projA); got != i {
+			t.Fatalf("after %d welcomes, %d connections of carol are recorded", i, got)
+		}
+	}
+}
+
 // A request in flight when its project is archived may take a claim
 // after the admin's release has ended every claim there: the connection
 // is closed, but its handler finishes the request it had read. The store

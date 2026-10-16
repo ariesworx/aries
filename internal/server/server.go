@@ -729,6 +729,9 @@ type session struct {
 	pushMu sync.Mutex
 	// slot is set when the session holds a connection slot (s.slots).
 	slot bool
+	// tracked is set once the connection is recorded as the session's
+	// (track), which its handler then undoes.
+	tracked bool
 	// conn is the session's connection. ended is set, by the request
 	// loop alone, when a request of its own ended its access: the
 	// connection closes once the reply is sent.
@@ -819,6 +822,9 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 	defer hspan.End()
 	sess, err := s.handshake(hctx, c, given, in)
 	s.observeHandshake(hspan, sess, err)
+	if sess != nil && sess.tracked {
+		defer s.untrack(c)
+	}
 	if sess != nil && sess.slot {
 		defer s.slots.release(sess.key)
 	}
@@ -853,12 +859,6 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn, given *proto.Frame, 
 		_ = c.Close() // unblocks a pusher stuck writing to a client that stopped reading
 		s.unwatch(sess)
 	}()
-	defer s.untrack(c)
-	if !s.track(c, sess) {
-		log.InfoContext(hctx, "connection closed: access ended during the handshake", "event", logs.ConnAccessEnded)
-		s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropAccess)
-		return
-	}
 	if in := sess.signedIn; in != nil {
 		// The sign-in's end closes the connection (decision 59), on the
 		// server's own timer, from the store's time now.
@@ -1249,6 +1249,13 @@ func (s *Server) handshake(ctx context.Context, c net.Conn, given *proto.Frame, 
 				fmt.Sprintf("the server could not open project %q", row.ID)))
 		}
 		sess.held, sess.proj = held, held.pr
+	}
+	// Recorded before the welcome, which is how the client learns it is
+	// in: an admin's `key list` or `status` asked after it counts it.
+	if e := s.track(sess.conn, sess); e != nil {
+		s.cfg.Logger.InfoContext(ctx, "connection closed: access ended during the handshake", "event", logs.ConnAccessEnded)
+		s.cfg.Telemetry.Count(telemetry.ConnectionsDropped, telemetry.DropAccess)
+		return refuse(e)
 	}
 	w.Session = sess.actor.Session
 	w.Principal = sess.actor.Principal
