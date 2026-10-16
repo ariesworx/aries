@@ -1,7 +1,9 @@
 version: 2
 # Each ecosystem waits 14 days after a release before it proposes it, and
-# 30 for a new major version (AGENTS.md, rule 4: the cooldown;
-# docs/design/supply-chain.md, §7.3). A security update does not wait.
+# Go modules 30 for a new major version (AGENTS.md, rule 4: the cooldown;
+# docs/design/supply-chain.md, §7.3). Dependabot takes no major-version
+# wait for Actions or images, so their reviewer waits the 30 days. A
+# security update does not wait.
 updates:
   - package-ecosystem: gomod
     directory: /
@@ -41,7 +43,6 @@ updates:
       day: monday
     cooldown:
       default-days: 14
-      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance
@@ -59,7 +60,6 @@ updates:
       day: monday
     cooldown:
       default-days: 14
-      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance
@@ -79,7 +79,6 @@ updates:
       day: monday
     cooldown:
       default-days: 14
-      semver-major-days: 30
     open-pull-requests-limit: 5
     commit-message:
       prefix: maintenance

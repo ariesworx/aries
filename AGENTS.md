@@ -280,7 +280,8 @@ and what a test that passes there does not do.
    module, the workflows and what each binary links
    (`testdata/links-*.golden`) to the file. **Cooldown:** a version is
    taken no sooner than 14 days after it was published (30 for a new
-   major version, as `.github/dependabot.yml` waits), for modules, tools
+   major version, which `.github/dependabot.yml` waits for Go modules and
+   a reviewer for Actions and images), for modules, tools
    and Actions alike, unless it fixes a vulnerability govulncheck or an
    advisory names; a security fix skips the wait, never the review. Go's
    own patch releases are taken within the week (docs/design/supply-chain.md,
