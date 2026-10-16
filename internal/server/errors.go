@@ -39,6 +39,10 @@ func command(op string) string {
 		return "admin member list"
 	case proto.OpKeys:
 		return "admin key list"
+	case proto.OpInvites:
+		return "admin invite list"
+	case proto.OpIdentities:
+		return "admin identity list"
 	case proto.OpPropose:
 		return "conflicts" // proposing is an agent's, over MCP; aries conflicts shows them
 	case proto.OpResolve:
@@ -68,6 +72,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var dayFull *store.HoursDayError
 	var access *store.AccessError
 	var taken *store.TakenError
+	var invited *store.InvitedError
 	var controlCap *store.ControlLimitError
 	var lastAdmin *store.LastAdminError
 	var conflictCap *store.ConflictLimitError
@@ -93,6 +98,11 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	case errors.As(err, &taken):
 		return takenErr(taken)
 
+	case errors.As(err, &invited):
+		return proto.Errf(proto.CodeExists,
+			fmt.Sprintf("remove that invitation first with `aries admin invite remove %d`, or invite another address", invited.ID),
+			invited.Error())
+
 	case errors.As(err, &controlCap):
 		fix := fmt.Sprintf("ask the server's operator to raise %s under limits: in ariesd's config", controlCap.Limit)
 		switch controlCap.Limit {
@@ -100,6 +110,8 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 			fix = "remove a key the principal no longer uses with `aries admin key remove FINGERPRINT`, or " + fix
 		case "principals_per_creator":
 			fix = "ask a server admin to add the principal, or the server's operator to raise principals_per_creator under limits: in ariesd's config"
+		case "invites_per_server":
+			fix = "remove an invitation no longer wanted (`aries admin invite list`, then `aries admin invite remove ID`), or " + fix
 		}
 		return proto.Errf(proto.CodeInvalid, fix, strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
@@ -280,6 +292,14 @@ func accessPhrase(e *store.AccessError) string {
 			return "remove that key"
 		}
 		return "remove a key of " + e.Principal
+	case proto.OpPrincipalSet:
+		return "set " + e.Principal
+	case string(store.OpIdentityInvite):
+		return "invite an identity for " + e.Principal
+	case string(store.OpIdentityRemove):
+		return "remove an identity"
+	case proto.OpInvites:
+		return "list the invitations"
 	}
 	return strings.TrimSpace(string(e.Op) + " " + e.Principal + in)
 }
@@ -302,6 +322,10 @@ func accessErr(e *store.AccessError) *proto.Error {
 		return proto.Errf(proto.CodeForbidden,
 			"ask another admin to run it: a server admin, or a project admin who administers every project you belong to; the server's operator can also change authorized_keys on the server",
 			msg+"nobody adds a key to their own account")
+	case store.AccessOwnIdentity:
+		return proto.Errf(proto.CodeForbidden,
+			"ask another server admin to run it: an invitation lets whoever holds the address sign in as the principal",
+			msg+"nobody invites an identity onto their own principal")
 	case store.AccessReach:
 		if e.Principal == "" {
 			// A key named by its fingerprint. The refusal is the same
@@ -357,10 +381,15 @@ func adminNotFoundFix(op string) string {
 		return "see who is a member with `aries admin member list`"
 	case proto.OpMemberSet:
 		return "add the principal first with `aries admin principal add NAME`"
-	case proto.OpPrincipalDisable, proto.OpPrincipalEnable, proto.OpKeyAdd, proto.OpKeys:
+	case proto.OpPrincipalDisable, proto.OpPrincipalEnable, proto.OpKeyAdd, proto.OpKeys,
+		proto.OpPrincipalSet, proto.OpPrincipalShow, proto.OpInviteAdd, proto.OpIdentities:
 		return "check the name; a server admin lists them with `aries admin principal list`"
 	case proto.OpKeyRemove:
 		return "list a principal's keys, with their fingerprints, with `aries admin key list NAME`"
+	case proto.OpInviteRemove:
+		return "list the invitations, with their ids, with `aries admin invite list`"
+	case proto.OpIdentityRemove:
+		return "list a principal's identities, with their ids, with `aries admin identity list NAME`"
 	}
 	return "list the projects with `aries admin project list`"
 }

@@ -32,6 +32,10 @@ import (
 //     add one of its own. Another admin does it, or the operator, in
 //     authorized_keys on the server. Anyone may remove a key of their
 //     own account (decision 38): that only ever takes access away.
+//   - Only a server admin invites an identity, removes one, or sets a
+//     principal's kind, owner or display name (control_identities.go),
+//     and nobody invites an identity onto their own principal, for
+//     decision 19's reason.
 //   - A principal whose row is disabled has none of these rights, even
 //     when the config file names it a server admin (decision 20). It is
 //     still a server admin's principal to everyone else: only a server
@@ -70,6 +74,10 @@ const (
 	// AccessOwnKeys: the actor is Principal, and nobody adds a key to
 	// their own account, whatever their rights (decisions 19 and 38).
 	AccessOwnKeys AccessReason = "own keys"
+	// AccessOwnIdentity: the actor is Principal, and nobody invites an
+	// identity onto their own principal, whatever their rights
+	// (decision 19's reasoning, docs/design/identity.md §6.5).
+	AccessOwnIdentity AccessReason = "own identity"
 )
 
 // AccessError refuses a change to the control store that Actor, the
@@ -117,6 +125,8 @@ func (e *AccessError) Error() string {
 		why = fmt.Sprintf("%s belongs to no project and %s did not create it, so it is for server admins", e.Principal, e.Actor)
 	case AccessOwnKeys:
 		why = "nobody adds a key to their own account, so it is for another admin"
+	case AccessOwnIdentity:
+		why = "nobody invites an identity onto their own principal, so it is for another server admin"
 	}
 	return fmt.Sprintf("%s may not %s: %s", e.Actor, what, why)
 }

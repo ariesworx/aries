@@ -48,7 +48,7 @@ func TestAdminKeyUsage(t *testing.T) {
 	}
 	_, help, _ := runCLI(t, "help", "admin")
 	for _, want := range []string{"admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT",
-		"admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME"} {
+		"admin principal add NAME [--key FILE]... [--project P | --no-project]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("aries help admin lacks %q:\n%s", want, help)
 		}

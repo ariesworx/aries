@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -22,13 +23,15 @@ import (
 // The server decides who may run what.
 
 // adminGroups are the first words `aries admin` takes.
-var adminGroups = []string{"price", "plan", "project", "principal", "member", "key", "status"}
+var adminGroups = []string{"price", "plan", "project", "principal", "member", "key", "invite", "identity", "status"}
 
 // adminUsage is the usage of the access commands, for the command table.
 const adminUsage = "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT" +
-	" | admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] | disable NAME | enable NAME | whois STAND-IN" +
+	" | " + principalUsage +
 	" | admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]" +
 	" | admin key add NAME FILE|- | list NAME | list --added-by NAME | remove FINGERPRINT" +
+	" | admin invite add NAME ADDRESS --provider P | list [--pending] | remove ID" +
+	" | " + identityUsage +
 	" | admin status [-n N] [--after NAME]"
 
 // only refuses a flag the action does not take: any that was given and
@@ -194,8 +197,12 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 	more(w, res.More, res.Projects[len(res.Projects)-1].Name)
 }
 
+// principalUsage is the usage of `aries admin principal`.
+const principalUsage = "admin principal add NAME [--key FILE]... [--project P | --no-project] [--kind person|service] [--owner NAME] [--display-name D] [--invite ADDRESS --provider P]" +
+	" | list [--created-by NAME] [-n N] [--after NAME] | set NAME [--display-name D] [--kind person|service] [--owner NAME] | show NAME | disable NAME | enable NAME | whois STAND-IN"
+
 func adminPrincipal(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin principal add NAME [--key FILE]... [--project P | --no-project] | list [--created-by NAME] [-n N] [--after NAME] | disable NAME | enable NAME | whois STAND-IN"
+	const usage = principalUsage
 	fs := r.newFlags("admin principal")
 	var add proto.PrincipalAddArgs
 	var keyFiles fileFlag
@@ -203,17 +210,66 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 	fs.StringVar(&add.Project, "project", "", "the project the new principal joins: a UUID or a name (default: this repository's)")
 	fs.BoolVar(&add.Unassigned, "no-project", false, "add the principal to no project (server admins only)")
 	fs.Var(&keyFiles, "key", "a public key file to add with the principal, such as ~/.ssh/id_ed25519.pub, or - for standard input (repeatable)")
+	kind := fs.String("kind", "", "person (the default) or service; a service needs --owner")
+	owner := fs.String("owner", "", "the person a service answers to")
+	display := fs.String("display-name", "", "what people see beside the name; empty clears it (principal set)")
+	fs.StringVar(&add.Invite, "invite", "", "an address to invite for the new principal, at --provider (server admins only)")
+	fs.StringVar(&add.Provider, "provider", "", "the provider --invite's address signs in at")
 	list := listFlags(fs)
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
 	}
 	if len(pos) == 0 {
-		return usagef(usage, "admin principal needs add, list, disable, enable or whois")
+		return usagef(usage, "admin principal needs add, list, set, show, disable, enable or whois")
+	}
+	if *kind != "" && *kind != proto.KindPerson && *kind != proto.KindService {
+		return usagef(usage, "--kind must be person or service")
 	}
 	switch action := pos[0]; action {
+	case "set":
+		if err := only(fs, usage, "principal set", "display-name", "kind", "owner"); err != nil {
+			return err
+		}
+		if len(pos) != 2 {
+			return usagef(usage, "principal set needs one name, such as bob")
+		}
+		in := proto.PrincipalSetArgs{Name: pos[1], Kind: *kind, Owner: *owner}
+		if set(fs, "display-name") {
+			in.DisplayName = display
+		}
+		if in.DisplayName == nil && in.Kind == "" && in.Owner == "" {
+			return usagef(usage, "principal set needs --display-name, --kind or --owner")
+		}
+		var out proto.PrincipalResult
+		if err := r.call(ctx, proto.OpPrincipalSet, in, &out); err != nil {
+			return err
+		}
+		if r.json {
+			r.emit(out)
+			return nil
+		}
+		printPrincipalSet(r.env.Stdout, out)
+		return nil
+	case "show":
+		if err := only(fs, usage, "principal show"); err != nil {
+			return err
+		}
+		if len(pos) != 2 {
+			return usagef(usage, "principal show needs one name, such as bob")
+		}
+		var out proto.PrincipalShowResult
+		if err := r.call(ctx, proto.OpPrincipalShow, proto.PrincipalArgs{Name: pos[1]}, &out); err != nil {
+			return err
+		}
+		if r.json {
+			r.emit(out)
+			return nil
+		}
+		printPrincipalShow(r.env.Stdout, out)
+		return nil
 	case "add":
-		if err := only(fs, usage, "principal add", "project", "no-project", "key"); err != nil {
+		if err := only(fs, usage, "principal add", "project", "no-project", "key", "kind", "owner", "display-name", "invite", "provider"); err != nil {
 			return err
 		}
 		switch {
@@ -223,7 +279,12 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 			return usagef(usage, "give --project or --no-project, not both")
 		case len(keyFiles) > proto.MaxKeysPerAdd:
 			return usagef(usage, "principal add takes at most %d keys; add the rest with `aries admin key add %s FILE`", proto.MaxKeysPerAdd, pos[1])
+		case add.Invite != "" && add.Provider == "":
+			return usagef(usage, "--invite needs --provider, the provider the address signs in at")
+		case add.Invite == "" && add.Provider != "":
+			return usagef(usage, "--provider is for --invite ADDRESS")
 		}
+		add.Kind, add.Owner, add.DisplayName = *kind, *owner, *display
 		add.Name = pos[1]
 		// Every file is read before anything is sent.
 		for _, f := range keyFiles {
@@ -248,6 +309,9 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		}
 		for _, k := range out.Keys {
 			_, _ = fmt.Fprintf(r.env.Stdout, "key %s added to %s\n", esc(k), esc(out.Name))
+		}
+		if out.Invitation != nil {
+			printInvited(r.env.Stdout, proto.IdentityResult{Identity: *out.Invitation, Change: "added"})
 		}
 		r.warn(out.Warning)
 		return nil
@@ -325,15 +389,41 @@ func printWhois(w io.Writer, res proto.PrincipalWhoisResult) {
 	_, _ = fmt.Fprintf(w, "%s is %s%s\n", esc(res.StandIn), esc(res.Name), note)
 }
 
+// printPrincipals renders a principal list. The kind, owner and display
+// name columns show when a row has one.
 func printPrincipals(w io.Writer, res proto.PrincipalsResult) {
 	if len(res.Principals) == 0 {
 		_, _ = fmt.Fprintln(w, "no principals")
 		return
 	}
+	kinds := slices.ContainsFunc(res.Principals, func(p proto.Principal) bool { return p.Kind != "" })
+	owners := slices.ContainsFunc(res.Principals, func(p proto.Principal) bool { return p.Owner != "" })
+	names := slices.ContainsFunc(res.Principals, func(p proto.Principal) bool { return p.DisplayName != "" })
+	dash := func(s string) string { return cmp.Or(esc(s), "-") }
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "NAME\tSTATE\tADDED BY\tADDED")
+	head := "NAME\tSTATE"
+	if kinds {
+		head += "\tKIND"
+	}
+	if owners {
+		head += "\tOWNER"
+	}
+	if names {
+		head += "\tDISPLAY NAME"
+	}
+	_, _ = fmt.Fprintln(tw, head+"\tADDED BY\tADDED")
 	for _, p := range res.Principals {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", esc(p.Name), esc(p.State), esc(p.CreatedBy), when(p.CreatedAt))
+		_, _ = fmt.Fprintf(tw, "%s\t%s", esc(p.Name), esc(p.State))
+		if kinds {
+			_, _ = fmt.Fprintf(tw, "\t%s", dash(p.Kind))
+		}
+		if owners {
+			_, _ = fmt.Fprintf(tw, "\t%s", dash(p.Owner))
+		}
+		if names {
+			_, _ = fmt.Fprintf(tw, "\t%s", dash(p.DisplayName))
+		}
+		_, _ = fmt.Fprintf(tw, "\t%s\t%s\n", esc(p.CreatedBy), when(p.CreatedAt))
 	}
 	_ = tw.Flush()
 	more(w, res.More, res.Principals[len(res.Principals)-1].Name)

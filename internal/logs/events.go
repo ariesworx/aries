@@ -125,10 +125,13 @@ const (
 	AuditPrincipalAdd     Event = "audit.principal.add"
 	AuditPrincipalDisable Event = "audit.principal.disable"
 	AuditPrincipalEnable  Event = "audit.principal.enable"
+	AuditPrincipalSet     Event = "audit.principal.set"
 	AuditKeyAdd           Event = "audit.key.add"
 	AuditKeyRemove        Event = "audit.key.remove"
 	AuditMemberSet        Event = "audit.member.set"
 	AuditMemberRemove     Event = "audit.member.remove"
+	AuditIdentityInvite   Event = "audit.identity.invite"
+	AuditIdentityRemove   Event = "audit.identity.remove"
 	AuditReadFailed       Event = "audit.read_failed"
 )
 
@@ -150,7 +153,8 @@ var events = []Event{
 	TelemetryScrapeFailed, TelemetryListening, TelemetryListenerError, TelemetryListenerStopped,
 	TelemetryKeyMade, TelemetryKeyFound, TelemetryKeyUnavailable,
 	AuditProjectAdd, AuditProjectArchive, AuditProjectActivate, AuditPrincipalAdd, AuditPrincipalDisable, AuditPrincipalEnable,
-	AuditKeyAdd, AuditKeyRemove, AuditMemberSet, AuditMemberRemove, AuditReadFailed,
+	AuditPrincipalSet, AuditKeyAdd, AuditKeyRemove, AuditMemberSet, AuditMemberRemove, AuditIdentityInvite, AuditIdentityRemove,
+	AuditReadFailed,
 }
 
 // Events returns every event's name, in the order the guide lists them.

@@ -204,6 +204,8 @@ const (
 	LimitPrincipals        = "principals_per_server"
 	LimitKeys              = "keys_per_principal"
 	LimitMembers           = "members_per_project"
+	LimitIdentities        = "identities_per_principal"
+	LimitInvites           = "invites_per_server"
 	LimitPrices            = "prices_per_project"
 	LimitPlans             = "plans_per_project"
 	LimitHoursPerDay       = "hours_per_day"
@@ -226,8 +228,8 @@ var results = []string{ResultOK, ResultFailed,
 
 // limits are the values of KeyLimit.
 var limits = []string{LimitConns, LimitConnsPerPrincipal, LimitHandshakes, LimitSockets, LimitWriteRate, LimitControlWriteRate,
-	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitPrices,
-	LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits}
+	LimitOpenStores, LimitTelemetryRequests, LimitProjects, LimitPrincipals, LimitKeys, LimitMembers, LimitIdentities, LimitInvites,
+	LimitPrices, LimitPlans, LimitHoursPerDay, LimitUsagePerDay, LimitLocks, LimitLockWaiters, LimitLockWaits}
 
 // attr is one attribute of an instrument: its key and the values it may
 // take. A value not among them is recorded as fallback. The values of

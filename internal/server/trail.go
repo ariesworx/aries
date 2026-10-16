@@ -162,9 +162,15 @@ func (s *Server) principalsCreatedBy(ctx context.Context, sess *session, in prot
 func wirePrincipals(rows []store.Principal, more int) proto.PrincipalsResult {
 	out := proto.PrincipalsResult{Principals: []proto.Principal{}, More: more}
 	for _, p := range rows {
-		out.Principals = append(out.Principals, proto.Principal{Name: p.Name, State: string(p.State), CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt})
+		out.Principals = append(out.Principals, wirePrincipal(p))
 	}
 	return out
+}
+
+// wirePrincipal is a principal in a list.
+func wirePrincipal(p store.Principal) proto.Principal {
+	return proto.Principal{Name: p.Name, State: string(p.State), Kind: string(p.Kind), Owner: p.Owner, DisplayName: p.DisplayName,
+		CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt}
 }
 
 // membersAddedBy lists the memberships a principal added: in the

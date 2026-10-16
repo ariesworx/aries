@@ -206,6 +206,8 @@ type ProjectAdmin interface {
 // PrincipalAdmin is the principals, keys and members of `aries admin`.
 type PrincipalAdmin interface {
 	AddPrincipal(ctx context.Context, actor store.Actor, name, project string, keys ...string) (store.Principal, error)
+	AddNewPrincipal(ctx context.Context, actor store.Actor, in store.NewPrincipal) (store.Principal, error)
+	SetPrincipal(ctx context.Context, actor store.Actor, name string, ch store.PrincipalChange) (store.Principal, bool, error)
 	DisablePrincipal(ctx context.Context, actor store.Actor, name string) (store.Principal, error)
 	EnablePrincipal(ctx context.Context, actor store.Actor, name string) (store.Principal, error)
 	Principal(ctx context.Context, name string) (store.Principal, error)
@@ -222,6 +224,19 @@ type PrincipalAdmin interface {
 	ProjectsOf(ctx context.Context, principal string) ([]store.Member, error)
 	MembersAddedBy(ctx context.Context, adder string) ([]store.Member, error)
 	Role(ctx context.Context, principal, project string) (role store.Role, ok bool, err error)
+	IdentityAdmin
+}
+
+// IdentityAdmin is the identities and invitations of `aries admin`
+// (docs/design/identity.md §6.5).
+type IdentityAdmin interface {
+	Invite(ctx context.Context, actor store.Actor, principal string, inv store.Invitation) (store.Identity, bool, error)
+	RemoveInvite(ctx context.Context, actor store.Actor, id int64) (store.Identity, error)
+	RemoveIdentity(ctx context.Context, actor store.Actor, id int64) (store.Identity, error)
+	Identity(ctx context.Context, id int64) (store.Identity, error)
+	Identities(ctx context.Context, principal string) ([]store.Identity, error)
+	Invites(ctx context.Context, q store.InviteQuery) ([]store.Identity, int, error)
+	Now() time.Time
 }
 
 // ControlUpkeep is what the daemon does to the control store beside its

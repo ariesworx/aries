@@ -138,6 +138,18 @@ type Settings struct {
 	// HTTPS is the HTTPS listener's, which serve needs when Transports
 	// names https (CheckServe).
 	HTTPS HTTPSSettings `yaml:"https"`
+	// Login is how people sign in (docs/design/identity.md §10.1), on a
+	// server of many projects.
+	Login LoginSettings `yaml:"login"`
+}
+
+// LoginSettings are the login: settings. Slice N1 has the invitations';
+// the providers and the sign-in come with slice T2.
+type LoginSettings struct {
+	// InviteTTL is how long an invitation stays open unused, from
+	// store.MinInviteTTL to store.MaxInviteTTL. Default
+	// store.DefaultInviteTTL.
+	InviteTTL Duration `yaml:"invite_ttl"`
 }
 
 // HTTPSSettings are the https: settings (transport.md §4.2).
@@ -504,6 +516,12 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	if d := time.Duration(out.DueSoon); d > store.MaxDueSoon {
 		return Settings{}, fmt.Errorf("due_soon is %s; it can be at most %s; fix: set it within that in the config file, or leave it out for the default, %s",
 			proto.Span(d), proto.Span(store.MaxDueSoon), proto.Span(store.DefaultDueSoon))
+	}
+	out.Login = file.Login
+	out.Login.InviteTTL = cmp.Or(out.Login.InviteTTL, Duration(store.DefaultInviteTTL))
+	if d := time.Duration(out.Login.InviteTTL); d < store.MinInviteTTL || d > store.MaxInviteTTL {
+		return Settings{}, fmt.Errorf("login: invite_ttl is %s; it must be from %s to %s; fix: set it within that in the config file, or leave it out for the default, %s",
+			proto.Span(d), proto.Span(store.MinInviteTTL), proto.Span(store.MaxInviteTTL), proto.Span(store.DefaultInviteTTL))
 	}
 	out.Telemetry = file.Telemetry
 	if out.Telemetry.MaxRequests < 0 {

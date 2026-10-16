@@ -124,6 +124,8 @@ value aries.limit.refusals limit control_writes_per_second
 value aries.limit.refusals limit handshake_sockets
 value aries.limit.refusals limit handshakes_per_principal
 value aries.limit.refusals limit hours_per_day
+value aries.limit.refusals limit identities_per_principal
+value aries.limit.refusals limit invites_per_server
 value aries.limit.refusals limit keys_per_principal
 value aries.limit.refusals limit lock_waits_per_principal
 value aries.limit.refusals limit locks_per_project

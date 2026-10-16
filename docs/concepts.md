@@ -14,6 +14,18 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
   belongs to one principal, and a principal may have several. Nobody adds
   or removes a key of their own account: an admin does
   ([Principals](server.md#principals)).
+- A principal is a **person** or a **service**. A service, such as a
+  CI job or an unattended agent, answers to an owner, a person, and
+  signs in by a key, never as a person does. Either may have a
+  **display name**, what people see beside its name.
+- A person's **identities** are their accounts at the company's identity
+  provider: an address at a provider, such as `bob@example.com` at
+  `google`. Nobody becomes a principal by signing in: a server admin
+  adds the principal and invites the address, and the person's first
+  sign-in binds the invitation, which lapses unused after 7 days
+  ([Identities and invitations](server.md#identities-and-invitations)).
+  The sign-in itself comes in a later release slice; until then an
+  identity is recorded and matches nothing.
 - A **session** is one run of an agent, or a person's terminal on one
   machine. Its id comes from the environment
   ([Sessions](agents.md#sessions)).

@@ -40,6 +40,7 @@ func controlCmd(ctx context.Context, env adminEnv, args []string) error {
 // the usual cause is that nobody has yet.
 func openControl(ctx context.Context, s server.Settings, db *store.DB, opts store.ControlOptions) (*store.Control, error) {
 	opts.Admins, opts.Limits, opts.AllowUnsafeAccount = s.Admins, s.Limits.Control, s.AllowUnsafeAccount
+	opts.InviteTTL = time.Duration(s.Login.InviteTTL)
 	var ctl *store.Control
 	var err error
 	if db != nil {

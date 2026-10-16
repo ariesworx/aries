@@ -118,6 +118,9 @@ func TestAuditStream(t *testing.T) {
 	mustAsk[proto.MemberRemoveResult](d, proto.OpMemberRemove, proto.MemberArgs{Name: "hal", Project: projA})
 	mustAsk[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "hal"})
 	mustAsk[proto.PrincipalResult](d, proto.OpPrincipalEnable, proto.PrincipalArgs{Name: "hal"})
+	mustAsk[proto.PrincipalResult](d, proto.OpPrincipalSet, proto.PrincipalSetArgs{Name: "hal", DisplayName: new("Hal Example")})
+	inv := mustAsk[proto.IdentityResult](d, proto.OpInviteAdd, proto.InviteAddArgs{Name: "hal", Provider: "google", Address: "hal.invited@example.com"})
+	mustAsk[proto.IdentityResult](d, proto.OpInviteRemove, proto.IdentityArgs{ID: inv.ID})
 	// A request that is refused writes no event, and so no line.
 	if _, perr := ask[proto.PrincipalResult](d, proto.OpPrincipalDisable, proto.PrincipalArgs{Name: "nobody"}); perr == nil {
 		t.Fatal("disabling a principal that does not exist succeeded")
@@ -143,7 +146,7 @@ func TestAuditStream(t *testing.T) {
 			want = append(want, e)
 		}
 	}
-	if len(want) < 12 {
+	if len(want) < 15 {
 		t.Fatalf("the control store has %d events that change access: the test covers too little", len(want))
 	}
 	if len(lines) != len(want) {
@@ -167,7 +170,8 @@ func TestAuditStream(t *testing.T) {
 		}
 	}
 	for _, op := range []store.Op{store.OpProjectAdd, store.OpProjectActivate, store.OpProjectArchive, store.OpPrincipalAdd,
-		store.OpPrincipalDisable, store.OpPrincipalEnable, store.OpKeyAdd, store.OpKeyRemove, store.OpMemberSet, store.OpMemberRemove} {
+		store.OpPrincipalDisable, store.OpPrincipalEnable, store.OpKeyAdd, store.OpKeyRemove, store.OpMemberSet, store.OpMemberRemove,
+		store.OpPrincipalSet, store.OpIdentityInvite, store.OpIdentityRemove} {
 		if !seen[string(op)] {
 			t.Errorf("no audit line for %s: the test did not cover it", op)
 		}
@@ -198,6 +202,9 @@ func TestAuditStream(t *testing.T) {
 		{"a membership set", logs.AuditMemberSet, projA + "/hal", map[string]string{"subject": "hal", "project": projA, "role": "admin"}},
 		{"a membership removed", logs.AuditMemberRemove, projA + "/hal", map[string]string{"subject": "hal", "project": projA, "role": ""}},
 		{"a project archived", logs.AuditProjectArchive, projB, map[string]string{"subject": "", "project": projB}},
+		{"a principal set", logs.AuditPrincipalSet, "hal", map[string]string{"subject": "hal", "project": ""}},
+		{"an identity invited", logs.AuditIdentityInvite, "hal", map[string]string{"subject": "hal", "fingerprint": ""}},
+		{"an identity removed", logs.AuditIdentityRemove, "hal", map[string]string{"subject": "hal"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := find(tc.ev, tc.target)
@@ -213,6 +220,10 @@ func TestAuditStream(t *testing.T) {
 	b64 := strings.Fields(key)[1]
 	if all := out.String(); strings.Contains(all, b64) || strings.Contains(all, "hal@example.com") {
 		t.Errorf("the log holds a key's text or its comment:\n%s", all)
+	}
+	// Nor an invited address, or a display name: they are personal.
+	if all := out.String(); strings.Contains(all, "hal.invited") || strings.Contains(all, "Hal Example") {
+		t.Errorf("the log holds an invited address or a display name:\n%s", all)
 	}
 }
 
