@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -206,7 +207,8 @@ func waitGone(t *testing.T, dir string) []string {
 
 // TestServerDiesWithItsProcess checks that a server does not outlive the
 // process that started it, however that process ends without calling
-// Stop, and that its directory goes with it. A test binary that is killed
+// Stop, and that its directory, its shared memory and its semaphores go
+// with it. A test binary that is killed
 // runs no deferred Stop: servers started by internal/e2e's TestMain were
 // found running hours after their tests, each holding hundreds of
 // megabytes, with their data left in the temporary directory.
@@ -235,6 +237,10 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 			if !ok || !segmentExists(t, shm) {
 				t.Fatalf("the running server names no shared memory segment that exists (%q), so this test would see nothing", shm)
 			}
+			sems := semaphoreSets(t, filepath.Join(dir, "data"), pgPID)
+			if runtime.GOOS == "darwin" && len(sems) == 0 {
+				t.Fatal("the running server has no System V semaphore set, so this test would see nothing")
+			}
 			if err := tc.end(helper); err != nil {
 				t.Fatal(err)
 			}
@@ -257,6 +263,13 @@ func TestServerDiesWithItsProcess(t *testing.T) {
 			}
 			if segmentExists(t, shm) {
 				t.Errorf("the server's shared memory segment %s is still there after it was killed", shm)
+			}
+			// macOS allows 87,381 semaphores in all (kern.sysv.semmns),
+			// and a server takes about 400.
+			for _, set := range sems {
+				if semaphoreSetExists(set) {
+					t.Errorf("the server's semaphore set %d (key %#x) is still there after it was killed", set.id, set.key)
+				}
 			}
 		})
 	}

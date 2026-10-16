@@ -29,8 +29,10 @@
 // runs no deferred Stop. So on Linux and macOS each launch has a watcher
 // (watch_unix.go): a /bin/sh in a session of its own, reading a pipe that
 // only the starting process holds the other end of. When that process is
-// gone, however it went, the pipe closes; the watcher then kills the
-// server's process group (the postmaster and every backend it forked),
+// gone, however it went, the pipe closes; the watcher then asks the
+// server for an immediate shutdown, which ends every backend it forked
+// and frees its System V semaphores and shared memory, kills the
+// server's process group if it has not gone within 10 seconds,
 // removes from the directory what this package and Postgres put there,
 // removes the directory if that emptied it, and exits. Stop, or the
 // server exiting by itself, ends the watcher first, and then the
@@ -403,10 +405,11 @@ func (s *Server) dropAll() error {
 }
 
 // Stop asks the server to shut down fast and waits for it to exit,
-// killing its process group after 10 seconds. Once it returns, nothing
-// the server or its launch started still runs, the watcher included, so
-// the caller can remove its directory. Stopping a server that is stopped
-// does nothing.
+// asking for an immediate shutdown after 10 seconds and killing its
+// process group after 10 more. Once it returns, nothing the server or
+// its launch started still runs, the watcher included, so the caller
+// can remove its directory. Stopping a server that is stopped does
+// nothing.
 func (s *Server) Stop() error {
 	if s.cmd == nil || s.cmd.Process == nil || s.stopped {
 		return nil
@@ -418,11 +421,20 @@ func (s *Server) Stop() error {
 		s.stopped = true
 		return nil
 	case <-time.After(10 * time.Second):
-		if err := killGroup(s.cmd); err != nil {
-			return fmt.Errorf("pgtest: kill: %w", err)
-		}
-		<-s.exit
-		s.stopped = true
-		return removeSegment(s.data())
 	}
+	// The server frees its semaphores and shared memory in an immediate
+	// shutdown too, and in none if it is killed.
+	quitGroup(s.cmd)
+	select {
+	case <-s.exit:
+		s.stopped = true
+		return nil
+	case <-time.After(10 * time.Second):
+	}
+	if err := killGroup(s.cmd); err != nil {
+		return fmt.Errorf("pgtest: kill: %w", err)
+	}
+	<-s.exit
+	s.stopped = true
+	return removeSegment(s.data())
 }
