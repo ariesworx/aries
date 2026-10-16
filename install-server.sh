@@ -318,8 +318,9 @@ else
 	fi
 	case $tls in
 	files)
-		[ -n "$cert_opt" ] && [ -n "$key_opt" ] ||
+		if [ -z "$cert_opt" ] || [ -z "$key_opt" ]; then
 			usage_die "--tls files needs --cert and --key" "give the certificate chain and its key, in PEM, from the company's or the site's CA"
+		fi
 		for _f in "$cert_opt" "$key_opt"; do
 			if [ ! -f "$_f" ] || [ ! -r "$_f" ]; then
 				usage_die "cannot read $_f" "name the PEM files of the certificate and its key"
@@ -353,8 +354,9 @@ else
 		listen=:443
 		[ "$tls" != proxy ] || listen=127.0.0.1:8443
 	fi
-	printf '%s\n' "$listen" | grep -Eq '^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]*):[1-9][0-9]{0,4}$' && [ "${listen##*:}" -le 65535 ] ||
+	if ! printf '%s\n' "$listen" | grep -Eq '^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]*):[1-9][0-9]{0,4}$' || [ "${listen##*:}" -gt 65535 ]; then
 		usage_die "--listen $listen is not HOST:PORT" "give the listener's address, such as :443 or 127.0.0.1:8443"
+	fi
 	if [ -n "$url" ]; then
 		printf '%s\n' "$url" | grep -Eq '^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+)*$' ||
 			usage_die "--url $url is not an https:// URL of the server" "give the URL clients use, such as https://aries.example.com"

@@ -562,3 +562,15 @@ func FuzzRead(f *testing.F) {
 		}
 	})
 }
+
+// A message larger than the connection's bound is refused before it is
+// written, so a write never allocates past the bound.
+func TestWriteRefusesPastTheBound(t *testing.T) {
+	t.Parallel()
+	a, b := net.Pipe()
+	defer func() { _ = a.Close(); _ = b.Close() }()
+	c := newConn(a, bufio.NewReader(a), io.Discard, true, 16)
+	if err := c.Write(make([]byte, 17)); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("Write of 17 bytes on a 16-byte bound = %v, want ErrTooLarge", err)
+	}
+}

@@ -502,6 +502,11 @@ func (c *Conn) writeLocked(op byte, payload []byte) error {
 		return net.ErrClosed
 	}
 	n := len(payload)
+	// A message is never larger than the connection's bound, which also
+	// keeps the header's 14 bytes from overflowing the allocation.
+	if n > c.max {
+		return ErrTooLarge
+	}
 	buf := make([]byte, 0, 14+n)
 	buf = append(buf, 0x80|op)
 	m := byte(0)
