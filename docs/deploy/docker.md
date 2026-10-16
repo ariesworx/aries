@@ -239,8 +239,11 @@ docker compose --profile telemetry logs -f collector
   docker compose --profile prometheus exec prometheus promtool query instant http://127.0.0.1:9090 'ALERTS'
   ```
 
-- **The images are pinned by digest** in the compose file: the
+- **The images are pinned by tag and digest** in the compose file
+  (`name:tag@sha256:…`; the digest is what Docker pulls): the
   Collector's core distribution at 0.162.0, and Prometheus at 3.15.0.
+  Dependabot proposes a new digest when a tag is rebuilt and a new tag
+  when one is released, after a cooldown.
 - **A trace of your own.** Give `aries` a W3C trace context and look for
   its trace id in the collector's output: the server's span is under
   yours, with the write beneath it and you named by a stand-in, which

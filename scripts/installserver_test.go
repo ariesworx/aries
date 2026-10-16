@@ -624,8 +624,8 @@ func TestOperationsPostgresPins(t *testing.T) {
 		}
 	}
 	const compose = "deploy/docker/compose.yaml"
-	if m := regexp.MustCompile(`(?m)^ *# postgres:([0-9]+)\.[0-9]+[^\n]*\n *image: postgres@sha256:[0-9a-f]{64}$`).FindStringSubmatch(read(t, compose)); m == nil {
-		t.Errorf("%s has no postgres image pinned by digest under a comment naming its release (# postgres:MAJOR.MINOR)", compose)
+	if m := regexp.MustCompile(`(?m)^ *image: postgres:([0-9]+)\.[0-9]+@sha256:[0-9a-f]{64}$`).FindStringSubmatch(read(t, compose)); m == nil {
+		t.Errorf("%s has no postgres image pinned by release and digest (postgres:MAJOR.MINOR@sha256:…)", compose)
 	} else if m[1] != version.PostgresMajor {
 		t.Errorf("%s runs Postgres %s, version.PostgresMajor is %s; change them together", compose, m[1], version.PostgresMajor)
 	}
