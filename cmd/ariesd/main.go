@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"os/user"
@@ -268,6 +269,9 @@ const telemetryStop = 5 * time.Second
 // until it listens on its socket. A listener that cannot be bound fails
 // the start.
 func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv func(string) string) error {
+	if err := s.CheckServe(); err != nil {
+		return err
+	}
 	// A stand-in key that cannot be found, read or made never stops the
 	// daemon: its spans then say nothing about who, and its log and its
 	// status say why (telemetry.Config.KeyFile).
@@ -328,25 +332,40 @@ func runDaemon(ctx context.Context, s server.Settings, log *slog.Logger, getenv 
 			log.Info("telemetry listener serving /healthz and /readyz; metrics are off", "event", logs.TelemetryListening, "addr", tl.Addr().String())
 		}
 	}
+	// The HTTPS listener is bound before the database is opened: a port
+	// that is taken, or a certificate that cannot be served, fails the
+	// start at once. The server closes it from here on.
+	web, err := listenHTTPS(ctx, s, log)
+	if err != nil {
+		return err
+	}
 	note := sdnotify.New(getenv, os.Getpid())
-	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
+	d, err := openDaemonWith(ctx, s, log, hooks{tel: tel, https: web, heartbeatEvery: note.WatchdogEvery(), heartbeat: func() {
 		if err := note.Watchdog(); err != nil {
 			log.Warn("could not feed systemd's watchdog", "event", logs.SystemdNotify, "err", err)
 		}
 	}})
 	if err != nil {
+		if web != nil {
+			_ = web.Listener.Close()
+		}
 		return err
 	}
 	l, err := server.Listen(s.Socket)
 	if err != nil {
+		if web != nil {
+			_ = web.Listener.Close()
+		}
 		return errors.Join(err, d.Close())
 	}
 	srv.Store(d.srv)
+	transports := strings.Join(s.Transports, " ")
 	if d.ctl != nil {
 		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "control_schema", s.ControlSchema,
-			"projects", d.ctl.ActiveProjects(), "admins", s.Admins)
+			"projects", d.ctl.ActiveProjects(), "admins", s.Admins, "transports", transports)
 	} else {
-		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins)
+		log.Info("ariesd serving", "event", logs.DaemonServing, "version", version.Version, "socket", s.Socket, "project", s.Project, "admins", s.Admins,
+			"transports", transports)
 	}
 	// The socket takes connections from here on, so a unit with
 	// Type=notify is started now, and told when the stop begins.
@@ -369,11 +388,35 @@ func refusalLines(err error) []string {
 	return parts
 }
 
+// listenHTTPS binds the HTTPS listener s configures, with its TLS, or
+// returns nil when s serves no HTTPS. CheckServe has passed.
+func listenHTTPS(ctx context.Context, s server.Settings, log *slog.Logger) (*server.HTTPS, error) {
+	if !s.HTTPSOn() {
+		return nil, nil
+	}
+	lt, err := s.HTTPS.TLSConfig(log)
+	if err != nil {
+		return nil, err
+	}
+	trusted, err := s.HTTPS.Trusted()
+	if err != nil {
+		return nil, err
+	}
+	var lc net.ListenConfig
+	l, err := lc.Listen(ctx, "tcp", s.HTTPS.Listen)
+	if err != nil {
+		return nil, fmt.Errorf("https: listen on %s: %w; fix: free the port, or set https: listen: to another, and when it is below 1024 give ariesd CAP_NET_BIND_SERVICE (docs/server.md, The HTTPS listener)", s.HTTPS.Listen, err)
+	}
+	return &server.HTTPS{Listener: l, TLS: lt.TLS, Trusted: trusted, URLs: s.HTTPS.PublicURLs, Mode: lt.Mode, NotAfter: lt.NotAfter}, nil
+}
+
 // hooks are what runDaemon adds to the daemon openDaemonWith builds.
 // The zero value adds nothing.
 type hooks struct {
 	// tel measures the server and its stores.
 	tel *telemetry.Telemetry
+	// https is the HTTPS listener the server serves, when HTTPS is on.
+	https *server.HTTPS
 	// heartbeat is called every heartbeatEvery from the server's reaper,
 	// for systemd's watchdog; zero calls nothing.
 	heartbeat      func()
@@ -421,7 +464,8 @@ func openDaemonWith(ctx context.Context, s server.Settings, log *slog.Logger, h 
 	cfg := server.Config{Version: version.Version, Logger: log, Limits: s.Limits, Account: s.Account,
 		ConflictAge: time.Duration(s.ConflictAge), DueSoon: time.Duration(s.DueSoon),
 		Telemetry: h.tel, Heartbeat: h.heartbeat, HeartbeatEvery: h.heartbeatEvery, NoAudit: !s.Telemetry.Audit(),
-		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind}
+		Clock: clk, ClockBehind: s.ClockBehind, BehindTolerance: time.Duration(s.ClockBehindTolerance), AcceptHistory: s.AcceptClockBehind,
+		NoSSH: !s.SSH(), HTTPS: h.https}
 	opts := store.Options{Logger: log, AllowUnsafeAccount: s.AllowUnsafeAccount, Limits: s.Limits.Limits, Readers: s.Limits.DBConnsPerProject,
 		Clock: clk, ClientAhead: time.Duration(s.ClockClientTolerance), IdemWindow: time.Duration(s.Limits.IdemWindow), AwayMax: time.Duration(s.Limits.AwayMax)}
 	if s.DSN == "" {
@@ -465,6 +509,14 @@ func daemonOfOne(ctx context.Context, s server.Settings, db *store.DB, cfg serve
 	opts.Prefix, opts.Admins = s.Prefix, s.Admins
 	opts.Observer = server.StoreObserver(h.tel, opts.Logger, s.Project)
 	opts.Tracer = server.StoreTracer(h.tel, s.Project)
+	if h.https != nil {
+		// A server of one project has no store of keys: a key proof over
+		// HTTPS is checked against the lines of authorized_keys that
+		// force the bridge, as sshd checks the key.
+		if _, cfg.AuthorizedKeys, err = keyFiles(s); err != nil {
+			return nil, err
+		}
+	}
 	st, err := db.Open(ctx, d.Schema, opts)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)

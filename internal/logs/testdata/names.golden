@@ -170,6 +170,7 @@ field to
 field trace_headers
 field trace_id
 field traces
+field transports
 field url
 field urls
 field version
