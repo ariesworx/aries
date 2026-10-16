@@ -56,10 +56,23 @@ func command(op string) string {
 	return strings.ReplaceAll(op, ".", " ")
 }
 
+// errUnanswered is mapErr's answer to a write whose commit outcome is
+// unknown (store.ErrCommitUnknown). It is never sent: the request loop
+// closes the connection instead, so that the client takes the request as
+// lost, as it takes a dropped connection, and resends it with its
+// idempotency key, rather than reading a refusal of a write that may
+// stand. Compared by identity.
+var errUnanswered = proto.Errf(proto.CodeUnavailable, "retry; aries connects again and resends the write once",
+	"the server lost the database's answer to the write's commit")
+
 // mapErr turns a store error into a typed protocol error whose message
 // names the cause and whose fix names the next action. id and rev are the
 // request's target and expected revision, when it has them.
 func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err error) *proto.Error {
+	if errors.Is(err, store.ErrCommitUnknown) {
+		pr.log.ErrorContext(ctx, "commit outcome unknown", "event", logs.RequestUnknown, "op", op, "err", err)
+		return errUnanswered
+	}
 	pr.observeLimit(op, err)
 	text := err.Error()
 	var stale *store.StaleEpochError

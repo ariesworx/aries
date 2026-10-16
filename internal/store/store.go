@@ -837,7 +837,7 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("commit: %w", err)
+		return false, commitErr(err)
 	}
 	changed = w.mutated || w.touched
 	if w.closedChanged {
@@ -864,6 +864,23 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		s.publish(w.inbox, evs)
 	}
 	return changed, nil
+}
+
+// commitErr says what a failed COMMIT means. An error Postgres answered
+// with (a SQLSTATE) is a commit that did not happen, and a serialization
+// failure among them is retried as any is. Any other error, a context
+// that ended or a connection that broke, leaves the outcome unknown:
+// pgx gives up on the connection without telling Postgres, which may
+// finish the commit all the same. That is ErrCommitUnknown, never
+// retried, since the write may stand. database/sql also refuses to send
+// COMMIT for a context that has already ended, which is known not to
+// have applied; it returns the same context error, so it is reported as
+// unknown too, which is never wrong: unknown allows that it did not.
+func commitErr(err error) error {
+	if sqlState(err) != "" {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return fmt.Errorf("%w: %w", ErrCommitUnknown, err)
 }
 
 // rollback rolls tx back; a transaction already done is not an error.

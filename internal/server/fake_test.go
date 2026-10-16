@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -350,5 +352,40 @@ func TestStatusWithoutPostgres(t *testing.T) {
 				t.Errorf("the schema's size = %d; want it left out", *n)
 			}
 		})
+	}
+}
+
+// TestCommitUnknownIsNotAnswered: a write whose commit outcome the store
+// does not know may stand, so the client is sent no refusal for it,
+// which it would take for "not applied" (aries-eyomn7gz). Its connection
+// is closed instead, as a dropped one is, and the client takes the
+// request as lost; the cause is logged.
+func TestCommitUnknownIsNotAnswered(t *testing.T) {
+	t.Parallel()
+	var log syncBuffer
+	st := &fakeStore{err: fmt.Errorf("%w: context canceled", store.ErrCommitUnknown)}
+	s, err := New(Config{Store: st, Project: project, Version: "v0.2.0", ReapInterval: -1, PeerCheck: anyPeer,
+		Logger: slog.New(slog.NewTextHandler(&log, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := mustDialTo(t, s, alice, project)
+	id := c.send(proto.OpCreate, proto.CreateArgs{Title: "t"})
+	_ = c.nc.SetReadDeadline(time.Now().Add(patience))
+	for {
+		f, err := c.dec.Decode()
+		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				t.Fatalf("the connection stayed open, unanswered, after a commit of unknown outcome")
+			}
+			break // closed unanswered, as wanted
+		}
+		if f.T == proto.FrameRes && f.ID == id {
+			t.Fatalf("a commit of unknown outcome was answered: %+v, error %+v", f, f.Err)
+		}
+	}
+	c.hangUp()
+	if got := log.String(); !strings.Contains(got, "event="+string(logs.RequestUnknown)) || !strings.Contains(got, "op=create") {
+		t.Errorf("log = %q, want a %s line naming the op", got, logs.RequestUnknown)
 	}
 }

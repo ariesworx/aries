@@ -71,6 +71,7 @@ event project.opened
 event reaper.failed
 event reaper.prune_failed
 event reaper.pruned
+event request.commit_unknown
 event request.done
 event request.failed
 event request.part_failed
