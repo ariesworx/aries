@@ -75,4 +75,3 @@ actions/upload-artifact  actions  MIT  2026-10-07  hands the release's archives 
 actions/download-artifact  actions  MIT  2026-10-07  takes them in sign-and-publish
 golangci/golangci-lint-action  actions  MIT  2026-10-06  installs and runs golangci-lint at its pinned version
 github/codeql-action  actions  MIT  2026-10-07  CodeQL's analysis (codeql.yml)
-contributor-assistant/github-action  actions  Apache-2.0  2026-10-15  the contributor license agreement check (cla.yml)
