@@ -3442,8 +3442,8 @@ are in [deploy/observability](../deploy/observability):
 
 ### Names that are kept
 
-From v1.0.0, and through every 1.x release, what ariesd reports keeps
-its names, so that an alert, a dashboard or a log query written against
+From v0.5.0 on, and through every release after it, what ariesd reports
+keeps its names, so that an alert, a dashboard or a log query written against
 one release works against the next (decision 88):
 
 - **Metrics:** each instrument's name, and its Prometheus name;
@@ -3454,7 +3454,7 @@ one release works against the next (decision 88):
 - **Logs:** each event's name, and each field's name, on stderr and
   over OTLP alike.
 
-A name is never renamed or removed within 1.x, and a value never comes
+A name is never renamed or removed from v0.5.0 on, and a value never comes
 to mean something else. What may change is only additive: a new
 instrument, span, event or field, a new attribute on an instrument, or
 a new value of an attribute, which a query that matches values it knows
