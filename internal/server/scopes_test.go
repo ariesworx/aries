@@ -65,14 +65,40 @@ func protoOps(t *testing.T) []string {
 func TestEveryOpHasScopes(t *testing.T) {
 	t.Parallel()
 	ops := protoOps(t)
-	for _, op := range ops {
-		if _, ok := opScopes()[op]; !ok {
-			t.Errorf("op %q has no entry in opScopes; add it, with the scopes besides cli whose tokens may send it", op)
-		}
+	for _, op := range unscoped(ops) {
+		t.Errorf("op %q has no entry in opScopes; add it, with the scopes besides cli whose tokens may send it", op)
 	}
 	for op := range opScopes() {
 		if !slices.Contains(ops, op) {
 			t.Errorf("opScopes names %q, which is no op of internal/proto", op)
+		}
+	}
+}
+
+// unscoped returns the ops of ops that opScopes has no entry for.
+func unscoped(ops []string) []string {
+	var out []string
+	for _, op := range ops {
+		if _, ok := opScopes()[op]; !ok {
+			out = append(out, op)
+		}
+	}
+	return out
+}
+
+// TestEveryOpHasScopesFails: the check above reports an op added to the
+// protocol without an entry, and only that one; and the parse it reads
+// the protocol by finds the ops of every form internal/proto declares
+// them in, a block of constants or one alone.
+func TestEveryOpHasScopesFails(t *testing.T) {
+	t.Parallel()
+	ops := protoOps(t)
+	if got := unscoped(append(slices.Clone(ops), "made.up")); !slices.Equal(got, []string{"made.up"}) {
+		t.Errorf("unscoped with an op added = %q, want only made.up", got)
+	}
+	for _, op := range []string{proto.OpCreate, proto.OpWatch, proto.OpGateWaive, proto.OpKeyAdd, proto.OpTrustRemove, proto.OpSignInEnd} {
+		if !slices.Contains(ops, op) {
+			t.Errorf("protoOps misses %q", op)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,18 @@ func TestHTTPSRoutes(t *testing.T) {
 		{http.MethodGet, "/oauth/token", http.StatusNotFound},
 		{http.MethodGet, "/oauth/revoke", http.StatusNotFound},
 		{http.MethodPut, "/oauth/token", http.StatusNotFound},
+		// HEAD is GET's, with no body; OPTIONS and TRACE are no route's.
+		{http.MethodHead, "/.well-known/aries", http.StatusOK},
+		{http.MethodHead, "/v1/connect", http.StatusBadRequest},
+		{http.MethodOptions, "/v1/connect", http.StatusNotFound},
+		{http.MethodTrace, "/.well-known/aries", http.StatusNotFound},
+		// A path that is not clean is redirected to its clean form, on
+		// this server, and served nothing itself (net/http's ServeMux).
+		{http.MethodGet, "/v1/./connect", http.StatusTemporaryRedirect},
+		{http.MethodGet, "/x/../v1/connect", http.StatusTemporaryRedirect},
+		{http.MethodGet, "//v1/connect", http.StatusTemporaryRedirect},
+		{http.MethodGet, "//evil.example.com/v1/connect", http.StatusTemporaryRedirect},
+		{http.MethodGet, "/.//evil.example.com/", http.StatusTemporaryRedirect},
 		// Paths the listener does not serve, including the loopback
 		// listener's and the sign-in paths' prefixes.
 		{http.MethodGet, "/", http.StatusNotFound},
@@ -64,6 +77,11 @@ func TestHTTPSRoutes(t *testing.T) {
 		_ = resp.Body.Close()
 		if resp.StatusCode != r.status {
 			t.Errorf("%s %s with no credentials = %d, want %d", r.method, r.path, resp.StatusCode, r.status)
+		}
+		// A redirect stays on this server: a path, never a URL another
+		// host could be read from ("//host/…").
+		if loc := resp.Header.Get("Location"); loc != "" && (!strings.HasPrefix(loc, "/") || strings.HasPrefix(loc, "//")) {
+			t.Errorf("%s %s redirects to %q, off this server", r.method, r.path, loc)
 		}
 	}
 }
