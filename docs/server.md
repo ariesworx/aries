@@ -3682,6 +3682,7 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.locks` | `aries_locks_total` | counter | `event` |
 | `aries.lock.wait.duration` | `aries_lock_wait_duration_seconds` | histogram, seconds | none |
 | `aries.gates` | `aries_gates_total` | counter | `kind`, `event` |
+| `aries.usage.tokens` | `aries_usage_tokens_total` | counter | `project`, `kind`, `model` |
 | `aries.control.writes` | `aries_control_writes_total` | counter | `op`, `result` |
 | `aries.keys_file.writes` | `aries_keys_file_writes_total` | counter | `result` |
 | `aries.keys_file.last_write.time` | `aries_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |
@@ -3718,6 +3719,7 @@ What each counts:
 | `claims` | Changes of a claim, as the event log records them, and renewals |
 | `locks` | Changes of a [lock](concepts.md#locks)'s holds and queue, as the event log records them, and renewals of a hold or a place. A lock's name is no attribute: it is a person's text |
 | `gates` | Changes of a [gate](concepts.md#gates), as the event log records them: added, passed (by a person or a CI job's report), failed (a CI job's report), waived, rearmed. A report or a decision that changed nothing, such as a pass of a passed gate or a report of an older run, is not counted |
+| `usage.tokens` | The tokens of each usage record the server stored, once: a batch sent again, or replayed under its idempotency key, adds nothing. Harnesses report usage through `aries usage --hook` (Claude Code today). Tokens only: cost is computed on read from prices that change, so it is no counter and stays with `aries cost`. The `model` is the name of a model with a price in the project's table, and `(other)` for every other, however many a client reports. A model priced later is counted by name from then on |
 | `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
 | `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
 | `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
@@ -3757,6 +3759,8 @@ number of series cannot grow with what clients send:
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
 | `kind` of a gate | `human`, `ci` |
 | `event` of a gate | `added`, `passed`, `failed`, `waived`, `rearmed` |
+| `kind` of a token | `input`, `output`, `cache_write`, `cache_read` (`cache_write` includes the part written for an hour) |
+| `model` | The name of a model the project's price table has a price for, at most 64 of them; `(other)` for any other model, a client's text |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
 | `signal` | `metrics`, `traces`, `logs` |
 | `direction` | `forward`, `backward` |

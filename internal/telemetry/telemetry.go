@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/aries/internal/logs"
+	"github.com/ariesworx/aries/internal/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -36,6 +37,11 @@ const scope = "github.com/ariesworx/aries"
 // attribute takes when Config.Projects is zero: the default of the
 // projects limit.
 const DefaultProjects = 500
+
+// MaxModels is how many distinct models the model attribute of
+// [UsageTokens] takes, whatever the price tables hold: a model past it
+// is counted as [ModelOther].
+const MaxModels = 64
 
 // Config configures a Telemetry. The zero value exports nothing.
 type Config struct {
@@ -93,6 +99,7 @@ type Telemetry struct {
 	ops        map[string]struct{}
 	inst       [numInstruments]instrument
 	projects   projectSet
+	models     projectSet
 	// pull is the Prometheus handler, or nil when Config.Pull is off.
 	pull http.Handler
 	errs *errlog
@@ -261,6 +268,7 @@ func newTelemetry(cfg Config, env envConfig) *Telemetry {
 	if t.projects.max <= 0 {
 		t.projects.max = DefaultProjects
 	}
+	t.models.max = MaxModels
 	return t
 }
 
@@ -414,12 +422,29 @@ func (t *Telemetry) value(a attr, v string) string {
 		if t.projects.admit(v) {
 			return v
 		}
+	case KeyModel:
+		if t.models.has(v) {
+			return v
+		}
 	default:
 		if a.allowed(v) {
 			return v
 		}
 	}
 	return a.fallback
+}
+
+// AdmitModel makes model a value of the model attribute, and reports
+// whether it is one. The caller admits only a model the server has a
+// price for: the price table is the server's, and a model a client
+// reports is text it chose (rule 2). A model of the wrong shape, one
+// past [MaxModels] and [ModelOther] are not admitted, and are counted
+// as [ModelOther].
+func (t *Telemetry) AdmitModel(model string) bool {
+	if t == nil || model == ModelOther || !proto.UsageModel.MatchString(model) {
+		return false
+	}
+	return t.models.take(model)
 }
 
 // Shutdown exports what is pending and stops the exporters, giving up
@@ -470,10 +495,19 @@ type projectSet struct {
 }
 
 // admit reports whether id may be a project attribute's value.
-func (p *projectSet) admit(id string) bool {
-	if !uuidLike(id) {
-		return false
-	}
+func (p *projectSet) admit(id string) bool { return uuidLike(id) && p.take(id) }
+
+// has reports whether id is among the values p has taken.
+func (p *projectSet) has(id string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	_, ok := p.m[id]
+	return ok
+}
+
+// take reports whether id is among the values p has taken, taking it if
+// there is room.
+func (p *projectSet) take(id string) bool {
 	p.mu.RLock()
 	_, ok := p.m[id]
 	p.mu.RUnlock()

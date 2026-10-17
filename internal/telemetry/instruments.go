@@ -51,6 +51,14 @@ const (
 	// Gates counts changes of a gate: kind, event (design §20.9). A
 	// gate's title and its check's name are text, and no attribute.
 	Gates
+	// UsageTokens counts the tokens of usage records the store took:
+	// project, kind (input, output, cache_write, cache_read) and model.
+	// Only tokens: what they cost is computed on read, from prices that
+	// change (`aries cost`). The model is the name of a model with a
+	// price in the server's price table, so a client cannot mint
+	// values: any other is [ModelOther] (design §16.4, rule 2). A
+	// record counts once, when it is stored.
+	UsageTokens
 	// ControlWrites counts writes to the control store: op, result.
 	ControlWrites
 	// KeysFileWrites counts writes of the keys file: result.
@@ -130,6 +138,7 @@ const (
 	KeySignal      = "signal"
 	KeyDirection   = "direction"
 	KeyKind        = "kind"
+	KeyModel       = "model"
 )
 
 // Attribute values that are not a protocol code or an op.
@@ -199,6 +208,15 @@ const (
 	ReasonMembership = "membership"
 	ReasonDisabled   = "disabled"
 	ReasonArchived   = "archived"
+
+	// The kinds of token UsageTokens counts, and the model of any token
+	// whose model has no price. ModelOther starts with a parenthesis, as
+	// no model a harness reports can.
+	TokenInput      = "input"
+	TokenOutput     = "output"
+	TokenCacheWrite = "cache_write"
+	TokenCacheRead  = "cache_read"
+	ModelOther      = "(other)"
 
 	// Which way the clock stepped.
 	StepForward  = "forward"
@@ -344,6 +362,8 @@ var (
 	attrLockEvt  = attr{key: KeyEvent, values: []string{LockAcquire, LockWait, LockGrant, LockRenew, LockRelease, LockExpire, LockLeave}, fallback: Other}
 	attrGateKind = attr{key: KeyKind, values: []string{GateHuman, GateCI}, fallback: Other}
 	attrGateEvt  = attr{key: KeyEvent, values: []string{GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed}, fallback: Other}
+	attrTokenKnd = attr{key: KeyKind, values: []string{TokenInput, TokenOutput, TokenCacheWrite, TokenCacheRead}, fallback: Other}
+	attrModel    = attr{key: KeyModel, fallback: ModelOther}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
 	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics, SignalTraces, SignalLogs}, fallback: Other}
@@ -383,6 +403,7 @@ var specs = [numInstruments]spec{
 	Locks:              {name: "aries.locks", kind: Counter, attrs: []attr{attrLockEvt}, desc: "Changes of a lock's holds and queue."},
 	LockWaitDuration:   {name: "aries.lock.wait.duration", unit: "s", kind: Histogram, desc: "Time a place in a lock's queue waited for its grant."},
 	Gates:              {name: "aries.gates", kind: Counter, attrs: []attr{attrGateKind, attrGateEvt}, desc: "Changes of a gate: added, passed, failed, waived and rearmed."},
+	UsageTokens:        {name: "aries.usage.tokens", kind: Counter, attrs: []attr{attrProject, attrTokenKnd, attrModel}, desc: "Tokens of the usage records stored, by kind and model; a model without a price is (other)."},
 	ControlWrites:      {name: "aries.control.writes", kind: Counter, attrs: []attr{attrOp, attrResult}, desc: "Writes to the control store."},
 	KeysFileWrites:     {name: "aries.keys_file.writes", kind: Counter, attrs: []attr{attrWrote}, desc: "Writes of the keys file."},
 	KeysFileLastWrite:  {name: "aries.keys_file.last_write.time", unit: "s", kind: Gauge, desc: "When the keys file last took its content, in Unix seconds."},
