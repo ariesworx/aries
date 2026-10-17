@@ -463,6 +463,21 @@ func unmetErr(op string, e *store.AcceptanceError) *proto.Error {
 			fmt.Sprintf("tick them with `aries accept %s %s`, or waive each with `aries accept %s N --waive REASON`, "+proto.FixEditText,
 				e.ID, strings.Join(nums, " "), e.ID), e.Error())
 	}
+	if len(e.Checks) > 0 {
+		names := make([]string, len(e.Checks))
+		for i, c := range e.Checks {
+			names[i] = c.Check
+		}
+		fix := fmt.Sprintf(proto.FixLand+" with `aries handoff %s --state done` and the pull request's link in the note; it closes when %s passes",
+			e.ID, strings.Join(names, " and "))
+		if len(nums) > 0 {
+			fix += fmt.Sprintf(", once items %s are ticked (`aries accept %s %s`) or waived", strings.Join(nums, " "), e.ID, strings.Join(nums, " "))
+		}
+		if op == proto.OpClose {
+			fix += "; an aries admin can close it anyway with --force, on the record"
+		}
+		return proto.Errf(proto.CodeAcceptance, fix, e.Error())
+	}
 	fix := fmt.Sprintf("tick what is met with `aries accept %s %s`, or waive an item with `aries accept %s N --waive REASON`",
 		e.ID, strings.Join(nums, " "), e.ID)
 	if op == proto.OpClose {

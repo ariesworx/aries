@@ -135,11 +135,13 @@ type DatesArgs struct {
 // for Ready, the due date for the rest) and By its assignee. Totals
 // count everything matched; the lists hold the first few.
 type DatesResult struct {
-	Since     time.Time    `json:"since"`
-	Until     time.Time    `json:"until"`
-	Ready     []DigestItem `json:"ready,omitempty"`
-	DueSoon   []DigestItem `json:"due_soon,omitempty"`
-	Overdue   []DigestItem `json:"overdue,omitempty"`
+	Since   time.Time    `json:"since"`
+	Until   time.Time    `json:"until"`
+	Ready   []DigestItem `json:"ready,omitempty"`
+	DueSoon []DigestItem `json:"due_soon,omitempty"`
+	Overdue []DigestItem `json:"overdue,omitempty"`
+	// Landing lists the issues awaiting landing, as DigestResult's.
+	Landing   []DigestItem `json:"landing,omitempty"`
 	Totals    DateTotals   `json:"totals"`
 	Truncated bool         `json:"truncated,omitempty"`
 }
@@ -149,6 +151,7 @@ type DateTotals struct {
 	Ready   int `json:"ready,omitempty"`
 	DueSoon int `json:"due_soon,omitempty"`
 	Overdue int `json:"overdue,omitempty"`
+	Landing int `json:"landing,omitempty"`
 }
 
 // ParseDate reads a date an issue's defer_until or due is set to: a time

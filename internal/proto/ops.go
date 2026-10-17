@@ -712,6 +712,8 @@ type DigestTotals struct {
 	Ready   int `json:"ready,omitempty"`
 	DueSoon int `json:"due_soon,omitempty"`
 	Overdue int `json:"overdue,omitempty"`
+	// Landing counts the issues awaiting landing.
+	Landing int `json:"landing,omitempty"`
 }
 
 // DigestResult summarizes the window from Since to Until and the work in
@@ -739,6 +741,11 @@ type DigestResult struct {
 	Ready   []DigestItem `json:"ready,omitempty"`
 	DueSoon []DigestItem `json:"due_soon,omitempty"`
 	Overdue []DigestItem `json:"overdue,omitempty"`
+	// Landing lists the issues awaiting landing (design §21.5): in
+	// progress, handed off done, a check their workflow requires not
+	// passed. At is the handoff's time, By the assignee, Note the checks
+	// and their last reports.
+	Landing []DigestItem `json:"landing,omitempty"`
 	// Usage totals the window's time and tokens.
 	Usage *DigestUsage `json:"usage,omitempty"`
 	// Truncated: a total is a lower bound, or items were left out to fit

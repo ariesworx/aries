@@ -126,8 +126,9 @@ func dates(ctx context.Context, pr *served, _ store.Actor, in proto.DatesArgs) (
 		return nil, pr.mapErr(ctx, proto.OpDates, "", 0, err)
 	}
 	return proto.DatesResult{Since: d.Since.UTC(), Until: d.Now.UTC(), Ready: digestItems(d.Ready),
-		DueSoon: digestItems(d.DueSoon), Overdue: digestItems(d.Overdue), Truncated: d.Capped,
-		Totals: proto.DateTotals{Ready: d.Ready.Total, DueSoon: d.DueSoon.Total, Overdue: d.Overdue.Total}}, nil
+		DueSoon: digestItems(d.DueSoon), Overdue: digestItems(d.Overdue), Landing: digestItems(d.Landing), Truncated: d.Capped,
+		Totals: proto.DateTotals{Ready: d.Ready.Total, DueSoon: d.DueSoon.Total, Overdue: d.Overdue.Total,
+			Landing: d.Landing.Total}}, nil
 }
 
 // issueDate reads a create's or update's date argument named name: nil

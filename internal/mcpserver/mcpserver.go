@@ -714,7 +714,7 @@ func (r *History) mark()  { r.set(len(r.Events) > 0) }
 func (r *Inbox) mark()    { r.set(len(r.Items) > 0) }
 func (r *Who) mark()      { r.set(len(r.Agents) > 0) }
 func (r *Prime) mark() {
-	r.set(len(r.Working)+len(r.Ready)+len(r.Inbox)+len(r.Memories)+len(r.Overdue)+len(r.DueSoon)+len(r.ReadyByDate) > 0)
+	r.set(len(r.Working)+len(r.Ready)+len(r.Inbox)+len(r.Memories)+len(r.Overdue)+len(r.DueSoon)+len(r.ReadyByDate)+len(r.Landing) > 0)
 }
 func (r *Digest) mark() {
 	r.set(len(r.Closed)+len(r.Started)+len(r.InProgress)+len(r.Stalled)+len(r.Blocked)+

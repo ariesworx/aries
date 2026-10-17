@@ -113,12 +113,14 @@ func (a Acceptance) validate(most int) error {
 }
 
 // AcceptanceError refuses closing an issue whose acceptance items Open
-// (numbers) are neither ticked nor waived, or (Dropped) an update whose
+// (numbers) are neither ticked nor waived, or whose workflow requires
+// Checks that have not passed (landed.go), or (Dropped) an update whose
 // acceptance text leaves out those items while they are open. It wraps
 // ErrInvalid.
 type AcceptanceError struct {
 	ID      IssueID
 	Open    []int
+	Checks  []CheckWait
 	Dropped bool
 }
 
@@ -126,7 +128,14 @@ func (e *AcceptanceError) Error() string {
 	if e.Dropped {
 		return fmt.Sprintf("the new acceptance text of %s drops items neither ticked nor waived: %s", e.ID, joinInts(e.Open))
 	}
-	return fmt.Sprintf("issue %s has acceptance items neither ticked nor waived: %s", e.ID, joinInts(e.Open))
+	if len(e.Checks) == 0 {
+		return fmt.Sprintf("issue %s has acceptance items neither ticked nor waived: %s", e.ID, joinInts(e.Open))
+	}
+	waits := fmt.Sprintf("issue %s waits for check %s, which closes it when it passes", e.ID, checksText(e.Checks))
+	if len(e.Open) > 0 {
+		waits += fmt.Sprintf(", and has acceptance items neither ticked nor waived: %s", joinInts(e.Open))
+	}
+	return waits
 }
 
 // Unwrap makes errors.Is(err, ErrInvalid) hold.

@@ -334,7 +334,11 @@ and what a test that passes there does not do.
    with the holder (closed, open, blocked or reassigned). `ReapClaims`
    and `EndClaims`, which only the daemon reaches, are exempt too: they
    end a claim whose lease ran out, or whose holder lost access to the
-   project, and return its issue to open. The control
+   project, and return its issue to open. So is what a report of a
+   check an issue's workflow requires does to that issue
+   (`store/landed.go`): the closing pass, which closes it and ends the
+   claim, the ticks and unticks of the items bound to the check, and a
+   revert's reopen, each by the principal the gate names. The control
    store's equivalent is `ControlOptions.Operator`, which only `ariesd
    control init` sets: it lets the reserved principal `import` write as a
    server admin. Who is an admin of a project's issues is `Store.IsAdmin`:

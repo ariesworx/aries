@@ -114,6 +114,8 @@ type Digest struct {
 	// in the window and are ready now, those due within the filter's
 	// DueSoon, and those past their due date, as [Dates] has them.
 	Ready, DueSoon, Overdue DigestSection
+	// Landing lists the issues awaiting landing, as [Dates] has it.
+	Landing DigestSection
 	// Usage totals the time held and the tokens reported in the window
 	// (design §12.1), filtered like the sections.
 	Usage DigestUsage
@@ -222,6 +224,9 @@ func (q *digestQuery) run(ctx context.Context, d *Digest) error {
 		return fmt.Errorf("dates: %w", err)
 	}
 	d.Ready, d.DueSoon, d.Overdue = dt.Ready, dt.DueSoon, dt.Overdue
+	if err := q.landing(ctx, &d.Landing); err != nil {
+		return err
+	}
 	if err := q.usage(ctx, d); err != nil {
 		return err
 	}

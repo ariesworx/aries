@@ -233,6 +233,9 @@ type sproj struct {
 	rep              *replay
 	pool             pool
 	holding          holding
+	// bugs are the issues filed as bugs, whose workflow requires landed
+	// in the first project (soak_landed_test.go).
+	bugs pool
 	// foreign matches an issue id of another project of the run.
 	foreign *regexp.Regexp
 	// marks are the last event of the project's log at each daemon
@@ -357,6 +360,7 @@ func newSoak(t *testing.T, cfg soakConfig) *soak {
 	// Before anything connects: the stores the setup opens close again.
 	s.baseline, s.connBase = runtime.NumGoroutine(), connGoroutines()
 	s.setup()
+	s.setWorkflow()
 	return s
 }
 
@@ -411,6 +415,7 @@ func (s *soak) run() {
 	side.Go(func() { s.chaos(ctx) })
 	side.Go(func() { s.sample(ctx) })
 	side.Go(func() { s.conduct(ctx) })
+	side.Go(func() { s.land(ctx) })
 	if s.flood != nil {
 		side.Go(func() { s.flood.run(ctx) })
 	}
@@ -695,6 +700,7 @@ func (s *soak) report() {
 			p.name, n, r.seq, r.txs, len(r.issues), r.ops["claim.take"], r.ops["claim.expire"], r.ops["claim.release"], len(r.lost), len(r.overs), len(r.overrides))
 		r.mu.Unlock()
 	}
+	s.reportLanding(&b)
 	s.reportAccess(&b)
 	s.reportPartition(&b, calls)
 	s.reportLocks(&b)

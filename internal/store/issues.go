@@ -872,8 +872,8 @@ func (s *Store) setClosed(ctx context.Context, actor Actor, id IssueID, expected
 }
 
 // closeTx closes before, read in w, ends any claim on it and records the
-// event. Open acceptance items refuse it, unless force, which records
-// them in the event.
+// event. Open acceptance items, and required checks that have not passed
+// (landed.go), refuse it, unless force, which records them in the event.
 func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force bool) (Issue, error) {
 	if before.Status == StatusClosed {
 		return Issue{}, &StateError{ID: before.ID, Reason: StateAlreadyClosed}
@@ -892,12 +892,26 @@ func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force boo
 	if err != nil {
 		return Issue{}, err
 	}
+	waits, err := checkWaits(ctx, w.tx, before.ID)
+	if err != nil {
+		return Issue{}, err
+	}
 	var extra map[string]any
-	if open := openItems(items); len(open) > 0 {
+	if open := openItems(items); len(open) > 0 || len(waits) > 0 {
 		if !force {
-			return Issue{}, &AcceptanceError{ID: before.ID, Open: open}
+			return Issue{}, &AcceptanceError{ID: before.ID, Open: open, Checks: waits}
 		}
-		extra = map[string]any{"acceptance_overridden": open}
+		extra = map[string]any{}
+		if len(open) > 0 {
+			extra["acceptance_overridden"] = open
+		}
+		if len(waits) > 0 {
+			names := make([]string, len(waits))
+			for i, wt := range waits {
+				names[i] = wt.Check
+			}
+			extra["checks_overridden"] = names
+		}
 	}
 	c, err := loadClaim(ctx, w.tx, before.ID)
 	if err != nil {

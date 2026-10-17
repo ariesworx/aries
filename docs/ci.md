@@ -314,7 +314,11 @@ recommends them for one maintainer:
    A commit names its issue as `gate pass --check landed --from-commit`
    reads it: an `Aries: ID` trailer, else the branch a merge commit
    merged. One that names none is skipped, with a note; so is one whose
-   issue has no `landed` gate. The gate is the workflow's: its `ci`
+   issue neither requires `landed` under the
+   [workflow](concepts.md#the-workflow) nor has a `landed` gate someone
+   added. For an issue that requires it, the first report makes the
+   gate, and a pass that leaves nothing else open closes the issue,
+   landed. The gate is the workflow's: its `ci`
    names the principal who runs `aries land` (`ci: [ed]`), and the
    report is a person's act, so it is made from the session `cli` even
    when an agent's environment says otherwise. What a pass is worth is

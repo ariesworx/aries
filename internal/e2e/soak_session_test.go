@@ -590,10 +590,16 @@ func (ls *libSession) create(ctx context.Context) {
 	if ls.chance(0.1) {
 		args.Assignee = ls.other()
 	}
+	if ls.p == ls.s.a && ls.chance(0.3) {
+		args.Type = "bug" // its workflow requires landed (soak_landed_test.go)
+	}
 	var r proto.CreateResult
 	if out, _ := ls.call(ctx, proto.OpCreate, args, &r, true); out == acked {
 		ls.p.pool.add(r.ID)
 		ls.revs[r.ID] = r.Rev
+		if args.Type == "bug" {
+			ls.p.bugs.add(r.ID)
+		}
 	}
 }
 
