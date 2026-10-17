@@ -2347,6 +2347,30 @@ old ([Sizing Postgres](#sizing-postgres)). A store that reopens ends the
 claims that expired while it was closed, and those of anyone who lost
 their access meanwhile, before it serves its first request.
 
+## A project's workflow
+
+A project's [workflow](concepts.md#the-workflow) is a document a project
+admin applies with `aries admin workflow set FILE`, from their own
+terminal: the acceptance items the server adds to every issue it
+creates, by type, and the checks, review, approval and close-out lines
+later releases enforce. It is a row of the project's `settings` table,
+named `workflow`, whose `rev` is the workflow's, written by the
+project's writer with a `workflow.set` event (target
+`setting:workflow`) that holds the document before and after; every
+`create` reads it in its own write. On a server of many projects a
+project admin or a server admin sets it, and the principals it names
+must be members of the project; on a server of one project, an admin of
+its `admins:`, and any principal name is taken. Its size is bounded by
+`workflow_bytes`, `workflow_items_per_type`, `workflow_checks_per_type`
+and `workflow_closeout_per_type` ([Limits](#limits)). Its lines are
+people's text: none goes on a metric, a span or a log line.
+
+```sh
+aries admin workflow diff .aries/workflow.yaml
+aries admin workflow set .aries/workflow.yaml --rev 3
+aries workflow check .aries/workflow.yaml   # exits 1 when the server's differs
+```
+
 ## Prices
 
 `aries cost`, `show` and `digest` price tokens at each model's list rates,
@@ -2838,6 +2862,10 @@ limits:
 | `holders_per_lock` | 64 | The capacity a lock may be given, holders at once (at most 1000). More is refused with `invalid` |
 | `waiters_per_lock` | 100 | Places in one lock's queue (at most 1000). One more is refused with `busy` |
 | `lock_waits_per_principal` | 20 | Places one principal has in all of a project's queues, from every session (at most 1000). One more is refused with `busy`, and its fix says to leave a queue (`aries lock leave NAME`) or raise the limit. A principal's holds need no cap of their own: `locks_per_project` times `holders_per_lock` bounds them |
+| `workflow_bytes` | 16384 | Bytes of the project's [workflow](concepts.md#the-workflow) as the server keeps it (at most 65536); every `create` reads it. A larger one is refused with `invalid` at `aries admin workflow set` |
+| `workflow_items_per_type` | 20 | Default acceptance items in one profile of the workflow (at most 100). More are refused with `invalid` at set. The items an issue ends with, its own and the workflow's, are capped by `acceptance_items_per_issue`: a `create` past it is refused with `invalid`, naming both counts |
+| `workflow_checks_per_type` | 5 | Required checks in one profile of the workflow (at most `checks_per_issue`, since each is a CI gate on the issue). More are refused with `invalid` at set |
+| `workflow_closeout_per_type` | 20 | Close-out lines in one profile of the workflow (at most 100). More are refused with `invalid` at set |
 | `away_max` | `7d` | The longest `aries away` may extend a person's claims, in every session, ahead of an absence; asking for longer is refused with `invalid`, its fix naming the cap. A claim so extended holds its issue against everyone else until then, so this bounds how long work can be held by someone who is not doing it. From `1h` to `30d` |
 | `open_stores_per_server` | 64 | With `control_schema`: project stores open at once. An open store holds no connection to Postgres of its own, only its writer's lock, and takes connections from the pool while it answers ([One writer for each project](#one-writer-for-each-project)). At the cap, a connection to another project closes the store that has been without connections longest; when every open store has one, it is refused with `busy` |
 | `store_idle` | `10m` | With `control_schema`: how long a project's store stays open with no connection. Closing it gives up its writer's lock and what ariesd holds of it in memory |

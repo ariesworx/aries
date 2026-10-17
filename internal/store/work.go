@@ -341,7 +341,7 @@ func (s *Store) finish(ctx context.Context, actor Actor, id IssueID, epoch int64
 // fileDiscovered files d, work found while doing issue from, as issue
 // id, discovered from it.
 func fileDiscovered(ctx context.Context, w *wtx, from, id IssueID, d NewIssue, meta any) error {
-	if _, err := insertIssue(ctx, w, id, d, meta); err != nil {
+	if _, _, err := insertIssue(ctx, w, id, d, meta, true); err != nil {
 		return fmt.Errorf("discovered %q: %w", d.Title, err)
 	}
 	_, err := insertDep(ctx, w, id, from, DepDiscoveredFrom)

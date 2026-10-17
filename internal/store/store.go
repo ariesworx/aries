@@ -72,6 +72,12 @@ type Options struct {
 	// (decision 68), before those in Admins. Like IsAdmin it must be
 	// fast, read no database, and be safe for concurrent use.
 	ListAdmins func() []string
+	// IsMember, when set, says whether a principal is a member of the
+	// project, for the principals a workflow names. Unset, any principal
+	// name is taken: a server of one project knows its members only by
+	// their keys. Like IsAdmin it must be fast, read no database, and be
+	// safe for concurrent use.
+	IsMember func(principal string) bool
 	// AllowUnsafeAccount opens the store even when the database role is a
 	// superuser or holds rights beyond its database (account.go). Off,
 	// Open refuses such a role with an [*UnsafeAccountError]; ariesd turns

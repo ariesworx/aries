@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +43,7 @@ var opArgs = map[string]any{
 	proto.OpGateFail:    proto.GateArgs{},
 	proto.OpLockAcquire: proto.LockAcquireArgs{}, proto.OpLockRenew: proto.LockRenewArgs{}, proto.OpLockRelease: proto.LockReleaseArgs{},
 	proto.OpLockLeave: proto.LockLeaveArgs{}, proto.OpLocks: proto.LocksArgs{},
+	proto.OpWorkflowSet: proto.WorkflowSetArgs{}, proto.OpWorkflow: proto.WorkflowArgs{},
 
 	proto.OpProjectAdd: proto.ProjectAddArgs{}, proto.OpProjects: proto.AdminListArgs{}, proto.OpProjectArchive: proto.ProjectArgs{},
 	proto.OpProjectActivate: proto.ProjectArgs{}, proto.OpPrincipalAdd: proto.PrincipalAddArgs{}, proto.OpPrincipals: proto.PrincipalsArgs{},
@@ -58,7 +60,7 @@ var opArgs = map[string]any{
 
 // soaked returns a copy of args, a struct, with plantedText and the
 // field's name in every string it holds, at any depth: fields, pointers,
-// slices and the values of maps.
+// slices and the values of maps; raw JSON becomes an object holding it.
 func soaked(args any) any {
 	v := reflect.New(reflect.TypeOf(args)).Elem()
 	soak(v, reflect.TypeOf(args).Name())
@@ -67,6 +69,11 @@ func soaked(args any) any {
 
 func soak(v reflect.Value, path string) {
 	if !v.CanSet() {
+		return
+	}
+	if v.Type() == reflect.TypeFor[json.RawMessage]() {
+		b, _ := json.Marshal(map[string]string{"text": plantedText + " in " + path})
+		v.SetBytes(b)
 		return
 	}
 	switch v.Kind() {

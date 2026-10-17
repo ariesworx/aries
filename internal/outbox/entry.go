@@ -80,6 +80,9 @@ var never = map[string]string{
 	proto.OpLockRenew:   "renewing a lease is the client's own chore",
 	proto.OpLockRelease: "it ends a lock's hold on a state the client cannot see",
 	proto.OpLockLeave:   "it ends a lock's place on a state the client cannot see",
+	// The workflow (design §21.10): an admin's act, as every admin op,
+	// made at a server that answers.
+	proto.OpWorkflowSet: "it is an admin's act on a state the client cannot see",
 }
 
 // Queueable reports whether op is one the outbox queues.

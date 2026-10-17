@@ -105,6 +105,8 @@ var handlers = map[string]handler{
 	proto.OpLocks:       typed(locks),
 	proto.OpGates:       typed(gates),
 	proto.OpDates:       typed(dates),
+	proto.OpWorkflowSet: typed(workflowSet),
+	proto.OpWorkflow:    typed(workflow),
 }
 
 // typed decodes args strictly into A and calls fn.
@@ -136,12 +138,12 @@ func create(ctx context.Context, pr *served, a store.Actor, in proto.CreateArgs)
 	if n.DueAt, perr = issueDate("due", in.Due); perr != nil {
 		return nil, perr
 	}
-	is, err := pr.store.CreateIssue(ctx, a, n)
+	c, err := pr.store.Create(ctx, a, n)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpCreate, in.ID, 0, err)
 	}
-	return proto.CreateResult{WriteResult: proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)},
-		Similar: pr.similar(ctx, is)}, nil
+	return proto.CreateResult{WriteResult: proto.WriteResult{ID: string(c.ID), Rev: int64(c.Rev)},
+		Similar: pr.similar(ctx, c.Issue), Items: c.Items}, nil
 }
 
 // similar lists the closed issues like is, for create and show. A failure

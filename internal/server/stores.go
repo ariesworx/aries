@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
 )
 
@@ -29,13 +30,14 @@ type Store interface {
 	Cost
 	Gates
 	Conflicts
+	Workflows
 	Upkeep
 }
 
 // Issues is what the server does with one issue: its row, labels,
 // comments, history and acceptance criteria.
 type Issues interface {
-	CreateIssue(ctx context.Context, actor store.Actor, in store.NewIssue) (store.Issue, error)
+	Create(ctx context.Context, actor store.Actor, in store.NewIssue) (store.Created, error)
 	GetIssue(ctx context.Context, id store.IssueID) (store.Issue, error)
 	ShowIssue(ctx context.Context, actor store.Actor, id store.IssueID, n int) (store.IssueView, error)
 	UpdateIssue(ctx context.Context, actor store.Actor, id store.IssueID, expected store.Rev, patch store.IssuePatch) (store.Issue, error)
@@ -108,6 +110,12 @@ type Cost interface {
 	LogHours(ctx context.Context, actor store.Actor, in store.NewHours) (store.HoursEntry, error)
 	Hours(ctx context.Context, f store.HoursFilter) (store.HoursList, error)
 	DeleteHours(ctx context.Context, actor store.Actor, id, idem string) (store.HoursEntry, error)
+}
+
+// Workflows is the project's workflow (design §21).
+type Workflows interface {
+	Workflow(ctx context.Context) (store.WorkflowSetting, error)
+	SetWorkflow(ctx context.Context, actor store.Actor, w proto.Workflow, expected int64) (int64, bool, error)
 }
 
 // Gates is gates and the checks that pass or fail them, and locks.

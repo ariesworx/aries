@@ -206,7 +206,7 @@ func (r *runner) queued(ks ...*offline.Kept) {
 			case proto.OpRemember:
 				docs[i].Key = target
 			case proto.OpCreate:
-				docs[i].Note = "the issue has no id until it is sent, so nothing queued can refer to it"
+				docs[i].Note = "the issue has no id until it is sent, so nothing queued can refer to it; the project's workflow adds its items then"
 			default:
 				docs[i].Issue = target
 			}
@@ -226,7 +226,7 @@ func (r *runner) queued(ks ...*offline.Kept) {
 		line := fmt.Sprintf("queued (server unreachable since %s): entry %d, %s", when(k.Since), e.Seq, esc(strings.TrimSpace(e.Op+" "+offline.Target(e))))
 		line += "; aries sends it when the server answers (`aries outbox` lists what waits)"
 		if e.Op == proto.OpCreate {
-			line += "; the issue has no id until then, so nothing queued can refer to it"
+			line += "; the issue has no id until then, so nothing queued can refer to it, and the workflow applies when it is sent"
 		}
 		_, _ = fmt.Fprintln(r.env.Stdout, line)
 	}

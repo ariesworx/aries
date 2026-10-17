@@ -105,6 +105,17 @@ type Limits struct {
 	// times holders_per_lock.
 	LockWaiters int `yaml:"waiters_per_lock"`
 	LockWaits   int `yaml:"lock_waits_per_principal"`
+	// WorkflowBytes caps the project's workflow document, in bytes as the
+	// store keeps it; at most 65,536. Every create reads it.
+	WorkflowBytes int `yaml:"workflow_bytes"`
+	// WorkflowItems, WorkflowChecks and WorkflowCloseout cap one
+	// profile's acceptance items, required checks and close-out lines
+	// (design §21.10). Items and close-out lines are each at most 100;
+	// checks at most checks_per_issue, since each is a ci gate on the
+	// issue.
+	WorkflowItems    int `yaml:"workflow_items_per_type"`
+	WorkflowChecks   int `yaml:"workflow_checks_per_type"`
+	WorkflowCloseout int `yaml:"workflow_closeout_per_type"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -113,7 +124,8 @@ var DefaultLimits = Limits{Labels: 50, AcceptanceItems: 200, Deps: 200, Sessions
 	MemoryBody: 4096, MemoryTags: 20, MemoryTagLength: 64, Memories: 1000, MemoryKeyLength: 128,
 	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100,
 	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100, GateApprovers: 10, OpenGates: 1000,
-	GateChecks: 20, GateEvidence: 1024, Locks: 200, LockCapacity: 64, LockWaiters: 100, LockWaits: 20}
+	GateChecks: 20, GateEvidence: 1024, Locks: 200, LockCapacity: 64, LockWaiters: 100, LockWaits: 20,
+	WorkflowBytes: 16384, WorkflowItems: 20, WorkflowChecks: 5, WorkflowCloseout: 20}
 
 // maxLocks and maxLockQueue bound the lock limits: a list of locks reads
 // every lock in use, with its holds and its queue.
@@ -164,6 +176,8 @@ func (l Limits) withDefaults() Limits {
 		{&l.GateChecks, &DefaultLimits.GateChecks}, {&l.GateEvidence, &DefaultLimits.GateEvidence},
 		{&l.Locks, &DefaultLimits.Locks}, {&l.LockCapacity, &DefaultLimits.LockCapacity},
 		{&l.LockWaiters, &DefaultLimits.LockWaiters}, {&l.LockWaits, &DefaultLimits.LockWaits},
+		{&l.WorkflowBytes, &DefaultLimits.WorkflowBytes}, {&l.WorkflowItems, &DefaultLimits.WorkflowItems},
+		{&l.WorkflowChecks, &DefaultLimits.WorkflowChecks}, {&l.WorkflowCloseout, &DefaultLimits.WorkflowCloseout},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -189,6 +203,8 @@ func (l Limits) Validate() error {
 		{"conflicts_per_principal", l.ConflictsPerPrincipal}, {"approvers_per_gate", l.GateApprovers}, {"open_gates_per_project", l.OpenGates},
 		{"checks_per_issue", l.GateChecks}, {"gate_evidence_bytes", l.GateEvidence}, {"locks_per_project", l.Locks}, {"holders_per_lock", l.LockCapacity},
 		{"waiters_per_lock", l.LockWaiters}, {"lock_waits_per_principal", l.LockWaits},
+		{"workflow_bytes", l.WorkflowBytes}, {"workflow_items_per_type", l.WorkflowItems},
+		{"workflow_checks_per_type", l.WorkflowChecks}, {"workflow_closeout_per_type", l.WorkflowCloseout},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -205,6 +221,9 @@ func (l Limits) Validate() error {
 		{"checks_per_issue", l.GateChecks, maxGateChecks}, {"gate_evidence_bytes", l.GateEvidence, maxGateEvidence},
 		{"locks_per_project", l.Locks, maxLocks}, {"holders_per_lock", l.LockCapacity, maxLockCapacity},
 		{"waiters_per_lock", l.LockWaiters, maxLockQueue}, {"lock_waits_per_principal", l.LockWaits, maxLockQueue},
+		{"workflow_bytes", l.WorkflowBytes, maxWorkflowBytes}, {"workflow_items_per_type", l.WorkflowItems, maxWorkflowItems},
+		{"workflow_checks_per_type", l.WorkflowChecks, cmp.Or(l.GateChecks, DefaultLimits.GateChecks)},
+		{"workflow_closeout_per_type", l.WorkflowCloseout, maxWorkflowCloseout},
 	} {
 		if f.v > f.most {
 			return fmt.Errorf("%w: limit %s is %d; it can be at most %d", ErrInvalid, f.name, f.v, f.most)

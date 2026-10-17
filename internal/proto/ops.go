@@ -183,6 +183,9 @@ type WriteResult struct {
 type CreateResult struct {
 	WriteResult
 	Similar []Summary `json:"similar,omitempty"`
+	// Items is how many acceptance items the project's workflow added
+	// (design §21.4).
+	Items int `json:"items,omitempty"`
 }
 
 // ShowArgs reads one issue. Without Full, long text fields are cut.

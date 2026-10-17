@@ -21,6 +21,10 @@ func command(op string) string {
 		return "inbox" // aries inbox --ack
 	case proto.OpPriceSet:
 		return "admin price set"
+	case proto.OpWorkflowSet:
+		return "admin workflow set"
+	case proto.OpWorkflow:
+		return "admin workflow show"
 	case proto.OpPrices:
 		return "admin price list"
 	case proto.OpHoursLog, proto.OpHoursDelete, proto.OpHours:

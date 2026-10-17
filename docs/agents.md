@@ -261,6 +261,13 @@ window's in `digest`.
   by default) and `ready_by_date` (ready in the last day because their
   date came), and `digest` the same for its window. A date ends,
   expires and reassigns nothing ([Dates](concepts.md#dates)).
+- **The workflow is the project's, not the agent's.** Where a project
+  admin set a [workflow](concepts.md#the-workflow), every issue an agent
+  creates, or files through `finish`, gets its type's acceptance items
+  after the agent's own, and `prime` says so in one line (`workflow rev
+  4: bug, feature, task: 4 items, landed; …`). An agent ticks or waives
+  them as any item, and cannot drop one; no tool sets or reads the
+  workflow, and `aries admin workflow set` refuses an agent's session.
 
 One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,
@@ -371,7 +378,9 @@ queued: aries cannot reach its server, so this finish waits on this machine and 
 
 Its structured content is `{"queued": true, "op": …, "entry": …}`, and
 never an `id` and a `rev`. A queued `create` adds that the issue has no id
-until then, so nothing can refer to it. A `label` call of several labels
+until then, so nothing can refer to it, and that the project's
+[workflow](concepts.md#the-workflow) adds its items when it is sent: the
+workflow in force at the replay applies. A `label` call of several labels
 queues a write for each, and its line says how many. The agent is told
 to carry on: it finishes what it holds and files what it finds.
 

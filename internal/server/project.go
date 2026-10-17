@@ -81,16 +81,17 @@ func (pr *served) prune(ctx context.Context, lim Limits) {
 // ProjectOpener returns a Config.Open for a daemon whose database db
 // holds its projects' schemas: it opens a project's store on the
 // project's schema, from db's one pool, with opts, the project's prefix,
-// and admins that follow ctl as it changes: a server admin, or an active
-// principal whose role in the project is admin (design §15.3). Each
-// store is measured and traced by tel ([StoreObserver], [StoreTracer]),
-// which may be nil.
+// and admins and members that follow ctl as it changes: an admin is a
+// server admin, or an active principal whose role in the project is
+// admin (design §15.3). Each store is measured and traced by tel
+// ([StoreObserver], [StoreTracer]), which may be nil.
 func ProjectOpener(db *store.DB, ctl Index, opts store.Options, tel *telemetry.Telemetry) func(context.Context, store.Project) (Store, error) {
 	return func(ctx context.Context, p store.Project) (Store, error) {
 		o := opts
 		o.Prefix = p.Prefix
 		o.IsAdmin = func(principal string) bool { return ctl.Access(principal, p.ID).Role == store.RoleAdmin }
 		o.ListAdmins = func() []string { return ctl.ProjectAdmins(p.ID) }
+		o.IsMember = func(principal string) bool { return ctl.Access(principal, p.ID).Role != "" }
 		o.Observer = StoreObserver(tel, o.Logger, p.ID)
 		o.Tracer = StoreTracer(tel, p.ID)
 		st, err := db.Open(ctx, p.Schema, o)

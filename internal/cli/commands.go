@@ -150,6 +150,9 @@ func cmdCreate(ctx context.Context, r *runner, args []string) error {
 	}
 	_, _ = fmt.Fprintln(r.env.Stdout, esc(out.ID))
 	// Standard error, so `id=$(aries create …)` still captures the id alone.
+	if out.Items > 0 {
+		_, _ = fmt.Fprintf(r.env.Stderr, "the project's workflow added %d acceptance items (`aries show %s`)\n", out.Items, esc(out.ID))
+	}
 	printSimilar(r.env.Stderr, out.Similar)
 	return nil
 }
