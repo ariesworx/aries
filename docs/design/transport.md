@@ -133,7 +133,7 @@ Each a `server.Limits` field with a default, a `limits:` key, a table-driven tes
 | `https_conns_per_addr` | 64 | Per client address (the proxy's peer address is not used; behind a proxy this limit is the proxy's) |
 | `https_addr_prefix_v6` | 64 | An IPv6 client is counted by its first 64 bits for every limit per address, an IPv4 client by its address (the flood review, aries-2gpal65n) |
 | `https_header_bytes` | 16 KiB | Request headers |
-| `https_header_timeout` | 10 s | Reading the headers; the slow client's bound |
+| `https_header_timeout` | 10 s | Reading the headers; the slow client's bound. Also a kept-alive connection's idle time, which was 2 minutes until the flood review (§12.4 item 6) |
 | `https_body_timeout` | 10 s | Reading the body once the headers are in; a body named and not sent, or sent slowly, ends the connection |
 | `https_body` | 64 KiB | The body of an OAuth request; `/mcp` takes `proto.MaxFrame` (4 MiB) |
 | `upgrade_timeout` | 10 s | From the upgrade to the hello |

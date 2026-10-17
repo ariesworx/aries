@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -499,6 +500,37 @@ func TestHTTPSLimits(t *testing.T) {
 		if err == nil || resp == nil || resp.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
 			t.Errorf("an upgrade with 16 KiB of headers, past https_header_bytes of 1 KiB = %v, %v; want 431", resp, err)
 		}
+	})
+	// A connection kept alive after one answered request and then left
+	// idle holds a place for no traffic: it has https_header_timeout to
+	// send its next request's headers, as a new connection would.
+	t.Run("an idle connection", func(t *testing.T) {
+		t.Parallel()
+		cfg := Config{Limits: Limits{HTTPSHeaderTimeout: Duration(100 * time.Millisecond)}, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}
+		u, pool := listenHTTPS(t, &cfg, nil)
+		s, _ := newServerConfig(t, cfg, nil)
+		serving(t, s)
+		c, err := tls.Dial("tcp", strings.TrimPrefix(u, "https://"), &tls.Config{RootCAs: pool, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		if _, err := io.WriteString(c, "GET /.well-known/aries HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		br := bufio.NewReader(c)
+		resp, err := http.ReadResponse(br, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		const hold = 3 * time.Second // 30 times the headers' timeout
+		_ = c.SetReadDeadline(time.Now().Add(hold))
+		if _, err := br.ReadByte(); !errors.Is(err, os.ErrDeadlineExceeded) {
+			return // closed by the server
+		}
+		t.Errorf("a connection idle after its answer was open %v later, past https_header_timeout of 100ms", hold)
 	})
 	t.Run("body timeout", func(t *testing.T) {
 		t.Parallel()
