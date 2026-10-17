@@ -63,6 +63,10 @@ const DefaultMax = 4 << 20
 // is a peer that keeps a message open to make the reader work.
 const maxControl = 64
 
+// readChunk is how much of a frame's payload is allocated before its
+// bytes have arrived.
+const readChunk = 64 << 10
+
 // closeWait bounds the close frame Close writes, so that a peer that
 // reads nothing cannot hold a Close.
 const closeWait = time.Second
@@ -459,9 +463,16 @@ func (c *Conn) readFrame(inMessage bool) (fin bool, op byte, payload []byte, err
 			return false, 0, nil, unexpected(err)
 		}
 	}
-	payload = make([]byte, n)
-	if _, err := io.ReadFull(c.r, payload); err != nil {
-		return false, 0, nil, unexpected(err)
+	// The payload grows as its bytes arrive, a chunk at a time, so that
+	// a header that names the bound and a peer that then sends little
+	// makes the reader hold what came, not the bound.
+	payload = make([]byte, 0, min(n, readChunk))
+	for uint64(len(payload)) < n {
+		m := min(n-uint64(len(payload)), readChunk)
+		payload = append(payload, make([]byte, m)...)
+		if _, err := io.ReadFull(c.r, payload[uint64(len(payload))-m:]); err != nil {
+			return false, 0, nil, unexpected(err)
+		}
 	}
 	if masked {
 		for i := range payload {
@@ -566,6 +577,17 @@ func (c *Conn) Close() error {
 		}
 	})
 	return err
+}
+
+// SetMax bounds the messages Read returns from now on; zero takes
+// DefaultMax. It is for Read's goroutine alone, between reads: a server
+// holds a peer that has proved nothing to a smaller bound than one it
+// knows.
+func (c *Conn) SetMax(maxBytes int) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMax
+	}
+	c.max = maxBytes
 }
 
 // SetReadDeadline is the underlying connection's. A read that times out
