@@ -208,6 +208,7 @@ development.
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
 | [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server (a draft until v0.5.0 ships) |
 | [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports (a draft until it ships) |
+| [Changelog](CHANGELOG.md) | One entry per release, newest first, each linking its full notes |
 | [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 
 **Building Aries**

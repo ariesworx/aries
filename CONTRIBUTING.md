@@ -191,6 +191,7 @@ up in a Linux VM you can throw away.
 | The release process, or the Postgres pin | [RELEASING.md](RELEASING.md) |
 | Anything a user or an operator of the next release will notice: a feature, a break, a removal, a security property, a supported platform | The next release's notes in [docs/releases](docs/releases/v0.5.0.md); a planned item that lands drops its **(planned)** mark there and in [Upgrading to 0.5](docs/upgrade-to-0.5.md) |
 | A command of the gate | `scripts/gate.sh`, [Commands](AGENTS.md#commands) and `ci.yml` together; a test fails until the first two agree |
+| A release's entry in the changelog | [CHANGELOG.md](CHANGELOG.md), written at the cut ([RELEASING.md](RELEASING.md#cutting-a-release)), never by an ordinary pull request |
 | A tool's version | [Changing the Postgres pin](RELEASING.md#changing-the-postgres-pin) for Postgres; `ci.yml` and `mise.toml` for golangci-lint; `go.mod` and `mise.toml` for Go. Tests in `internal/version` fail until they agree |
 | The layout of the code, a rule, or how agents should work | [AGENTS.md](AGENTS.md); the three [agent specifications](AGENTS.md#agent-specifications) together |
 | The stage a feature is at | The status line and roadmap in [README.md](README.md) |

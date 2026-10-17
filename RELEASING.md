@@ -137,6 +137,15 @@ each, as it does any release that is not a prerelease.
    also gets an upgrade guide beside them, as
    [Upgrading to 0.5](docs/upgrade-to-0.5.md) is for v0.5.0; take its
    draft mark off too.
+   In the same pull request, write the release's entry in
+   [CHANGELOG.md](CHANGELOG.md): the date, three to six lines (the
+   highlights, the breaking changes, and any change to the protocol or
+   the schema) and a link to the notes, newest first; take
+   "(unreleased)" off its heading. An ordinary pull request does not
+   edit the changelog, so that the merge queue has nothing to conflict
+   on. `scripts/changelog_test.go` fails on a tag with no entry or no
+   notes file, on entries out of order and on a link that does not
+   resolve.
 2. Make sure the commit to tag is on `main` and its CI is green. The
    `gate` job runs the same checks again on the tag, so a red commit
    stops there, but finding out first saves a tag.
