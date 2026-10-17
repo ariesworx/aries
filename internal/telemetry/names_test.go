@@ -38,8 +38,7 @@ func names() []string {
 
 // TestNamesKept holds the names of metrics, attribute values, spans and
 // span keys to the promise of docs/server.md, Names that are kept: from
-// v1.0.0 none is renamed or removed within 1.x, and only additions are
-// made. testdata/names.golden records every name; a new one is recorded
+// v0.5.0 on none is renamed or removed, and only additions are made. testdata/names.golden records every name; a new one is recorded
 // with -update, after which it is kept too.
 func TestNamesKept(t *testing.T) {
 	t.Parallel()
@@ -57,7 +56,7 @@ func TestNamesKept(t *testing.T) {
 	kept := strings.Split(strings.TrimSpace(string(b)), "\n")
 	for _, k := range kept {
 		if !slices.Contains(got, k) {
-			t.Errorf("%q is gone: a name is kept within 1.x (docs/server.md, Names that are kept)", k)
+			t.Errorf("%q is gone: a name is kept from v0.5.0 on (docs/server.md, Names that are kept)", k)
 		}
 	}
 	for _, g := range got {
