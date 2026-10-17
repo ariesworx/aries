@@ -149,8 +149,11 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 		Handler:           w.handler(),
 		ReadHeaderTimeout: time.Duration(lim.HTTPSHeaderTimeout),
 		MaxHeaderBytes:    lim.HTTPSHeaderBytes,
-		IdleTimeout:       2 * time.Minute,
-		TLSConfig:         h.TLS,
+		// A connection kept alive has as long for its next request's
+		// headers as a new one has: an idle one holds a place in
+		// https_conns_per_addr and https_conns_per_server for no traffic.
+		IdleTimeout: time.Duration(lim.HTTPSHeaderTimeout),
+		TLSConfig:   h.TLS,
 		// What net/http would print is a scanner's failed handshake or a
 		// client's malformed request: noise, with text that is the
 		// peer's, so none of it reaches the log.

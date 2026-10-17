@@ -132,7 +132,7 @@ Each a `server.Limits` field with a default, a `limits:` key, a table-driven tes
 | `https_conns` | 4,096 | Open TCP connections to the listener |
 | `https_conns_per_addr` | 64 | Per client address (the proxy's peer address is not used; behind a proxy this limit is the proxy's) |
 | `https_header_bytes` | 16 KiB | Request headers |
-| `https_header_timeout` | 10 s | Reading the headers; the slow client's bound |
+| `https_header_timeout` | 10 s | Reading the headers; the slow client's bound. Also a kept-alive connection's idle time, which was 2 minutes until the flood review (§12.4 item 6) |
 | `https_body` | 64 KiB | The body of an OAuth request; `/mcp` takes `proto.MaxFrame` (4 MiB) |
 | `upgrade_timeout` | 10 s | From the upgrade to the hello |
 | `ws_message` | 4 MiB | One message: one frame, `proto.MaxFrame` |

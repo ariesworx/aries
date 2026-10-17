@@ -2884,7 +2884,7 @@ limits:
 | `https_conns_per_server` | 4096 | With HTTPS on: open TCP connections to the [HTTPS listener](#the-https-listener). One more is closed unanswered |
 | `https_conns_per_addr` | 64 | With HTTPS on: open connections from one client address; one more is closed unanswered. Behind a proxy that terminates TLS every connection is the proxy's, so this is the proxy's to keep, and does not apply |
 | `https_header_bytes` | 16384 | With HTTPS on: bytes of a request's headers; more is answered 431 |
-| `https_header_timeout` | `10s` | With HTTPS on: how long a request's headers may take to arrive, the slow client's bound |
+| `https_header_timeout` | `10s` | With HTTPS on: how long a request's headers may take to arrive, the slow client's bound; and how long a connection kept alive may wait idle for its next request |
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
