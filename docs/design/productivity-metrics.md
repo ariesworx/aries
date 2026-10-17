@@ -25,7 +25,8 @@ work metrics after v1.0.0; §2 says how this research relates to it.
   and landing, gates), cost per landed issue with its rework, the live
   claims beside the ready queue (the idle time between waves), and, as a
   question added to the tool-usage design, human interventions counted
-  from the harness's transcripts.
+  from the harness's transcripts. And once aries-2qx4mlm2 records each
+  session's brief, model and effort, outcomes compared by them (M36).
 - **Out of reach**, and staying so: deployment and incident metrics
   (DORA's deploy frequency and time to restore need a deploy and an
   incident, which Aries never sees), code churn and duplication (git
@@ -137,6 +138,7 @@ index; the entries follow by family.
 | M33 | Task horizon and autonomy | Agent capability | out of reach | — |
 | M34 | Suggestions and lines accepted | Harness analytics | out of scope | — |
 | M35 | Time saved | AI frameworks | out of reach | — |
+| M36 | Outcomes by brief, model and effort | Agent operations | filed in part (aries-2qx4mlm2); then a small change, in a report | high, with care |
 
 ### 4.1 Delivery: DORA
 
@@ -529,6 +531,38 @@ developer per week, or hours of human-equivalent work agents did.
 believing they were 20% faster. Aries should not offer a number it
 cannot measure.
 
+### 4.7 Briefs and their outcomes
+
+**M36 Outcomes by brief, model and effort.**
+*Definition:* for each session that started an issue, the brief it was
+started with, the model and effort it ran on, set against what followed:
+whether the issue landed, was reverted or reopened (M3, M15), the
+first-pass rate of its checks where CI reports them (M16), its tokens
+and cost (M21), its time held and cycle time (M6, M13), and the
+interventions it needed (M27). Read across many sessions, it says which
+briefs, and which model and effort for which type of issue, lead to work
+that lands at the least cost, so that briefs can be refined and shared.
+*Sources:* the brief, model and effort are to be recorded on the issue,
+as an event joined to the claim's session id, by aries-2qx4mlm2. Today a
+brief lives only in the harness's local transcript, which is deleted
+after a time, and the model only on the usage records. Every outcome
+above is joined to the session through its `claim.take` and attribution.
+*Status:* the recording is filed (aries-2qx4mlm2), not filed again here;
+once it lands, the comparison is a small change in a report: F3's cost by
+outcome grouped by the starting session's model and effort, and `show`
+and `history` putting each brief beside its issue's outcome. It belongs
+in a report, never in telemetry: a brief is text (rule 2), and model and
+effort may be attributes only if bounded as `aries.usage.tokens` bounds
+models by prices.
+*Caveats:* confounded by difficulty: whoever chose the model and effort
+chose them for the issue, so a strong model given the hard issues looks
+costly and a weak one given the easy ones looks good; compare within a
+type, and treat it as evidence for a person to read, not a ranking.
+Samples are small: one brief is one issue. An issue worked by several
+sessions has several briefs, and its outcome is shared among them. A
+brief tuned to the measure (short briefs for cheap issues) improves the
+number, not the work.
+
 ## 5. Cautions that apply to all
 
 1. **A measure that becomes a target stops measuring.** Agents optimize
@@ -576,6 +610,7 @@ acceptance items.
 | F3 | Cost per outcome: `aries cost` groups an issue's cost by how it ended (landed, closed otherwise, open, unattributed) with count and cost per landed issue, the part spent after a first close (rework), held time over cycle time, and waivers, by type | M13, M17, M22, M23, M24 | report | aries-sbikbf3g |
 | F4 | Live work against the queue: gauges `aries.claims.held` (live claims) and `aries.issues.ready` by `project`, the second at a measured and bounded cost per scrape; a panel of both against a slot count drawn as a constant | M12, M14 | telemetry | aries-cggv4jom |
 | F5 | Human interventions: counts of user turns, interruptions and permission answers per session from the transcripts capture reads, added to the tool-usage design as a question | M27 | capture, report | comment on aries-vvqvogrh |
+| F6 | Outcomes by brief, model and effort: the brief, model and effort recorded on the issue a session starts; then F3's report grouped by them | M36 | store, report | aries-2qx4mlm2 (filed apart), then F3 |
 
 Order: F1 and F2 after aries-w5kyz3hj, which makes the dashboard and the
 first close-time instrument they follow; F3 needs no telemetry and can go
