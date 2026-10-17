@@ -459,8 +459,13 @@ func (s *Server) handLocked() (hand map[string]bool, owner map[string]string) {
 // is the bridge as the server guide writes it, `…/ariesd stdio
 // --principal NAME` with nothing more, or "" for any other line: one
 // that forces another command, names a key (only the daemon's file
-// does), or names no principal.
+// does), names no principal, or has an option under which sshd takes
+// the key only on a condition the key proof cannot check
+// (conditionalOption).
 func bridgePrincipal(options []string) string {
+	if slices.ContainsFunc(options, conditionalOption) {
+		return ""
+	}
 	for _, o := range options {
 		cmd, ok := strings.CutPrefix(o, `command="`)
 		if !ok {
@@ -473,6 +478,24 @@ func bridgePrincipal(options []string) string {
 		return ""
 	}
 	return ""
+}
+
+// conditionalOption reports whether o, an option of an authorized_keys
+// line, is one under which sshd takes the line's key only on a
+// condition: from= (the address the connection comes from, which
+// behind a proxy the daemon does not see, and whose patterns are
+// sshd's), expiry-time (the line's end), cert-authority (the key is a
+// CA's, which signs certificates and signs in as no one) or
+// verify-required (a FIDO key's user verification). The key proof
+// checks none of them, so a line with one is no one's over HTTPS: what
+// sshd keeps out stays out. sshd reads option names in any case.
+func conditionalOption(o string) bool {
+	name, _, _ := strings.Cut(o, "=")
+	switch strings.ToLower(name) {
+	case "from", "expiry-time", "cert-authority", "verify-required":
+		return true
+	}
+	return false
 }
 
 // handBridgeOwner returns the principal that the hand-maintained file's
