@@ -1644,7 +1644,13 @@ sshd asks ariesd nothing. It reads two files, ariesd's first, and
 nothing of Aries runs before sshd has authenticated a key.
 `authorized_keys`, which you maintain by hand, stays the way in for a
 key the control store does not hold: the first admin's before
-`control init`, and a server admin's own new key.
+`control init`, and a server admin's own new key. Over HTTPS, ariesd's
+key proof takes a line of it that forces the bridge, as sshd would,
+unless the line has `from=`, `expiry-time`, `cert-authority` or
+`verify-required`: the proof checks none of those conditions, so such
+a key signs in over SSH alone. For a key that should end, add it to the
+store with `aries admin key add --expires`, which both transports
+enforce.
 
 - **When it is written.** At start, before ariesd listens; after every
   `aries admin` change that alters which keys sign in (a key added or

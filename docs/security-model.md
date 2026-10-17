@@ -533,7 +533,11 @@ it:
   sshd would take it: the control store's, unless the hand-maintained
   `authorized_keys` gives it to another principal, and then a line of
   that file that forces the bridge; a line that runs another command,
-  or names a reserved principal, is no one's. The connection carries the
+  or names a reserved principal, is no one's. So is a line with an
+  option under which sshd takes its key only on a condition the key
+  proof does not check: `from=`, `expiry-time`, `cert-authority` or
+  `verify-required`. Over HTTPS such a key is refused as unknown, rather
+  than let in without the condition. The connection carries the
   store's key's fingerprint, as one by the keys file does, so removing
   the key closes it, and so does the key's end. A key past its end
   proves nothing (decision 89), and is refused saying when it ended.
