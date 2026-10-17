@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -143,7 +144,7 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 	h := s.cfg.HTTPS
 	lim := s.cfg.Limits
 	w := &web{s: s, h: h, ctx: ctx, conns: map[*wsconn.Conn]struct{}{}}
-	l := &limitedListener{Listener: h.Listener, total: lim.HTTPSConns, perAddr: lim.HTTPSConnsPerAddr, trusted: h.Trusted, tel: s.cfg.Telemetry,
+	l := &limitedListener{Listener: h.Listener, total: lim.HTTPSConns, perAddr: lim.HTTPSConnsPerAddr, prefixV6: lim.HTTPSAddrPrefixV6, trusted: h.Trusted, tel: s.cfg.Telemetry,
 		refused: func(addr netip.Addr, reason string) { w.refused(ctx, addr, reason) }}
 	srv := &http.Server{
 		Handler:           w.handler(),
@@ -303,6 +304,7 @@ func writeRefusal(rw http.ResponseWriter, status int, e *proto.Error) {
 // connection to the server.
 func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 	addr := peerAddr(r.RemoteAddr)
+	key := w.s.bucketOf(r.RemoteAddr).String()
 	behind := w.h.TLS == nil
 	tel := w.s.cfg.Telemetry
 	// A page in a person's browser could open this WebSocket; a browser
@@ -318,7 +320,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !behind {
-		if ok, wait := w.s.authFails.has(addr.String(), w.s.now()); !ok {
+		if ok, wait := w.s.authFails.has(key, w.s.now()); !ok {
 			tel.Count(telemetry.HTTPSUpgrades, telemetry.UpgradeRefused, telemetry.UpgradeAuthFailures)
 			tel.Count(telemetry.LimitRefusals, telemetry.LimitAuthFailures)
 			w.refused(r.Context(), addr, "auth_failures")
@@ -350,7 +352,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 			tel.Count(telemetry.HTTPSUpgrades, telemetry.UpgradeRefused, telemetry.UpgradeToken)
 			w.refused(r.Context(), addr, reason)
 			if !behind && perr.Code == proto.CodeAuth {
-				w.s.authFails.take(addr.String(), w.s.now())
+				w.s.authFails.take(key, w.s.now())
 			}
 			rw.Header().Set("WWW-Authenticate", `DPoP algs="ES256", error="invalid_token"`)
 			status := http.StatusUnauthorized
@@ -393,7 +395,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 		w.refused(r.Context(), addr, reason)
 		if reason == "unknown_key" || reason == "bad_proof" || reason == "url" {
 			if !behind {
-				w.s.authFails.take(addr.String(), w.s.now())
+				w.s.authFails.take(key, w.s.now())
 			}
 		}
 		b, _ := json.Marshal(&proto.Frame{T: proto.FrameWelcome, Version: w.s.cfg.Version, Min: w.s.cfg.ProtoMin, Max: w.s.cfg.ProtoMax, Err: perr})
@@ -605,6 +607,26 @@ func peerAddr(remote string) netip.Addr {
 	return ap.Addr().Unmap()
 }
 
+// addrBucket is the address a client's limits per address are kept
+// under: an IPv4 address alone, and an IPv6 address by its first
+// prefix bits (64 when prefix is 0), since a client has a whole
+// network of them. The zone is dropped.
+func addrBucket(a netip.Addr, prefix int) netip.Addr {
+	if !a.IsValid() || a.Is4() {
+		return a
+	}
+	p, err := a.WithZone("").Prefix(cmp.Or(prefix, DefaultLimits.HTTPSAddrPrefixV6))
+	if err != nil {
+		return a
+	}
+	return p.Addr()
+}
+
+// bucketOf is addrBucket of the peer remote names ("host:port").
+func (s *Server) bucketOf(remote string) netip.Addr {
+	return addrBucket(peerAddr(remote), s.cfg.Limits.HTTPSAddrPrefixV6)
+}
+
 // limitedListener is the HTTPS listener's own: it closes, unanswered, a
 // connection past the total or its address's share, and, behind a
 // proxy, one from an address it does not trust. tel counts the
@@ -612,6 +634,7 @@ func peerAddr(remote string) netip.Addr {
 type limitedListener struct {
 	net.Listener
 	total, perAddr int
+	prefixV6       int // Limits.HTTPSAddrPrefixV6
 	trusted        []netip.Prefix
 	refused        func(addr netip.Addr, reason string)
 	tel            *telemetry.Telemetry
@@ -665,14 +688,14 @@ func (l *limitedListener) enter(addr netip.Addr) string {
 	switch {
 	case l.n >= l.total:
 		return "conns"
-	case !proxied && l.by[addr] >= l.perAddr:
+	case !proxied && l.by[addrBucket(addr, l.prefixV6)] >= l.perAddr:
 		return "conns_per_addr"
 	}
 	if l.by == nil {
 		l.by = map[netip.Addr]int{}
 	}
 	l.n++
-	l.by[addr]++
+	l.by[addrBucket(addr, l.prefixV6)]++
 	return ""
 }
 
@@ -682,8 +705,9 @@ func (l *limitedListener) leave(addr netip.Addr) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.n--
-	if l.by[addr]--; l.by[addr] <= 0 {
-		delete(l.by, addr)
+	key := addrBucket(addr, l.prefixV6)
+	if l.by[key]--; l.by[key] <= 0 {
+		delete(l.by, key)
 	}
 }
 

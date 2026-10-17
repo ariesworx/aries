@@ -332,7 +332,7 @@ func (a *authServer) authorize(rw http.ResponseWriter, r *http.Request) {
 	// address is held to its share, and one that keeps asking past it
 	// is refused as one that keeps failing to sign in is. Behind a
 	// proxy every request is the proxy's, so neither applies.
-	addr := peerAddr(r.RemoteAddr).String()
+	addr := a.s.bucketOf(r.RemoteAddr).String()
 	if a.held.perAddr == 0 {
 		addr = ""
 	} else if ok, wait := a.s.authFails.has(addr, a.s.now()); !ok {
@@ -752,14 +752,14 @@ func (a *authServer) heard(r *http.Request) (bool, time.Duration) {
 	if a.s.cfg.HTTPS.TLS == nil {
 		return true, 0
 	}
-	return a.s.authFails.has(peerAddr(r.RemoteAddr).String(), a.s.now())
+	return a.s.authFails.has(a.s.bucketOf(r.RemoteAddr).String(), a.s.now())
 }
 
 // failed counts a refusal at the token endpoint against r's address, as
 // a refused key proof is counted, unless behind a proxy.
 func (a *authServer) failed(r *http.Request) {
 	if a.s.cfg.HTTPS.TLS != nil {
-		a.s.authFails.take(peerAddr(r.RemoteAddr).String(), a.s.now())
+		a.s.authFails.take(a.s.bucketOf(r.RemoteAddr).String(), a.s.now())
 	}
 }
 

@@ -33,7 +33,7 @@ var limitNames = []string{
 	"refusal_logs_per_minute", "agent_keep", "inbox_keep", "idem_window", "away_max",
 	"open_stores_per_server", "store_idle", "control_writes_per_second", "control_write_burst",
 	// server.Limits, the HTTPS listener's
-	"https_conns_per_server", "https_conns_per_addr", "https_header_bytes", "https_header_timeout", "https_body_bytes",
+	"https_conns_per_server", "https_conns_per_addr", "https_addr_prefix_v6", "https_header_bytes", "https_header_timeout", "https_body_bytes",
 	"upgrade_timeout", "ws_message_bytes", "auth_failures_per_minute", "auth_failure_burst",
 	// server.Limits, the sign-in's, in the daemon's memory
 	"signins_pending_per_server", "signins_pending_per_addr", "dpop_proofs_per_server", "workload_tokens_per_server",
@@ -71,10 +71,10 @@ func TestLimitNames(t *testing.T) {
 		"away_max": true, "store_idle": true, "https_header_timeout": true, "upgrade_timeout": true}
 	for _, k := range got {
 		switch {
-		case durations[k], strings.HasSuffix(k, "_bytes"), strings.HasSuffix(k, "_burst"):
+		case durations[k], strings.HasSuffix(k, "_bytes"), strings.HasSuffix(k, "_burst"), strings.HasSuffix(k, "_prefix_v6"):
 		case strings.Contains(k, "_per_"):
 		default:
-			t.Errorf("limit %s is neither THING_per_SCOPE, a size in _bytes, a burst nor a duration", k)
+			t.Errorf("limit %s is neither THING_per_SCOPE, a size in _bytes, a burst, a prefix nor a duration", k)
 		}
 	}
 }

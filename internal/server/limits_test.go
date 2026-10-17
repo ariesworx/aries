@@ -146,18 +146,24 @@ func TestResolveSettingsLimits(t *testing.T) {
 		{name: "away max below an hour", body: "limits:\n  away_max: 59m\n", err: "limit away_max is 59m; it must be from 1h to 30d"},
 		{name: "away max past 30 days", body: "limits:\n  away_max: 31d\n", err: "limit away_max is 31d; it must be from 1h to 30d"},
 		{name: "HTTPS limits", body: "limits:\n  https_conns_per_server: 100\n  https_conns_per_addr: 4\n  https_header_bytes: 8192\n  https_header_timeout: 5s\n" +
-			"  https_body_bytes: 1024\n  upgrade_timeout: 3s\n  ws_message_bytes: 65536\n  auth_failures_per_minute: 6\n  auth_failure_burst: 12\n",
+			"  https_body_bytes: 1024\n  upgrade_timeout: 3s\n  ws_message_bytes: 65536\n  auth_failures_per_minute: 6\n  auth_failure_burst: 12\n  https_addr_prefix_v6: 56\n",
 			want: func(l Limits) bool {
 				return l.HTTPSConns == 100 && l.HTTPSConnsPerAddr == 4 && l.HTTPSHeaderBytes == 8192 && l.HTTPSHeaderTimeout == Duration(5*time.Second) &&
 					l.HTTPSBodyBytes == 1024 && l.UpgradeTimeout == Duration(3*time.Second) && l.WSMessageBytes == 65536 &&
-					l.AuthFailureRate == 6 && l.AuthFailureBurst == 12 && l.Conns == DefaultLimits.Conns
+					l.AuthFailureRate == 6 && l.AuthFailureBurst == 12 && l.HTTPSAddrPrefixV6 == 56 && l.Conns == DefaultLimits.Conns
 			}},
 		{name: "HTTPS limits default", body: "limits:\n  https_conns_per_server: 0\n",
 			want: func(l Limits) bool {
 				return l.HTTPSConns == 4096 && l.HTTPSConnsPerAddr == 64 && l.HTTPSHeaderBytes == 16<<10 && l.HTTPSHeaderTimeout == Duration(10*time.Second) &&
 					l.HTTPSBodyBytes == 64<<10 && l.UpgradeTimeout == Duration(10*time.Second) && l.WSMessageBytes == 4<<20 &&
-					l.AuthFailureRate == 30 && l.AuthFailureBurst == 60
+					l.AuthFailureRate == 30 && l.AuthFailureBurst == 60 && l.HTTPSAddrPrefixV6 == 64
 			}},
+		{name: "https_addr_prefix_v6 of 0", body: "limits:\n  https_addr_prefix_v6: 0\n",
+			want: func(l Limits) bool { return l.HTTPSAddrPrefixV6 == 64 }},
+		{name: "https_addr_prefix_v6 of 128", body: "limits:\n  https_addr_prefix_v6: 128\n",
+			want: func(l Limits) bool { return l.HTTPSAddrPrefixV6 == 128 }},
+		{name: "negative https_addr_prefix_v6", body: "limits:\n  https_addr_prefix_v6: -1\n", err: "limit https_addr_prefix_v6 is -1; it must be from 1 to 128"},
+		{name: "https_addr_prefix_v6 past 128", body: "limits:\n  https_addr_prefix_v6: 129\n", err: "limit https_addr_prefix_v6 is 129; it must be from 1 to 128"},
 		{name: "sign-in limits", body: "limits:\n  signins_pending_per_server: 50\n  signins_pending_per_addr: 4\n  dpop_proofs_per_server: 500\n",
 			want: func(l Limits) bool {
 				return l.SignInsPending == 50 && l.SignInsPendingPerAddr == 4 && l.DPoPProofs == 500 && l.Conns == DefaultLimits.Conns
