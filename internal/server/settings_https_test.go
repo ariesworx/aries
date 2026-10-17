@@ -82,6 +82,15 @@ func TestResolveSettingsHTTPS(t *testing.T) {
 				p, err := s.HTTPS.Trusted()
 				return err == nil && slices.Equal(p, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32"), netip.MustParsePrefix("10.0.0.0/8")})
 			}},
+		// A peer's address is compared unmapped, so an IPv4 address or
+		// network written in IPv6's form is taken as IPv4's: else it
+		// would match no peer, and the proxy would be refused.
+		{name: "proxy trusting IPv4 in IPv6's form", body: "https:\n  listen: 127.0.0.1:8443\n  public_urls: [https://aries.example.com]\n  tls:\n    mode: proxy\n    proxy:\n      trusted: [\"::ffff:10.0.0.5\", \"::ffff:10.0.0.0/104\", \"::ffff:0.0.0.0/96\", \"fd00::/8\"]\n",
+			check: func(s Settings) bool {
+				p, err := s.HTTPS.Trusted()
+				return err == nil && slices.Equal(p, []netip.Prefix{netip.MustParsePrefix("10.0.0.5/32"), netip.MustParsePrefix("10.0.0.0/8"),
+					netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("fd00::/8")})
+			}},
 		{name: "TLS 1.3 only", body: strings.Replace(files, "    mode: files\n", "    mode: files\n    min_version: \"1.3\"\n", 1),
 			check: func(s Settings) bool { return s.HTTPS.TLS.MinVersion == "1.3" }},
 		{name: "HTTPS on with nothing set", body: "", serve: "https:"},

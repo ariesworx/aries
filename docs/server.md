@@ -1151,7 +1151,7 @@ to its principal's role alone, as over SSH.
 |---|---|---|
 | `acme` | From an ACME server: Let's Encrypt, or an internal one's `directory` (step-ca, say), with which ACME needs no internet. ariesd answers the TLS-ALPN-01 challenge on the listener itself, so nothing else listens; the ACME server reaches port 443 | A DNS name that leads to the machine; the `cache` directory, mode 0700, which ariesd makes and which holds the account's key and the certificates; under systemd, `ReadWritePaths` for it (below) |
 | `files` | The operator's: a certificate chain, leaf first, and its key, in PEM, from the company's or the site's CA. ariesd reads them again at the first handshake after either changes, with no restart; a pair that does not read is logged once (`tls.cert_reload_failed`) and the certificate served is kept | The key file mode 0600 (ariesd refuses one others may read), owned by the user ariesd runs as |
-| `proxy` | None at ariesd: plain HTTP behind a proxy or load balancer that terminates TLS ([Behind a proxy](#behind-a-proxy)) | `trusted`: the proxy's addresses, or networks in CIDR form |
+| `proxy` | None at ariesd: plain HTTP behind a proxy or load balancer that terminates TLS ([Behind a proxy](#behind-a-proxy)) | `trusted`: the proxy's addresses, or networks in CIDR form; one of IPv4 written in IPv6's form (`::ffff:10.0.0.0/104`) is taken as IPv4's, as a peer's address is |
 
 TLS is 1.2 or 1.3 with Go's own cipher suites, which are not
 configurable; `min_version: "1.3"` refuses 1.2. Clients check the

@@ -336,7 +336,10 @@ func (s Settings) HTTPSOn() bool { return slices.Contains(s.Transports, Transpor
 func (s Settings) SSH() bool { return slices.Contains(s.Transports, TransportSSH) }
 
 // Trusted returns the proxy's addresses as prefixes: an address alone
-// is a prefix of its own length.
+// is a prefix of its own length. An IPv4 address or network written in
+// IPv6's form (::ffff:10.0.0.0/104) is returned as IPv4's, since a
+// peer's address is compared unmapped (peerAddr), and would otherwise
+// match no peer.
 func (h HTTPSSettings) Trusted() ([]netip.Prefix, error) {
 	out := make([]netip.Prefix, 0, len(h.TLS.Proxy.Trusted))
 	for _, t := range h.TLS.Proxy.Trusted {
@@ -347,6 +350,9 @@ func (h HTTPSSettings) Trusted() ([]netip.Prefix, error) {
 				return nil, fmt.Errorf("https: tls: proxy: trusted: %q is not an address or a network in CIDR form; fix: list the proxy's addresses, such as 10.0.0.5 or 10.0.0.0/24", t)
 			}
 			p = netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen())
+		}
+		if p.Addr().Is4In6() && p.Bits() >= 96 {
+			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
 		}
 		out = append(out, p.Masked())
 	}
