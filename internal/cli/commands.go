@@ -599,9 +599,11 @@ func (r *runner) needsRev(err error) error {
 	return &e
 }
 
-// write runs an issue write and prints "ID rev N".
+// write runs an issue write and prints "ID rev N", and after it the
+// close-out lines a handoff that is done, or the close of an epic, brings
+// (design §21.7).
 func (r *runner) write(ctx context.Context, op string, in any) error {
-	var out proto.WriteResult
+	var out proto.CloseResult
 	kept, err := r.send(ctx, op, in, &out)
 	if err != nil {
 		return err
@@ -614,8 +616,21 @@ func (r *runner) write(ctx context.Context, op string, in any) error {
 		r.emit(out)
 	} else {
 		_, _ = fmt.Fprintf(r.env.Stdout, "%s rev %d\n", esc(out.ID), out.Rev)
+		r.closeout(out.Closeout)
 	}
 	return nil
+}
+
+// closeout prints a checklist the workflow gives for when work ends: the
+// harness's to do, never tracked.
+func (r *runner) closeout(lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(r.env.Stdout, "closeout:")
+	for _, l := range lines {
+		_, _ = fmt.Fprintf(r.env.Stdout, "  - %s\n", esc(l))
+	}
 }
 
 func cmdClose(ctx context.Context, r *runner, args []string) error {

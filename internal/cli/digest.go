@@ -104,6 +104,11 @@ func printDigest(w io.Writer, d proto.DigestResult) {
 		{"awaiting landing", t.Landing, d.Landing, func(it proto.DigestItem) string {
 			return "\t" + esc(it.By) + "\thanded off " + proto.Span(d.Until.Sub(it.At)) + " ago\t" + esc(it.Note)
 		}},
+		// An epic whose last child closed (design §21.7): the lines of
+		// its close-out, for whoever closes it.
+		{"epics to close out", t.Closeout, d.Closeout, func(it proto.DigestItem) string {
+			return "\t" + esc(it.Note)
+		}},
 	} {
 		if sec.total == 0 {
 			continue

@@ -154,6 +154,7 @@ func cmdFinish(ctx context.Context, r *runner, args []string) error {
 	if len(out.Created) > 0 {
 		_, _ = fmt.Fprintf(r.env.Stdout, "created %s\n", strings.Join(escAll(out.Created), " "))
 	}
+	r.closeout(out.Closeout)
 	return nil
 }
 

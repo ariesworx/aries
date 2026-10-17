@@ -455,10 +455,20 @@ types:
   changes nothing it requires. Meanwhile the issue waits in progress,
   holding nothing once its claim lapses: `prime` and `digest` list it
   as *awaiting landing*, with its checks' last reports.
-- **What is not enforced yet.** `review`, `approve` and `closeout` are
-  kept and shown, and checked at set, but come in later releases: the
-  gates of a review and an approval, and the close-out lines in
-  `handoff` and `finish`.
+- **The close-out checklist.** A profile's `closeout` lines are what
+  the harness does when work ends: stop the compose stack you started,
+  delete the files you left outside the repository, and for an epic
+  prune worktrees and merged branches. Aries sees none of that, so the
+  lines are shown, never ticked or checked. They come as `closeout` in
+  the result of `handoff` with state `done` and of `finish`, and of the
+  `finish` or `close` that closes an epic; in a second `gate.passed`
+  inbox item when the closing pass closes an issue, since the session
+  that did the work may be gone by then; and in `digest` as *epics to
+  close out*, once an epic's last child has closed. An issue is shown
+  the lines of every profile stamped on it, as with items and checks.
+- **What is not enforced yet.** `review` and `approve` are kept and
+  shown, and checked at set, but come in a later release: the gates of
+  a review and an approval.
 
 `prime` gives the workflow in one line, such as `workflow rev 4: bug,
 feature, task: 4 items, landed; epic: approval`.

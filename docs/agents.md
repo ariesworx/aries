@@ -275,6 +275,12 @@ window's in `digest`.
   in the agent's `inbox`, after which `finish` with the items ticked
   closes it. `prime` lists such issues as `awaiting landing`, with what
   each waits for ([Required checks](concepts.md#the-workflow)).
+  The profile's close-out lines come as a short `closeout:` list after
+  the result line of `handoff` (state `done`), `finish` and the `close`
+  of an epic, and in `digest` once an epic's last child has closed:
+  what to tidy up (a compose stack, scratch files, worktrees,
+  sessions). They are shown, never ticked, and are dropped before the
+  result is, if its 2,000 tokens are short.
 
 One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,
