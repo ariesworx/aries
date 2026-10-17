@@ -217,11 +217,18 @@ func (w *web) handler() http.Handler {
 			"nothing is served at this path"))
 	})
 	body := int64(w.s.cfg.Limits.HTTPSBodyBytes)
+	bodyTimeout := time.Duration(w.s.cfg.Limits.HTTPSBodyTimeout)
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		rw.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		rw.Header().Set("X-Content-Type-Options", "nosniff")
 		rw.Header().Set("Cache-Control", "no-store")
 		r.Body = http.MaxBytesReader(rw, r.Body, body)
+		// The headers are in; the body, which net/http reads even when
+		// the handler does not (to reuse the connection), has this long.
+		// A WebSocket's upgrade clears the deadline (wsconn.Accept).
+		// A transport that cannot set one (not the case for net/http's
+		// own) is left to the idle and header bounds.
+		_ = http.NewResponseController(rw).SetReadDeadline(time.Now().Add(bodyTimeout))
 		mux.ServeHTTP(rw, r)
 	})
 }
@@ -437,12 +444,13 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 // neither when the client left or said nothing in time.
 func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 	_ = c.SetDeadline(time.Now().Add(time.Duration(w.s.cfg.Limits.UpgradeTimeout)))
+	// A peer that has proved nothing is held to the proof's own bound,
+	// not ws_message_bytes: it cannot make the server read, or hold, a
+	// message of megabytes. A larger one closes the connection (1009).
+	c.SetMax(maxProofMessage)
 	m, err := c.Read()
 	if err != nil {
 		return nil, nil, ""
-	}
-	if len(m) > maxProofMessage {
-		return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server", "the key offer is too large"), "invalid"
 	}
 	offer, err := keyproof.ParseOffer(m)
 	if err != nil {
@@ -505,6 +513,7 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 		return nil, ended, telemetry.ProofKeyEnded
 	}
 	_ = c.SetDeadline(time.Time{})
+	c.SetMax(w.s.cfg.Limits.WSMessageBytes)
 	return &proto.Frame{T: proto.FrameBridge, Principal: principal, Key: fingerprint}, nil, ""
 }
 

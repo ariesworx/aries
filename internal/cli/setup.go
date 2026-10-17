@@ -21,8 +21,8 @@ import (
 // hooks. With --all it does so for
 // every agent. It edits the project's own files unless --global says the
 // person's home ones may be touched.
-func cmdSetup(_ context.Context, r *runner, args []string) error {
-	const usage = "setup AGENT|--all [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]"
+func cmdSetup(ctx context.Context, r *runner, args []string) error {
+	const usage = "setup AGENT|--all|post-merge [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]"
 	fs := r.newFlags("setup")
 	write := fs.Bool("write", false, "edit the files")
 	check := fs.Bool("check", false, "fail unless everything is in place")
@@ -35,6 +35,21 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
+	}
+	n := 0
+	for _, b := range []bool{*write, *check, *remove} {
+		if b {
+			n++
+		}
+	}
+	if n > 1 {
+		return usagef(usage, "give at most one of --write, --check and --remove")
+	}
+	if len(pos) == 1 && pos[0] == postMerge {
+		if set(fs, "key-file") {
+			return usagef(usage, "the post-merge hook takes no --key-file")
+		}
+		return r.setupPostMerge(ctx, entry.Command, setupMode{write: *write, check: *check, remove: *remove}, *global, *all, usage)
 	}
 	if set(fs, "key-file") {
 		if *remove {
@@ -59,15 +74,6 @@ func cmdSetup(_ context.Context, r *runner, args []string) error {
 		}
 	case len(pos) != 1:
 		return usagef(usage, "setup needs one agent, or --all: %s", strings.Join(agentsetup.Names(), ", "))
-	}
-	n := 0
-	for _, b := range []bool{*write, *check, *remove} {
-		if b {
-			n++
-		}
-	}
-	if n > 1 {
-		return usagef(usage, "give at most one of --write, --check and --remove")
 	}
 	mode := setupMode{write: *write, check: *check, remove: *remove}
 	if entry.Command == "" || strings.ContainsAny(entry.Command, "\x00\n") {
