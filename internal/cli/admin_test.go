@@ -61,7 +61,7 @@ func TestAdminAccessUsage(t *testing.T) {
 		})
 	}
 	// Every group is in the command's help.
-	_, help, _ := runCLI(t, "help", "admin")
+	help := helpText(t, "admin")
 	for _, want := range []string{"admin price list | set MODEL", "admin plan list | set NAME", "admin project add NAME [--prefix P] [--account A] | list | archive PROJECT | activate PROJECT",
 		"admin principal add NAME [--key FILE]... [--project P | --no-project] [--kind person|service]", "| show NAME | disable NAME | enable NAME | whois STAND-IN",
 		"admin member add NAME [--project P] [--role admin] [--accept-keys] | list [--project P] [--added-by NAME] | remove NAME [--project P]"} {

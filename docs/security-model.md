@@ -589,11 +589,13 @@ provider and service principals' token exchange
 `login:` or `workload:` is configured, and their security review comes
 in 1.x.
 
-What it does not yet have: the security review of the listener and the
-key proof before v0.5.0 ([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)),
-and a measure of what a flood of unauthenticated requests costs while
-sessions work (its item 6): the limits above bound it, but nobody has
-yet run one against them.
+The listener, the key proof, the proxy mode, the limits under a flood
+of unauthenticated requests, secrets and SSH off by default had a
+security review before v0.5.0
+([§12.4](design/transport.md#124-what-a-security-review-must-look-at-before-10)):
+[security-review-v1.md](design/security-review-v1.md) records each
+finding and what became of it, and the weaknesses left for v0.6.0,
+among them the binding of the proof to the TLS session above.
 
 ## Sign-in and tokens
 

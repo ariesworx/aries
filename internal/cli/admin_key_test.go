@@ -53,7 +53,7 @@ func TestAdminKeyUsage(t *testing.T) {
 			}
 		})
 	}
-	_, help, _ := runCLI(t, "help", "admin")
+	help := helpText(t, "admin")
 	for _, want := range []string{"admin key add NAME FILE|- [--expires DURATION|TIME] | list NAME | list --added-by NAME | remove FINGERPRINT",
 		"admin principal add NAME [--key FILE]... [--project P | --no-project]"} {
 		if !strings.Contains(help, want) {

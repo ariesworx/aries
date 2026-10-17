@@ -513,6 +513,9 @@ type Digest struct {
 	// Landing are the issues awaiting landing: handed off done, waiting
 	// for a check the workflow requires; Note names the checks.
 	Landing []DigestItem `json:"landing,omitempty"`
+	// Closeout are the epics whose last child closed and that are still
+	// open; Note holds the close-out lines of their workflow profiles.
+	Closeout []DigestItem `json:"closeout,omitempty"`
 	// Usage is the window's time held and tokens by model, in one line.
 	Usage string `json:"usage,omitempty"`
 	// Truncated: items were left out to fit, or a total is a lower bound.
@@ -568,7 +571,7 @@ func (s *Server) register() {
 		})
 	add(s, tool{name: "finish", desc: "Close your issue: tick items, hand off, file new work.", ann: write, retry: true,
 		enums: enums{"discovered.type": issueTypes, "state": states}},
-		func(ctx context.Context, c Conn, in FinishIn) (proto.FinishResult, error) {
+		func(ctx context.Context, c Conn, in FinishIn) (Finished, error) {
 			args := proto.FinishArgs{ID: in.ID, Epoch: s.claims.epoch(in.ID), Reason: in.Reason, Handoff: in.Handoff,
 				HandoffFields: in.wire(), Ticked: in.Ticked, Idem: in.idem, Paths: s.paths(ctx, in.ID)}
 			for k, r := range in.Waived {
@@ -593,12 +596,12 @@ func (s *Server) register() {
 			if err == nil {
 				s.claims.drop(in.ID)
 			}
-			return out, err
+			return finished(out), err
 		})
 	add(s, tool{name: "handoff", desc: "Note for whoever continues.", ann: write, retry: true,
 		enums: enums{"state": states}},
-		func(ctx context.Context, c Conn, in HandoffIn) (proto.WriteResult, error) {
-			var out proto.WriteResult
+		func(ctx context.Context, c Conn, in HandoffIn) (Handed, error) {
+			var out proto.HandoffResult
 			args := proto.HandoffArgs{ID: in.ID, Note: in.Note, Release: in.Release, HandoffFields: in.wire(), Idem: in.idem,
 				Paths: s.paths(ctx, in.ID)}
 			if in.Release {
@@ -615,7 +618,7 @@ func (s *Server) register() {
 			if err == nil && in.Release {
 				s.claims.drop(in.ID)
 			}
-			return out, err
+			return Handed{ID: out.ID, Rev: out.Rev, closeout: out.Closeout}, err
 		})
 	add(s, tool{name: "digest", desc: "Recent work: closed, started, stalled, blocked.",
 		ann: readOnly, retry: true, cached: true},
@@ -668,9 +671,10 @@ func (s *Server) register() {
 		enums: enums{"status": setStatuses, "type": issueTypes}},
 		func(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) { return update(ctx, c, in) })
 	add(s, tool{name: "close", desc: "Close a finished issue.", ann: write},
-		func(ctx context.Context, c Conn, in CloseIn) (proto.WriteResult, error) {
-			var out proto.WriteResult
-			return out, c.Call(ctx, proto.OpClose, proto.CloseArgs{ID: in.ID, Rev: in.Rev, Reason: in.Reason}, &out)
+		func(ctx context.Context, c Conn, in CloseIn) (Closed, error) {
+			var out proto.CloseResult
+			err := c.Call(ctx, proto.OpClose, proto.CloseArgs{ID: in.ID, Rev: in.Rev, Reason: in.Reason}, &out)
+			return Closed{ID: out.ID, Rev: out.Rev, closeout: out.Closeout}, err
 		})
 	add(s, tool{name: "reopen", desc: "Reopen a closed issue.", ann: write},
 		func(ctx context.Context, c Conn, in ReopenIn) (proto.WriteResult, error) {
@@ -1031,7 +1035,10 @@ func digest(ctx context.Context, c Conn, in DigestIn) (Digest, error) {
 		Closed: conv(r.Closed, false), Started: conv(r.Started, false), InProgress: conv(r.InProgress, true),
 		Stalled: conv(r.Stalled, true), Blocked: conv(r.Blocked, false), HandedOff: conv(r.HandedOff, false),
 		Created: conv(r.Created, false), Discovered: conv(r.Discovered, false), Conflicts: conv(r.Conflicts, false),
-		Landing: conv(r.Landing, false)}
+		Landing: conv(r.Landing, false), Closeout: conv(r.Closeout, false)}
+	for i := range out.Closeout {
+		out.Closeout[i].Note, _ = cut(out.Closeout[i].Note, closeoutNoteLen)
+	}
 	if u := r.Usage; u != nil {
 		out.Usage = digestUsageLine(*u)
 	}
@@ -1047,7 +1054,7 @@ func digest(ctx context.Context, c Conn, in DigestIn) (Digest, error) {
 // grows, so keeping fewer is never longer (see fitPrefix).
 func (d *Digest) fit() {
 	sections := []*[]DigestItem{&d.Closed, &d.Started, &d.InProgress, &d.Stalled, &d.Blocked, &d.HandedOff,
-		&d.Created, &d.Discovered, &d.Conflicts, &d.Landing}
+		&d.Created, &d.Discovered, &d.Conflicts, &d.Landing, &d.Closeout}
 	all := make([][]DigestItem, len(sections))
 	lens := make([]int, len(sections))
 	for i, sec := range sections {

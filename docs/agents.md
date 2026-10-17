@@ -281,6 +281,12 @@ window's in `digest`.
   refusal names, and never runs `aries gate` itself; its `inbox` says
   when the review passed. An epic created under an approval stays out
   of `ready`, with its children, until a person approves it.
+  The profile's close-out lines come as a short `closeout:` list after
+  the result line of `handoff` (state `done`), `finish` and the `close`
+  of an epic, and in `digest` once an epic's last child has closed:
+  what to tidy up (a compose stack, scratch files, worktrees,
+  sessions). They are shown, never ticked, and are dropped before the
+  result is, if its 2,000 tokens are short.
 
 One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,

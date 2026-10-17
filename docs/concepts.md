@@ -475,9 +475,17 @@ types:
   issue under it stay out of `ready`, and cannot be started, until the
   gate passes: for an epic, a plan approved before its children begin.
   Its approvers are told (`gate.pending`).
-- **What is not enforced yet.** `closeout` is kept and shown, and
-  checked at set, but comes in a later release: its lines in `handoff`
-  and `finish`.
+- **The close-out checklist.** A profile's `closeout` lines are what
+  the harness does when work ends: stop the compose stack you started,
+  delete the files you left outside the repository, and for an epic
+  prune worktrees and merged branches. Aries sees none of that, so the
+  lines are shown, never ticked or checked. They come as `closeout` in
+  the result of `handoff` with state `done` and of `finish`, and of the
+  `finish` or `close` that closes an epic; in a second `gate.passed`
+  inbox item when the closing pass closes an issue, since the session
+  that did the work may be gone by then; and in `digest` as *epics to
+  close out*, once an epic's last child has closed. An issue is shown
+  the lines of every profile stamped on it, as with items and checks.
 
 `prime` gives the workflow in one line, such as `workflow rev 4: bug,
 feature, task: 4 items, landed; epic: approval`.

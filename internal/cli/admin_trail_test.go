@@ -36,7 +36,7 @@ func TestAdminTrailUsage(t *testing.T) {
 			}
 		})
 	}
-	_, help, _ := runCLI(t, "help", "admin")
+	help := helpText(t, "admin")
 	for _, want := range []string{"list [--created-by NAME]", "list [--project P] [--added-by NAME]", "list --added-by NAME"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("aries help admin lacks %q:\n%s", want, help)

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -194,6 +195,54 @@ WHERE i.status = 'in_progress' AND h.state = 'done'`
 			continue
 		}
 		it.Note = checksText(waits)
+		items = append(items, it)
+	}
+	*out = DigestSection{Total: len(items), Items: items[:min(len(items), DigestItems)]}
+	return nil
+}
+
+// closeout fills in out with the epics that are open and whose children
+// have all closed (design §21.7), oldest first, each with its profiles'
+// close-out lines joined by "; " as Note; an epic whose profiles name no
+// line is left out. It is filtered like landing.
+func (q *digestQuery) closeout(ctx context.Context, out *DigestSection) error {
+	var p params
+	const head = `SELECT i.id, i.title, i.priority, COALESCE(i.assignee, ''), i.updated_at FROM issues i
+WHERE i.type = 'epic' AND i.status <> 'closed'
+  AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id)
+  AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status <> 'closed')`
+	query := head + q.filters(&p, "i.assignee", "i.id") + ` ORDER BY i.updated_at, i.id LIMIT ` + p.add(landingRows+1) //nolint:gosec // constant clauses; values are placeholders
+	rows, err := q.tx.QueryContext(ctx, query, p.args...)
+	if err != nil {
+		return fmt.Errorf("epic close-out: %w", err)
+	}
+	var found []DigestItem
+	for rows.Next() {
+		var it DigestItem
+		if err := rows.Scan(&it.ID, &it.Title, &it.Priority, &it.By, &it.At); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("epic close-out: %w", err)
+		}
+		if len(found) == landingRows {
+			q.capped = true
+			break
+		}
+		it.At = it.At.UTC()
+		found = append(found, it)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("epic close-out: %w", err)
+	}
+	var items []DigestItem
+	for _, it := range found {
+		lines, err := closeoutLines(ctx, q.tx, it.ID)
+		if err != nil {
+			return fmt.Errorf("epic close-out: %w", err)
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		it.Note = strings.Join(lines, "; ")
 		items = append(items, it)
 	}
 	*out = DigestSection{Total: len(items), Items: items[:min(len(items), DigestItems)]}
