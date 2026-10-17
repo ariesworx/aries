@@ -135,7 +135,7 @@ func run(ctx context.Context, args []string, e env) int {
 	file := fs.String("file", "signatures/cla.json", "the signatures file")
 	document := fs.String("document", "", "the agreement's URL, linked from the comment")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || *document == "" {
-		fmt.Fprintln(e.stderr, "usage: cla --document URL [--allow LIST] [--branch NAME] [--file PATH]")
+		_, _ = fmt.Fprintln(e.stderr, "usage: cla --document URL [--allow LIST] [--branch NAME] [--file PATH]")
 		return 2
 	}
 	cfg := config{branch: *branch, file: *file, document: *document}
@@ -146,17 +146,17 @@ func run(ctx context.Context, args []string, e env) int {
 	}
 	gh, err := newGitHub(e)
 	if err != nil {
-		fmt.Fprintf(e.stderr, "::error::%v\n", err)
+		_, _ = fmt.Fprintf(e.stderr, "::error::%v\n", err)
 		return 1
 	}
 	raw, err := e.readFile(e.getenv("GITHUB_EVENT_PATH"))
 	if err != nil {
-		fmt.Fprintf(e.stderr, "::error::read the event: %v\n", err)
+		_, _ = fmt.Fprintf(e.stderr, "::error::read the event: %v\n", err)
 		return 1
 	}
 	var ev event
 	if err := json.Unmarshal(raw, &ev); err != nil {
-		fmt.Fprintf(e.stderr, "::error::read the event: %v\n", err)
+		_, _ = fmt.Fprintf(e.stderr, "::error::read the event: %v\n", err)
 		return 1
 	}
 	switch name := e.getenv("GITHUB_EVENT_NAME"); name {
@@ -165,13 +165,13 @@ func run(ctx context.Context, args []string, e env) int {
 	case "issue_comment":
 		err = comment(ctx, gh, cfg, ev, e.stdout)
 	default:
-		fmt.Fprintf(e.stdout, "nothing to do for %s\n", name)
+		_, _ = fmt.Fprintf(e.stdout, "nothing to do for %s\n", name)
 	}
 	switch {
 	case errors.Is(err, errUnsigned):
 		return 1
 	case err != nil:
-		fmt.Fprintf(e.stderr, "::error::%v\n", err)
+		_, _ = fmt.Fprintf(e.stderr, "::error::%v\n", err)
 		return 1
 	}
 	return 0
@@ -185,7 +185,7 @@ func check(ctx context.Context, gh *github, cfg config, ev event, out io.Writer)
 	switch ev.Action {
 	case "opened", "reopened", "synchronize":
 	default:
-		fmt.Fprintf(out, "nothing to check when a pull request is %s\n", ev.Action)
+		_, _ = fmt.Fprintf(out, "nothing to check when a pull request is %s\n", ev.Action)
 		return nil
 	}
 	n := ev.PullRequest.Number
@@ -204,7 +204,7 @@ func check(ctx context.Context, gh *github, cfg config, ev event, out io.Writer)
 		}
 	}
 	if len(unsigned) == 0 && len(unlinked) == 0 {
-		fmt.Fprintln(out, "every contributor has signed the CLA")
+		_, _ = fmt.Fprintln(out, "every contributor has signed the CLA")
 		return gh.note(ctx, n, marker+"\nEvery contributor to this pull request has signed the [Contributor License Agreement]("+cfg.document+"). Thank you.", false)
 	}
 	if err := gh.note(ctx, n, request(cfg, unsigned, unlinked), true); err != nil {
@@ -215,20 +215,20 @@ func check(ctx context.Context, gh *github, cfg config, ev event, out io.Writer)
 		who = append(who, "@"+p.Login)
 	}
 	who = append(who, unlinked...)
-	fmt.Fprintf(out, "::error::the CLA is not yet signed by %s; the pull request's comment says how\n", strings.Join(who, ", "))
+	_, _ = fmt.Fprintf(out, "::error::the CLA is not yet signed by %s; the pull request's comment says how\n", strings.Join(who, ", "))
 	return errUnsigned
 }
 
 // comment records a signature, or reruns the check for `recheck`.
 func comment(ctx context.Context, gh *github, cfg config, ev event, out io.Writer) error {
 	if ev.Issue == nil || ev.Issue.PullRequest == nil || ev.Comment == nil || ev.Action != "created" {
-		fmt.Fprintln(out, "not a new comment on a pull request")
+		_, _ = fmt.Fprintln(out, "not a new comment on a pull request")
 		return nil
 	}
 	n := ev.Issue.Number
 	body := strings.TrimSpace(ev.Comment.Body)
 	if body != Sentence && body != "recheck" {
-		fmt.Fprintln(out, "neither the signing sentence nor recheck")
+		_, _ = fmt.Fprintln(out, "neither the signing sentence nor recheck")
 		return nil
 	}
 	pr, err := gh.pull(ctx, n)
@@ -242,7 +242,7 @@ func comment(ctx context.Context, gh *github, cfg config, ev event, out io.Write
 		}
 		who := ev.Comment.User
 		if !slices.ContainsFunc(must, func(p person) bool { return p.ID == who.ID }) {
-			fmt.Fprintf(out, "@%s need not sign for pull request %d; nothing recorded\n", who.Login, n)
+			_, _ = fmt.Fprintf(out, "@%s need not sign for pull request %d; nothing recorded\n", who.Login, n)
 			return nil
 		}
 		s := signature{Name: who.Login, ID: who.ID, CommentID: ev.Comment.ID, CreatedAt: ev.Comment.CreatedAt,
@@ -448,7 +448,7 @@ func (g *github) record(ctx context.Context, cfg config, s signature, out io.Wri
 			return err
 		}
 		if hasSigned(cur, person{ID: s.ID}) {
-			fmt.Fprintf(out, "@%s has signed already\n", s.Name)
+			_, _ = fmt.Fprintf(out, "@%s has signed already\n", s.Name)
 			return nil
 		}
 		cur.SignedContributors = append(cur.SignedContributors, s)
@@ -472,7 +472,7 @@ func (g *github) record(ctx context.Context, cfg config, s signature, out io.Wri
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "recorded @%s's signature\n", s.Name)
+		_, _ = fmt.Fprintf(out, "recorded @%s's signature\n", s.Name)
 		return nil
 	}
 }
@@ -529,15 +529,15 @@ func (g *github) rerun(ctx context.Context, sha string, out io.Writer) error {
 			continue
 		}
 		if r.Status != "completed" {
-			fmt.Fprintf(out, "the check of %s is still running, and reads the signatures when it does\n", sha)
+			_, _ = fmt.Fprintf(out, "the check of %s is still running, and reads the signatures when it does\n", sha)
 			return nil
 		}
 		if err := g.do(ctx, http.MethodPost, fmt.Sprintf("/actions/runs/%d/rerun", r.ID), nil, nil); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "reran the check of %s\n", sha)
+		_, _ = fmt.Fprintf(out, "reran the check of %s\n", sha)
 		return nil
 	}
-	fmt.Fprintf(out, "no check of %s to rerun; push, or comment recheck once it has run\n", sha)
+	_, _ = fmt.Fprintf(out, "no check of %s to rerun; push, or comment recheck once it has run\n", sha)
 	return nil
 }

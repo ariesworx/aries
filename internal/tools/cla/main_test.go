@@ -295,13 +295,13 @@ func TestComment(t *testing.T) {
 					ids = append(ids, s.ID)
 				}
 			}
-			if fmt.Sprint(ids) != fmt.Sprint(tt.wantSigned) && !(len(ids) == 0 && len(tt.wantSigned) == 0) {
+			if fmt.Sprint(ids) != fmt.Sprint(tt.wantSigned) && (len(ids) != 0 || len(tt.wantSigned) != 0) {
 				t.Errorf("signed %v, want %v", ids, tt.wantSigned)
 			}
 			if f.puts != tt.wantPuts {
 				t.Errorf("%d writes, want %d", f.puts, tt.wantPuts)
 			}
-			if fmt.Sprint(f.reruns) != fmt.Sprint(tt.wantReruns) && !(len(f.reruns) == 0 && len(tt.wantReruns) == 0) {
+			if fmt.Sprint(f.reruns) != fmt.Sprint(tt.wantReruns) && (len(f.reruns) != 0 || len(tt.wantReruns) != 0) {
 				t.Errorf("reran %v, want %v", f.reruns, tt.wantReruns)
 			}
 			if tt.wantOut != "" && !strings.Contains(out, tt.wantOut) {
