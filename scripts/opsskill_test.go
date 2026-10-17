@@ -334,7 +334,11 @@ func ariesUsage(t *testing.T) []usagePath {
 	}
 	var paths []usagePath
 	for _, n := range names {
-		usage, _, _ := strings.Cut(strings.TrimPrefix(help(n), "usage: aries "), "\n")
+		// The usage is the lines up to the first blank one: a form on
+		// each line that begins aries, wrapped onto the lines below it.
+		usage, _, _ := strings.Cut(strings.TrimPrefix(help(n), "usage: aries "), "\n\n")
+		usage = strings.ReplaceAll(usage, "\n       aries ", " | ")
+		usage = strings.Join(strings.Fields(usage), " ")
 		paths = append(paths, parseUsage(usage, "aries", []string{n})...)
 	}
 	return paths

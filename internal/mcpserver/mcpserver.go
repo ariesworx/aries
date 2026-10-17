@@ -618,14 +618,24 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 			} else if m, ok := any(out).(marker); ok {
 				m.mark()
 			}
-			if line == "" {
+			var extra string
+			if tr, ok := any(out).(trailer); ok {
+				extra = tr.trailer()
+			}
+			if line == "" && extra == "" {
 				return nil, out, nil
 			}
 			b, err := json.Marshal(out)
 			if err != nil {
 				return toolError(fmt.Errorf("encode %s result: %w", t.name, err)), nil, nil
 			}
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}, &mcp.TextContent{Text: line}}}, out, nil
+			content := []mcp.Content{&mcp.TextContent{Text: string(b)}}
+			for _, block := range []string{extra, line} {
+				if block != "" {
+					content = append(content, &mcp.TextContent{Text: block})
+				}
+			}
+			return &mcp.CallToolResult{Content: content}, out, nil
 		})
 }
 

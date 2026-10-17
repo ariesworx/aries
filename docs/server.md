@@ -2394,8 +2394,8 @@ A project's [workflow](concepts.md#the-workflow) is a document a project
 admin applies with `aries admin workflow set FILE`, from their own
 terminal: the acceptance items the server adds to every issue it
 creates, by type; the checks it requires before an issue closes, whose
-passing report closes it; and the review, approval and close-out lines
-later releases enforce. It is a row of the project's `settings` table,
+passing report closes it; the close-out lines it shows when work ends (they are shown, not
+tracked); and the review and approval lines a later release enforces. It is a row of the project's `settings` table,
 named `workflow`, whose `rev` is the workflow's, written by the
 project's writer with a `workflow.set` event (target
 `setting:workflow`) that holds the document before and after; every

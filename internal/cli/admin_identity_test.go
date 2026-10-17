@@ -56,7 +56,7 @@ func TestAdminIdentityUsage(t *testing.T) {
 			}
 		})
 	}
-	_, help, _ := runCLI(t, "help", "admin")
+	help := helpText(t, "admin")
 	for _, want := range []string{
 		"admin principal add NAME [--key FILE]... [--project P | --no-project] [--kind person|service] [--owner NAME] [--display-name D] [--invite ADDRESS --provider P]",
 		"set NAME [--display-name D] [--kind person|service] [--owner NAME] | show NAME",

@@ -86,8 +86,13 @@ type Env struct {
 }
 
 // usageError is a mistake on the command line. usage is the usage line
-// its fix shows; Run fills in the command's own when it is empty.
-type usageError struct{ msg, usage string }
+// its fix shows; Run fills in the command's own when it is empty. flags is
+// set when the mistake is a request for help (-h, --help): the flag set of
+// the command, or subcommand, that was asked, which its help lists.
+type usageError struct {
+	msg, usage string
+	flags      *flag.FlagSet
+}
 
 func (e *usageError) Error() string { return e.msg }
 
@@ -231,6 +236,9 @@ type runner struct {
 	// quiet drops the server's version warning: a hook's stderr carries
 	// one note at most (usage --hook).
 	quiet bool
+	// helping says the command runs only to show its help: it parses its
+	// flags, which -h ends, and connect refuses.
+	helping bool
 	// onPush, if set before connecting, takes the events the server
 	// pushes (aries watch).
 	onPush func(proto.Push)
@@ -292,6 +300,53 @@ func (r *runner) flush() {
 // error has one, a `fix:` line, or with --json as one JSON document on
 // Stdout. Run keeps no state between calls.
 func Run(ctx context.Context, args []string, env Env) int {
+	env = env.withDefaults()
+	r := &runner{env: env, dir: "."}
+	r.wrapOutput()
+	defer r.flush()
+	args, err := r.globals(args)
+	if err != nil {
+		return r.fail(err)
+	}
+	if len(args) == 0 || args[0] == "help" {
+		if len(args) > 1 {
+			if c := lookup(args[1]); c != nil {
+				return r.commandHelp(ctx, c, args[2:])
+			}
+		}
+		r.help(env.Stdout)
+		if len(args) == 0 {
+			return ExitUsage
+		}
+		return ExitOK
+	}
+	c := lookup(args[0])
+	if c == nil {
+		return r.fail(usagef("", "unknown command %q", args[0]))
+	}
+	if helpAsked(args[1:]) {
+		return r.commandHelp(ctx, c, args[1:])
+	}
+	err = c.run(ctx, r, args[1:])
+	if r.conn != nil {
+		_ = r.conn.Close()
+	}
+	if err != nil {
+		if ee, ok := errors.AsType[exitError](err); ok {
+			return ee.code // the command lock run ran said all it had to
+		}
+		var ue *usageError
+		if errors.As(err, &ue) && ue.usage == "" {
+			ue.usage = c.usage
+		}
+		return r.fail(err)
+	}
+	return ExitOK
+}
+
+// withDefaults is env with each field left nil or empty set to the
+// default its comment names.
+func (env Env) withDefaults() Env {
 	if env.Getenv == nil {
 		env.Getenv = os.Getenv
 	}
@@ -326,45 +381,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if env.After == nil {
 		env.After = time.After
 	}
-	r := &runner{env: env, dir: "."}
-	r.wrapOutput()
-	defer r.flush()
-	args, err := r.globals(args)
-	if err != nil {
-		return r.fail(err)
-	}
-	if len(args) == 0 || args[0] == "help" {
-		if len(args) > 1 {
-			if c := lookup(args[1]); c != nil {
-				_, _ = fmt.Fprintf(env.Stdout, "usage: aries %s\n\n%s\n", c.usage, c.summary)
-				return ExitOK
-			}
-		}
-		r.help(env.Stdout)
-		if len(args) == 0 {
-			return ExitUsage
-		}
-		return ExitOK
-	}
-	c := lookup(args[0])
-	if c == nil {
-		return r.fail(usagef("", "unknown command %q", args[0]))
-	}
-	err = c.run(ctx, r, args[1:])
-	if r.conn != nil {
-		_ = r.conn.Close()
-	}
-	if err != nil {
-		if ee, ok := errors.AsType[exitError](err); ok {
-			return ee.code // the command lock run ran said all it had to
-		}
-		var ue *usageError
-		if errors.As(err, &ue) && ue.usage == "" {
-			ue.usage = c.usage
-		}
-		return r.fail(err)
-	}
-	return ExitOK
+	return env
 }
 
 // globalUsage is the usage line of a mistake before the command name.
@@ -398,18 +415,6 @@ func (r *runner) globals(args []string) ([]string, error) {
 		}
 	}
 	return args, nil
-}
-
-// help prints the list of commands to w.
-func (r *runner) help(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "usage: aries [-C DIR] [--json] [--no-queue] COMMAND [ARGS]")
-	_, _ = fmt.Fprintln(w)
-	for _, c := range commands {
-		_, _ = fmt.Fprintf(w, "  %-9s %s\n", c.name, c.summary)
-	}
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "`aries help COMMAND` shows a command's usage. --json prints one JSON document.")
-	_, _ = fmt.Fprintln(w, "A write that cannot reach the server is queued and sent later (`aries outbox`); --no-queue makes it fail.")
 }
 
 // fail reports err and returns its exit code. A usage error's fix is the
@@ -511,6 +516,11 @@ func (r *runner) connect(ctx context.Context) (*mcpserver.RepoConn, error) {
 	if r.conn != nil {
 		return r.conn, nil
 	}
+	if r.helping {
+		// Help runs a command only as far as its flags; one that reached
+		// here would be a bug, and connects to nothing.
+		return nil, errors.New("help connects to no server")
+	}
 	c, err := mcpserver.DialRepo(ctx, r.dir, r.clientOptions())
 	if err != nil {
 		r.missed(err)
@@ -599,7 +609,7 @@ func parse(fs *flag.FlagSet, args []string, usage string) ([]string, error) {
 	for {
 		if err := fs.Parse(args); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
-				return nil, usagef(usage, "help requested")
+				return nil, &usageError{msg: "help requested", usage: usage, flags: fs}
 			}
 			return nil, usagef(usage, "%v", err)
 		}

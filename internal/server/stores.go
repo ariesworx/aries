@@ -64,6 +64,7 @@ type Graph interface {
 	Blocked(ctx context.Context, limit int) ([]store.BlockedIssue, error)
 	Digest(ctx context.Context, f store.DigestFilter) (store.Digest, error)
 	Dates(ctx context.Context, f store.DatesFilter) (store.Dates, error)
+	Closeout(ctx context.Context, id store.IssueID) ([]string, error)
 }
 
 // Work is claims and handoffs, who is at work, and each principal's

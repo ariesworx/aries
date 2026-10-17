@@ -399,7 +399,24 @@ func closeIssue(ctx context.Context, pr *served, a store.Actor, in proto.CloseAr
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpClose, in.ID, in.Rev, err)
 	}
-	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
+	out := proto.CloseResult{WriteResult: proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}}
+	if is.Type == store.TypeEpic {
+		out.Closeout = pr.closeout(ctx, is.ID)
+	}
+	return out, nil
+}
+
+// closeout returns the close-out lines of issue id's workflow profiles
+// (design §21.7). They are shown, not tracked, so a failed read is logged
+// and leaves the result without them rather than failing a write that
+// has been made.
+func (pr *served) closeout(ctx context.Context, id store.IssueID) []string {
+	lines, err := pr.store.Closeout(ctx, id)
+	if err != nil {
+		pr.log.ErrorContext(ctx, "read close-out", "event", logs.RequestPart, "issue", id, "err", err)
+		return nil
+	}
+	return lines
 }
 
 func reopen(ctx context.Context, pr *served, a store.Actor, in proto.ReopenArgs) (any, *proto.Error) {
@@ -576,6 +593,9 @@ func finish(ctx context.Context, pr *served, a store.Actor, in proto.FinishArgs)
 	for _, id := range done.IDs {
 		out.Created = append(out.Created, string(id))
 	}
+	if !done.Lapsed && done.Comment == "" {
+		out.Closeout = pr.closeout(ctx, done.ID)
+	}
 	return out, nil
 }
 
@@ -586,14 +606,22 @@ func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArg
 		if err != nil {
 			return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
 		}
-		return proto.HandoffResult{WriteResult: proto.WriteResult{ID: string(done.ID), Rev: int64(done.Rev)},
-			Lapsed: done.Lapsed, Comment: done.Comment}, nil
+		out := proto.HandoffResult{WriteResult: proto.WriteResult{ID: string(done.ID), Rev: int64(done.Rev)},
+			Lapsed: done.Lapsed, Comment: done.Comment}
+		if in.State == string(store.HandoffDone) && !done.Lapsed && done.Comment == "" {
+			out.Closeout = pr.closeout(ctx, done.ID)
+		}
+		return out, nil
 	}
 	is, err := pr.store.HandoffIssue(ctx, a, store.IssueID(in.ID), in.Epoch, h, in.Release, in.Idem, in.Paths)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpHandoff, in.ID, 0, err)
 	}
-	return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
+	out := proto.HandoffResult{WriteResult: proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}}
+	if in.State == string(store.HandoffDone) {
+		out.Closeout = pr.closeout(ctx, is.ID)
+	}
+	return out, nil
 }
 
 func accept(ctx context.Context, pr *served, a store.Actor, in proto.AcceptArgs) (any, *proto.Error) {
