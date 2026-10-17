@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -572,5 +573,48 @@ func TestWriteRefusesPastTheBound(t *testing.T) {
 	c := newConn(a, bufio.NewReader(a), io.Discard, true, 16)
 	if err := c.Write(make([]byte, 17)); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("Write of 17 bytes on a 16-byte bound = %v, want ErrTooLarge", err)
+	}
+}
+
+// A frame's payload is allocated as its bytes arrive, not as its header
+// declares: a peer that names a message of the bound and sends a few
+// bytes makes the reader hold a few bytes, not the bound.
+func TestReadAllocatesWhatArrives(t *testing.T) {
+	// Serial: it reads the process's allocation counter, which a parallel
+	// test's allocations would add to.
+	const declared = 4 << 20
+	head := []byte{0x80 | opBinary, 0x80 | 127}
+	head = binary.BigEndian.AppendUint64(head, declared)
+	head = append(head, 1, 2, 3, 4)                          // the masking key
+	stream := append(head, bytes.Repeat([]byte{'x'}, 16)...) // then the peer stops
+	c := reader(stream, true, declared, nil)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := c.Read()
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("Read = %v, want io.ErrUnexpectedEOF", err)
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 1<<20 {
+		t.Errorf("reading a frame that declared %d bytes and sent 16 allocated %d bytes; want what arrived, under 1 MiB", declared, got)
+	}
+}
+
+// SetMax lowers the bound of the messages read after it, and raises it
+// again.
+func TestSetMax(t *testing.T) {
+	t.Parallel()
+	big := bytes.Repeat([]byte{'a'}, 100)
+	c := reader(frames(frame(true, opText, true, big), frame(true, opText, true, big)), true, 0, nil)
+	c.SetMax(99)
+	if _, err := c.Read(); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("Read past SetMax(99) = %v, want ErrTooLarge", err)
+	}
+	d := reader(frames(frame(true, opText, true, big)), true, 0, nil)
+	d.SetMax(99)
+	d.SetMax(100)
+	if m, err := d.Read(); err != nil || len(m) != 100 {
+		t.Fatalf("Read after SetMax(100) = %d bytes, %v; want 100", len(m), err)
 	}
 }

@@ -442,12 +442,13 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 // neither when the client left or said nothing in time.
 func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 	_ = c.SetDeadline(time.Now().Add(time.Duration(w.s.cfg.Limits.UpgradeTimeout)))
+	// A peer that has proved nothing is held to the proof's own bound,
+	// not ws_message_bytes: it cannot make the server read, or hold, a
+	// message of megabytes. A larger one closes the connection (1009).
+	c.SetMax(maxProofMessage)
 	m, err := c.Read()
 	if err != nil {
 		return nil, nil, ""
-	}
-	if len(m) > maxProofMessage {
-		return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server", "the key offer is too large"), "invalid"
 	}
 	offer, err := keyproof.ParseOffer(m)
 	if err != nil {
@@ -510,6 +511,7 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 		return nil, ended, telemetry.ProofKeyEnded
 	}
 	_ = c.SetDeadline(time.Time{})
+	c.SetMax(w.s.cfg.Limits.WSMessageBytes)
 	return &proto.Frame{T: proto.FrameBridge, Principal: principal, Key: fingerprint}, nil, ""
 }
 
