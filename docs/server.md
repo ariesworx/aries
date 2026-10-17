@@ -1203,8 +1203,21 @@ then be true, and what ariesd cannot check:
   that serves Aries under a path strips it.
 - **The limits per address are the proxy's.** Every connection comes
   from it, so `https_conns_per_addr`, `auth_failures_per_minute` and
-  `signins_pending_per_addr` do not apply behind one; keep the proxy's
-  own.
+  `signins_pending_per_addr` do not apply behind one, and ariesd does
+  not read the client's address from `X-Forwarded-For` or any other
+  header, which a client can forge. Without the proxy's own, one outsider
+  can hold `https_conns_per_server` connections and fill
+  `signins_pending_per_server` with sign-ins. The block below sets
+  them: `limit_conn` for the connections (64 to an address, as
+  `https_conns_per_addr`), and `limit_req` on `/v1/connect` (10 a second
+  held, a burst of 200: each `aries` command is one request, and an
+  office or a CI farm shares an address) and on `/oauth/authorize` and
+  `/oauth/token` (1 a second, a burst of 30: each sign-in started is
+  held in ariesd's memory), each answered 429 past it. These are looser
+  than ariesd's `auth_failures_per_minute`, because nginx counts every
+  request, not only the refused ones. nginx counts an IPv6 address alone, where ariesd counts a /64
+  (`https_addr_prefix_v6`); a proxy with IPv6 clients keys the zones on
+  the /64 with a `map` of its own.
 
 A whole nginx server block that does all of this is below. The Docker
 test server runs it: its proxy profile puts that file in front of
@@ -1237,6 +1250,30 @@ http {
     client_body_temp_path /tmp/nginx-client-body;
     proxy_temp_path /tmp/nginx-proxy;
 
+    # The limits per client address are nginx's: every connection ariesd
+    # sees is nginx's, so its own do not apply (docs/server.md, Behind a
+    # proxy). These stand in for https_conns_per_addr and the other two.
+    limit_conn_zone $binary_remote_addr zone=aries_conns:10m;
+    # Every aries command is one request to /v1/connect, and an office or a
+    # CI farm shares an address, so its limit is generous: 10 a second
+    # held, a burst of 200. A request for any other path has an empty
+    # key, which is not limited.
+    map $uri $aries_connect_addr {
+        default "";
+        /v1/connect $binary_remote_addr;
+    }
+    limit_req_zone $aries_connect_addr zone=aries_connect:10m rate=600r/m;
+    # A sign-in is a person at a browser, and each one started is held in
+    # ariesd's memory for minutes: 1 a second, a burst of 30.
+    map $uri $aries_signin_addr {
+        default "";
+        /oauth/authorize $binary_remote_addr;
+        /oauth/token $binary_remote_addr;
+    }
+    limit_req_zone $aries_signin_addr zone=aries_signin:10m rate=60r/m;
+    limit_conn_status 429;
+    limit_req_status 429;
+
     server {
         listen 8443 ssl;
         server_name aries.example.com;
@@ -1244,6 +1281,10 @@ http {
         ssl_certificate /etc/nginx/tls/cert.pem;
         ssl_certificate_key /etc/nginx/tls/key.pem;
         ssl_protocols TLSv1.2 TLSv1.3;
+
+        limit_conn aries_conns 64;
+        limit_req zone=aries_connect burst=200 nodelay;
+        limit_req zone=aries_signin burst=30 nodelay;
 
         location / {
             proxy_pass http://127.0.0.1:8080;
