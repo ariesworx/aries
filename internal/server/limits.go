@@ -88,8 +88,12 @@ type Limits struct {
 	// how long they may take to arrive: the slow client's bound.
 	HTTPSHeaderBytes   int      `yaml:"https_header_bytes"`
 	HTTPSHeaderTimeout Duration `yaml:"https_header_timeout"`
-	// HTTPSBodyBytes caps a request's body.
-	HTTPSBodyBytes int `yaml:"https_body_bytes"`
+	// HTTPSBodyBytes caps a request's body, and HTTPSBodyTimeout how
+	// long all of it may take to arrive once the headers are in: a body
+	// that is named and never comes, or comes a byte at a time, holds
+	// no connection past it. A WebSocket's upgrade clears it.
+	HTTPSBodyBytes   int      `yaml:"https_body_bytes"`
+	HTTPSBodyTimeout Duration `yaml:"https_body_timeout"`
 	// UpgradeTimeout is how long a WebSocket has from its upgrade to the
 	// end of its key proof (keyproof); the hello then has helloTimeout,
 	// as over SSH.
@@ -160,7 +164,7 @@ var DefaultLimits = Limits{
 	IdemWindow: Duration(store.DefaultIdemWindow), AwayMax: Duration(store.MaxLease),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
-	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second),
+	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second), HTTPSBodyTimeout: Duration(10 * time.Second),
 	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
 	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, SignInsPendingPerAddr: 16, DPoPProofs: 100000,
 	WorkloadTokens: 10000,
@@ -216,7 +220,7 @@ func (l Limits) WithDefaults() Limits {
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
 		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.AwayMax, &d.AwayMax},
-		{&l.HTTPSHeaderTimeout, &d.HTTPSHeaderTimeout}, {&l.UpgradeTimeout, &d.UpgradeTimeout}} {
+		{&l.HTTPSHeaderTimeout, &d.HTTPSHeaderTimeout}, {&l.HTTPSBodyTimeout, &d.HTTPSBodyTimeout}, {&l.UpgradeTimeout, &d.UpgradeTimeout}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -254,7 +258,7 @@ func (l Limits) Validate() error {
 		{"control_write_burst", l.ControlWriteBurst < 0},
 		{"https_conns_per_server", l.HTTPSConns < 0}, {"https_conns_per_addr", l.HTTPSConnsPerAddr < 0},
 		{"https_header_bytes", l.HTTPSHeaderBytes < 0}, {"https_header_timeout", l.HTTPSHeaderTimeout < 0},
-		{"https_body_bytes", l.HTTPSBodyBytes < 0}, {"upgrade_timeout", l.UpgradeTimeout < 0},
+		{"https_body_bytes", l.HTTPSBodyBytes < 0}, {"https_body_timeout", l.HTTPSBodyTimeout < 0}, {"upgrade_timeout", l.UpgradeTimeout < 0},
 		{"ws_message_bytes", l.WSMessageBytes < 0 || l.WSMessageBytes > proto.MaxFrame},
 		{"auth_failures_per_minute", l.AuthFailureRate < 0 || math.IsNaN(l.AuthFailureRate) || math.IsInf(l.AuthFailureRate, 0)},
 		{"auth_failure_burst", l.AuthFailureBurst < 0},

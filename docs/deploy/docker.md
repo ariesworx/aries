@@ -463,7 +463,9 @@ The `proxy` profile puts nginx in front of ariesd, as a load balancer
 that terminates TLS would be, to test what docs/server.md's
 [Behind a proxy](../server.md#behind-a-proxy) asks of one: the WebSocket
 upgrade on `/v1/connect`, and an idle connection kept for at least 60
-seconds. Start it with `ARIES_PROXY=1` as well, since a container cannot
+seconds, and that the limits per client address are the proxy's own
+(`limit_conn` and `limit_req`; `smoke.sh` checks a flood of requests is
+answered 429). Start it with `ARIES_PROXY=1` as well, since a container cannot
 see its compose profiles:
 
 ```bash

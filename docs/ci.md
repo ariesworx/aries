@@ -294,6 +294,70 @@ protected branches, and merge request pipelines of other branches then
 cannot report; leaving it unprotected is the cost the next section
 names.
 
+## A server CI cannot reach
+
+A server on a laptop, or behind a VPN or an IAP a hosted runner cannot
+use, never hears from the `landed` job above. There are four ways out,
+in the order [design §21.8](design/aries.md#218-when-ci-cannot-reach-the-server)
+recommends them for one maintainer:
+
+1. **`aries land`, on a person's machine.** After a `git pull` of the
+   default branch, it reads each commit since the last it reported and
+   reports `landed` for the issue each names, with the commit as the
+   evidence, from your own terminal:
+
+   ```sh
+   git switch main && git pull
+   aries land
+   ```
+
+   A commit names its issue as `gate pass --check landed --from-commit`
+   reads it: an `Aries: ID` trailer, else the branch a merge commit
+   merged. One that names none is skipped, with a note; so is one whose
+   issue has no `landed` gate. The gate is the workflow's: its `ci`
+   names the principal who runs `aries land` (`ci: [ed]`), and the
+   report is a person's act, so it is made from the session `cli` even
+   when an agent's environment says otherwise. What a pass is worth is
+   what your checkout of the default branch saw, as much as your key.
+
+   - **Where it starts.** The last commit reported is kept per server
+     and project in aries's data directory (`landed`; see [Where it is
+     kept](cli.md#where-it-is-kept)). The first run, with none kept,
+     reads HEAD alone, so that a long history is not reported by
+     accident: `--from COMMIT` reports the commits after COMMIT. It
+     reads at most 500 commits, along first parents.
+   - **Running it twice changes nothing.** A report of a gate already
+     passed is a no-op, so a second run, or a run on two machines, is
+     harmless.
+   - **Offline it reports nothing and remembers nothing.** A report is
+     never queued ([When the server cannot be reached](cli.md#when-the-server-cannot-be-reached));
+     run it again when the server answers, and it reads the same
+     commits. A refusal, such as a principal the gate does not name,
+     stops it at that commit, which the next run reads again.
+   - **Only on the default branch.** On another branch it refuses, as
+     what it would report is not merged. `--branch NAME` names the
+     default branch when git cannot tell; `--dry-run` says what would be
+     reported and keeps nothing.
+   - **A `post-merge` hook.** `aries setup post-merge` prints a git hook
+     that runs `aries land --hook` after each pull that merges, and
+     `--write` makes it. It never writes unasked, never replaces a hook
+     of someone else's (add the line to it by hand), and `--remove`
+     takes out only its own. As a hook, `aries land` says nothing off the
+     default branch and exits 0 whatever happens, so it never fails a
+     pull.
+2. **A runner inside the network, or a tunnel.** The workflow above on a
+   self-hosted runner that reaches the server, or with Tailscale,
+   WireGuard or an IAP tunnel (design decision 65). A pass is worth what
+   it is above.
+3. **A relay that polls the host's API.** A client process holding a host
+   token, built outside ariesd if asked ([design §20.4](design/aries.md#204-how-ci-results-reach-the-server)).
+   Deferred.
+4. **No required checks.** `checks: []` in the [workflow](concepts.md#the-workflow):
+   the default items stay, and ending an issue is a person's again.
+
+`build`, which only CI runs, cannot be reported this way: leave it out of
+`checks`, and keep "CI green on the PR" an item the agent ticks.
+
 ## What this costs
 
 Plainly, as [design §20.4 and §20.13](design/aries.md#2013-what-this-does-not-solve)

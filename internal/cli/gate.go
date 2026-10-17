@@ -245,12 +245,8 @@ func (r *runner) commitOf(ctx context.Context, in *proto.GateArgs) error {
 		return proto.Errf(proto.CodeInvalid, "run it in the repository's checkout, or give the issue with --issue ID",
 			fmt.Sprintf("read HEAD's commit: %v", err))
 	}
-	if id, ok := gitx.IDFromMessage(msg); ok {
-		in.Subject = id
-		return nil
-	}
-	if b, ok := gitx.BranchFromMerge(msg); ok {
-		in.Branch = b
+	if id, branch, ok := gitx.IssueOfMessage(msg); ok {
+		in.Subject, in.Branch = id, branch
 		return nil
 	}
 	return proto.Errf(proto.CodeNotFound,

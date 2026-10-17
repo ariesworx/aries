@@ -1203,8 +1203,21 @@ then be true, and what ariesd cannot check:
   that serves Aries under a path strips it.
 - **The limits per address are the proxy's.** Every connection comes
   from it, so `https_conns_per_addr`, `auth_failures_per_minute` and
-  `signins_pending_per_addr` do not apply behind one; keep the proxy's
-  own.
+  `signins_pending_per_addr` do not apply behind one, and ariesd does
+  not read the client's address from `X-Forwarded-For` or any other
+  header, which a client can forge. Without the proxy's own, one outsider
+  can hold `https_conns_per_server` connections and fill
+  `signins_pending_per_server` with sign-ins. The block below sets
+  them: `limit_conn` for the connections (64 to an address, as
+  `https_conns_per_addr`), and `limit_req` on `/v1/connect` (10 a second
+  held, a burst of 200: each `aries` command is one request, and an
+  office or a CI farm shares an address) and on `/oauth/authorize` and
+  `/oauth/token` (1 a second, a burst of 30: each sign-in started is
+  held in ariesd's memory), each answered 429 past it. These are looser
+  than ariesd's `auth_failures_per_minute`, because nginx counts every
+  request, not only the refused ones. nginx counts an IPv6 address alone, where ariesd counts a /64
+  (`https_addr_prefix_v6`); a proxy with IPv6 clients keys the zones on
+  the /64 with a `map` of its own.
 
 A whole nginx server block that does all of this is below. The Docker
 test server runs it: its proxy profile puts that file in front of
@@ -1237,6 +1250,30 @@ http {
     client_body_temp_path /tmp/nginx-client-body;
     proxy_temp_path /tmp/nginx-proxy;
 
+    # The limits per client address are nginx's: every connection ariesd
+    # sees is nginx's, so its own do not apply (docs/server.md, Behind a
+    # proxy). These stand in for https_conns_per_addr and the other two.
+    limit_conn_zone $binary_remote_addr zone=aries_conns:10m;
+    # Every aries command is one request to /v1/connect, and an office or a
+    # CI farm shares an address, so its limit is generous: 10 a second
+    # held, a burst of 200. A request for any other path has an empty
+    # key, which is not limited.
+    map $uri $aries_connect_addr {
+        default "";
+        /v1/connect $binary_remote_addr;
+    }
+    limit_req_zone $aries_connect_addr zone=aries_connect:10m rate=600r/m;
+    # A sign-in is a person at a browser, and each one started is held in
+    # ariesd's memory for minutes: 1 a second, a burst of 30.
+    map $uri $aries_signin_addr {
+        default "";
+        /oauth/authorize $binary_remote_addr;
+        /oauth/token $binary_remote_addr;
+    }
+    limit_req_zone $aries_signin_addr zone=aries_signin:10m rate=60r/m;
+    limit_conn_status 429;
+    limit_req_status 429;
+
     server {
         listen 8443 ssl;
         server_name aries.example.com;
@@ -1244,6 +1281,10 @@ http {
         ssl_certificate /etc/nginx/tls/cert.pem;
         ssl_certificate_key /etc/nginx/tls/key.pem;
         ssl_protocols TLSv1.2 TLSv1.3;
+
+        limit_conn aries_conns 64;
+        limit_req zone=aries_connect burst=200 nodelay;
+        limit_req zone=aries_signin burst=30 nodelay;
 
         location / {
             proxy_pass http://127.0.0.1:8080;
@@ -2886,8 +2927,9 @@ limits:
 | `https_header_bytes` | 16384 | With HTTPS on: bytes of a request's headers; more is answered 431 |
 | `https_header_timeout` | `10s` | With HTTPS on: how long a request's headers may take to arrive, the slow client's bound; and how long a connection kept alive may wait idle for its next request |
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
+| `https_body_timeout` | `10s` | With HTTPS on: how long a request's body may take to arrive once its headers are in, the bound of a client that names a body and sends none, or sends it a byte at a time. The connection is closed at the end of it. A WebSocket's upgrade is not held to it |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
-| `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection |
+| `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection. Until its key is proved, a connection's messages are held to 64 KiB, the key proof's own bound, whatever this says |
 | `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused), and sign-ins refused past `signins_pending_per_addr`: refusals a minute, and how many at once. With none left an upgrade, a token request or a sign-in begun from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
 | `signins_pending_per_server` | 10000 | With `login:` providers: [sign-ins](#sign-in) in the daemon's memory started and not finished, sent to the provider (10 minutes each at most) or with a code `aries` has not spent (a minute). Past it the oldest is let go of, and counted, so that sign-ins never meant to finish cannot refuse a person's; one let go of tells `aries login` to run again |
 | `signins_pending_per_addr` | 16 | With `login:` providers: of those, the ones started from one client address. One more is refused, back at `aries`, `temporarily_unavailable`, and counts against the address's `auth_failures_per_minute`; an address with none left is refused sign-ins too, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
