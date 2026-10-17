@@ -358,7 +358,41 @@ committed, so a command in it would run whatever a cloned repository says.
 aries [-C DIR] [--json] [--no-queue] COMMAND [ARGS]
 ```
 
-`aries help COMMAND` prints a command's usage. `-C DIR` runs as if started
+`aries help` lists the commands by task: issues, coordination, memory,
+cost and usage, gates, offline and cache, setup, and admin, with a line
+for each. `aries help COMMAND`, or `aries COMMAND --help` (`-h`), prints
+a command's usage, its flags with their defaults, and two or three
+examples; `aries help admin member`, or `aries gate add --help`, those
+of one subcommand. Help asked for exits 0; a bare `aries` prints the
+list and exits 2, as a mistake on the command line does
+([Exit codes](#exit-codes)). Help is wrapped to 80 columns:
+
+```text
+$ aries help start
+usage: aries start [ID] [--for DURATION] [--take]
+               [--new-branch | --worktree DIR]
+
+claim an issue (the top ready one without ID) and show it
+
+flags:
+  --for DURATION  how long the claim lasts (1m to 24h); `aries away` extends it
+                  (default 8h)
+  --new-branch    create or switch to the issue's branch here
+  --take          take it over from another session of yours that holds it
+  --worktree DIR  create a worktree at DIR on the issue's branch
+
+examples:
+  # Claim the top ready issue
+  aries start
+
+  # Claim one and check its branch out here
+  aries start ar-a1b2c3d4 --new-branch
+
+  # Claim it for 4 hours, in a worktree of its own
+  aries start ar-a1b2c3d4 --for 4h --worktree ../login-fix
+```
+
+`-C DIR` runs as if started
 in DIR. `--json` prints exactly one JSON document, errors included.
 `--no-queue` makes a write that cannot reach the server fail instead of
 waiting in the outbox
@@ -958,9 +992,9 @@ access control lists.
 
 | Code | Means |
 |---|---|
-| 0 | Success, or a write that was queued for the server ([above](#when-the-server-cannot-be-reached)); `--no-queue` makes that a failure |
+| 0 | Success, help asked for (`aries help`, `--help`, `-h`), or a write that was queued for the server ([above](#when-the-server-cannot-be-reached)); `--no-queue` makes that a failure |
 | 1 | Failure. stderr has a `fix:` line saying what to do next. When the server itself failed the request (`unavailable`), a last line, `req:`, gives the id the server logged it under: quote it to whoever runs the server. `--json` has it as `error.req` |
-| 2 | Usage error: an unknown flag or a missing argument |
+| 2 | Usage error: an unknown flag or a missing argument, or a bare `aries`, which prints the help |
 | 3 | The server refused this client's protocol version; the `fix:` line says which side to upgrade |
 
 **`lock run` exits with its command's code**, so that a script or a CI

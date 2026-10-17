@@ -41,7 +41,7 @@ func TestAdminTrustUsage(t *testing.T) {
 			}
 		})
 	}
-	_, help, _ := runCLI(t, "help", "admin")
+	help := helpText(t, "admin")
 	if !strings.Contains(help, "admin trust add NAME --principal SERVICE --provider P --claim NAME=VALUE... [--token-lifetime D]") {
 		t.Errorf("aries help admin lacks trust:\n%s", help)
 	}
