@@ -268,6 +268,13 @@ window's in `digest`.
   4: bug, feature, task: 4 items, landed; …`). An agent ticks or waives
   them as any item, and cannot drop one; no tool sets or reads the
   workflow, and `aries admin workflow set` refuses an agent's session.
+  Where the workflow requires a check such as `landed`, `finish` is
+  refused (`acceptance`) until the check passes: the agent calls
+  `handoff` with state `done` and the pull request's link instead, and
+  CI's pass closes the issue, or, with an item still open then, says so
+  in the agent's `inbox`, after which `finish` with the items ticked
+  closes it. `prime` lists such issues as `awaiting landing`, with what
+  each waits for ([Required checks](concepts.md#the-workflow)).
 
 One SSH connection serves an MCP session. It opens on the first tool call
 and is redialed if it drops. Reads, `create`, `comment`, `finish`,
@@ -380,7 +387,9 @@ Its structured content is `{"queued": true, "op": …, "entry": …}`, and
 never an `id` and a `rev`. A queued `create` adds that the issue has no id
 until then, so nothing can refer to it, and that the project's
 [workflow](concepts.md#the-workflow) adds its items when it is sent: the
-workflow in force at the replay applies. A `label` call of several labels
+workflow in force at the replay applies. A queued `finish` of an issue
+whose workflow requires a check that has not passed is refused when it
+is sent, and waits in the refused list with the fix to hand it off. A `label` call of several labels
 queues a write for each, and its line says how many. The agent is told
 to carry on: it finishes what it holds and files what it finds.
 

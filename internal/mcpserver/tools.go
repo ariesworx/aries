@@ -510,6 +510,9 @@ type Digest struct {
 	// Conflicts are those open past the server's conflict_age; Note
 	// names the field and the conflict.
 	Conflicts []DigestItem `json:"conflicts,omitempty"`
+	// Landing are the issues awaiting landing: handed off done, waiting
+	// for a check the workflow requires; Note names the checks.
+	Landing []DigestItem `json:"landing,omitempty"`
 	// Usage is the window's time held and tokens by model, in one line.
 	Usage string `json:"usage,omitempty"`
 	// Truncated: items were left out to fit, or a total is a lower bound.
@@ -1027,7 +1030,8 @@ func digest(ctx context.Context, c Conn, in DigestIn) (Digest, error) {
 	out := Digest{Since: stamp(r.Since), Until: stamp(r.Until), Totals: r.Totals, Truncated: r.Truncated,
 		Closed: conv(r.Closed, false), Started: conv(r.Started, false), InProgress: conv(r.InProgress, true),
 		Stalled: conv(r.Stalled, true), Blocked: conv(r.Blocked, false), HandedOff: conv(r.HandedOff, false),
-		Created: conv(r.Created, false), Discovered: conv(r.Discovered, false), Conflicts: conv(r.Conflicts, false)}
+		Created: conv(r.Created, false), Discovered: conv(r.Discovered, false), Conflicts: conv(r.Conflicts, false),
+		Landing: conv(r.Landing, false)}
 	if u := r.Usage; u != nil {
 		out.Usage = digestUsageLine(*u)
 	}
@@ -1043,7 +1047,7 @@ func digest(ctx context.Context, c Conn, in DigestIn) (Digest, error) {
 // grows, so keeping fewer is never longer (see fitPrefix).
 func (d *Digest) fit() {
 	sections := []*[]DigestItem{&d.Closed, &d.Started, &d.InProgress, &d.Stalled, &d.Blocked, &d.HandedOff,
-		&d.Created, &d.Discovered, &d.Conflicts}
+		&d.Created, &d.Discovered, &d.Conflicts, &d.Landing}
 	all := make([][]DigestItem, len(sections))
 	lens := make([]int, len(sections))
 	for i, sec := range sections {

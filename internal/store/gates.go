@@ -522,78 +522,89 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 	if err != nil {
 		return Gate{}, err
 	}
-	approvers, err := json.Marshal(in.Approvers)
-	if err != nil {
-		return Gate{}, fmt.Errorf("gate approvers: %w", err)
-	}
 	var out Gate
 	err = s.write(ctx, actor, func(w *wtx) error {
 		if done, err := replay(ctx, w, in.IdempotencyKey, "gate.add", in, &out); done || err != nil {
 			return err
 		}
-		// The issue the gate is about: the one it holds back, or a ci
-		// gate's subject when it holds none.
-		about := cmp.Or(in.Blocks, in.Subject)
-		held, err := loadIssue(ctx, w.tx, about)
+		g, err := s.insertGate(ctx, w, id, in)
 		if err != nil {
-			return err
-		}
-		if in.Kind == GateCI {
-			if err := checkNewCI(ctx, w, in); err != nil {
-				return err
-			}
-		}
-		n, err := openGates(ctx, w.tx)
-		if err != nil {
-			return err
-		}
-		if n >= w.lim.OpenGates {
-			return fmt.Errorf("%w: the project has %d open gates, its limit (open_gates_per_project)", ErrBusy, n)
-		}
-		prio := held.Priority
-		if in.Priority != nil {
-			prio = *in.Priority
-		}
-		ni := NewIssue{Title: in.Title}
-		if err := ni.normalize(); err != nil {
-			return err
-		}
-		ni.Type, ni.Priority = TypeGate, &prio
-		if _, _, err := insertIssue(ctx, w, id, ni, nil, false); err != nil {
-			return err
-		}
-		if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev)
-  VALUES ($1, $2, $3, NULL, NULL, NULL, '', $4, $5, NULL, 1)`, string(id), string(in.Kind), string(approvers),
-			in.Check, nullStr(in.Subject)); err != nil {
-			return fmt.Errorf("insert gate: %w", err)
-		}
-		added := map[string]any{"kind": in.Kind, "approvers": in.Approvers, "blocks": nullStr(in.Blocks)}
-		if in.Kind == GateCI {
-			added["check"], added["subject"] = in.Check, in.Subject
-		}
-		if err := w.event(ctx, OpGateAdd, string(id), nil, added); err != nil {
-			return err
-		}
-		if in.Blocks != "" {
-			if _, err := insertDep(ctx, w, in.Blocks, id, DepBlocks); err != nil {
-				return err
-			}
-		}
-		g, err := loadGate(ctx, w.tx, id)
-		if err != nil {
-			return err
-		}
-		if err := w.tellPending(ctx, s.waitsFor(g.Gate), id, held); err != nil {
 			return err
 		}
 		out = g.Gate
-		w.gated(out, GateChangeAdded)
 		return w.settle(out)
 	})
 	if err != nil {
 		return Gate{}, err
 	}
 	return out, nil
+}
+
+// insertGate makes gate id from in, normalized, in w: its issue, its
+// row, its gate.add event and the edge to what it holds, and tells whom
+// it waits for. It refuses as AddGate says, and returns the gate.
+func (s *Store) insertGate(ctx context.Context, w *wtx, id IssueID, in NewGate) (*gateRow, error) {
+	approvers, err := json.Marshal(in.Approvers)
+	if err != nil {
+		return nil, fmt.Errorf("gate approvers: %w", err)
+	}
+	// The issue the gate is about: the one it holds back, or a ci gate's
+	// subject when it holds none.
+	about := cmp.Or(in.Blocks, in.Subject)
+	held, err := loadIssue(ctx, w.tx, about)
+	if err != nil {
+		return nil, err
+	}
+	if in.Kind == GateCI {
+		if err := checkNewCI(ctx, w, in); err != nil {
+			return nil, err
+		}
+	}
+	n, err := openGates(ctx, w.tx)
+	if err != nil {
+		return nil, err
+	}
+	if n >= w.lim.OpenGates {
+		return nil, fmt.Errorf("%w: the project has %d open gates, its limit (open_gates_per_project)", ErrBusy, n)
+	}
+	prio := held.Priority
+	if in.Priority != nil {
+		prio = *in.Priority
+	}
+	ni := NewIssue{Title: in.Title}
+	if err := ni.normalize(); err != nil {
+		return nil, err
+	}
+	ni.Type, ni.Priority = TypeGate, &prio
+	if _, _, err := insertIssue(ctx, w, id, ni, nil, false); err != nil {
+		return nil, err
+	}
+	if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev)
+  VALUES ($1, $2, $3, NULL, NULL, NULL, '', $4, $5, NULL, 1)`, string(id), string(in.Kind), string(approvers),
+		in.Check, nullStr(in.Subject)); err != nil {
+		return nil, fmt.Errorf("insert gate: %w", err)
+	}
+	added := map[string]any{"kind": in.Kind, "approvers": in.Approvers, "blocks": nullStr(in.Blocks)}
+	if in.Kind == GateCI {
+		added["check"], added["subject"] = in.Check, in.Subject
+	}
+	if err := w.event(ctx, OpGateAdd, string(id), nil, added); err != nil {
+		return nil, err
+	}
+	if in.Blocks != "" {
+		if _, err := insertDep(ctx, w, in.Blocks, id, DepBlocks); err != nil {
+			return nil, err
+		}
+	}
+	g, err := loadGate(ctx, w.tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.tellPending(ctx, s.waitsFor(g.Gate), id, held); err != nil {
+		return nil, err
+	}
+	w.gated(g.Gate, GateChangeAdded)
+	return g, nil
 }
 
 // waitsFor returns whom gate g waits for, to be told of the work it

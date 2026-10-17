@@ -517,7 +517,7 @@ func (r *replay) derive() ([]string, blockedState) {
 	}
 	var ready []string
 	for id, is := range r.issues {
-		if is.status == "open" && !b.blockedSet[id] && !deferred[id] && b.waiting[id] == 0 {
+		if is.status == "open" && is.typ != "gate" && !b.blockedSet[id] && !deferred[id] && b.waiting[id] == 0 {
 			ready = append(ready, id)
 		}
 		if (b.blockedSet[id] || b.waiting[id] > 0) && is.status != "closed" {

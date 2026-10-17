@@ -99,6 +99,11 @@ func printDigest(w io.Writer, d proto.DigestResult) {
 		{"overdue", t.Overdue, d.Overdue, func(it proto.DigestItem) string {
 			return "\t" + esc(it.By) + "\tdue " + when(it.At) + ", " + proto.Span(d.Until.Sub(it.At)) + " ago"
 		}},
+		// Handed off done, waiting for a check the workflow requires
+		// (design §21.5): it closes when the check passes.
+		{"awaiting landing", t.Landing, d.Landing, func(it proto.DigestItem) string {
+			return "\t" + esc(it.By) + "\thanded off " + proto.Span(d.Until.Sub(it.At)) + " ago\t" + esc(it.Note)
+		}},
 	} {
 		if sec.total == 0 {
 			continue

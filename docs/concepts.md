@@ -177,7 +177,10 @@ hold nothing back, and then only records the check on its subject.
   The check `landed` is reported by the job on the default branch after
   the merge; until then `aries show` says `closed, not landed`, and after
   it `closed, landed` and when. A revert re-arms it only if something
-  runs `aries gate rearm`.
+  runs `aries gate rearm`. Where the project's
+  [workflow](#the-workflow) requires `landed`, closed means landed:
+  the issue cannot be closed before the check passes, and the pass
+  closes it.
 
 `aries show` lists an issue's checks, each with its last report.
 
@@ -429,11 +432,33 @@ types:
   [limits](server.md#limits) `workflow_items_per_type` items,
   `workflow_checks_per_type` checks and `workflow_closeout_per_type`
   close-out lines, in a document of at most `workflow_bytes`.
-- **What is not enforced yet.** `checks`, `review`, `approve` and
-  `closeout` are kept and shown, and checked at set, but this release
-  enforces only the items: a required check that refuses `finish` until
-  it passes, the gates of a review and an approval, and the close-out
-  lines in `handoff` and `finish` come in later releases.
+- **Required checks: closed means landed.** An issue whose profile
+  names `checks` cannot be finished or closed until a [ci
+  gate](#ci-gates) of each, with the issue as its subject, has passed
+  (or an admin waived it): `finish` and `close` are refused with code
+  `acceptance`, naming the checks and their last reports, and a fix to
+  hand the work off (`aries handoff ID --state done`, with the pull
+  request's link) instead. Nobody adds those gates: the first report of
+  a required check makes it, in the report's write, reported by the
+  workflow's `ci` principals, and a report by anyone else is refused. A
+  pass ticks the items bound to its check; an agent may tick them too.
+  When a pass leaves every required check passed, no item open and no
+  open gate holding the issue, the same write closes it, as the
+  reporter, with the reason `landed`, ending any claim, and tells the
+  assignee and the last handoff's author (`gate.passed`); with an item
+  still open it closes nothing and says what is left, and whoever then
+  finishes it is not refused. A later failure of the check, a revert's,
+  unticks those items and reopens the issue (`check failed`), telling
+  its assignee (`gate.failed`). An admin's `close --force` still closes
+  it, recording the checks it overrode. What an issue requires is read
+  from its own log, the workflow it was made under, so a later set
+  changes nothing it requires. Meanwhile the issue waits in progress,
+  holding nothing once its claim lapses: `prime` and `digest` list it
+  as *awaiting landing*, with its checks' last reports.
+- **What is not enforced yet.** `review`, `approve` and `closeout` are
+  kept and shown, and checked at set, but come in later releases: the
+  gates of a review and an approval, and the close-out lines in
+  `handoff` and `finish`.
 
 `prime` gives the workflow in one line, such as `workflow rev 4: bug,
 feature, task: 4 items, landed; epic: approval`.

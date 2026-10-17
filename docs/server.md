@@ -2352,7 +2352,8 @@ their access meanwhile, before it serves its first request.
 A project's [workflow](concepts.md#the-workflow) is a document a project
 admin applies with `aries admin workflow set FILE`, from their own
 terminal: the acceptance items the server adds to every issue it
-creates, by type, and the checks, review, approval and close-out lines
+creates, by type; the checks it requires before an issue closes, whose
+passing report closes it; and the review, approval and close-out lines
 later releases enforce. It is a row of the project's `settings` table,
 named `workflow`, whose `rev` is the workflow's, written by the
 project's writer with a `workflow.set` event (target
@@ -2364,6 +2365,19 @@ its `admins:`, and any principal name is taken. Its size is bounded by
 `workflow_bytes`, `workflow_items_per_type`, `workflow_checks_per_type`
 and `workflow_closeout_per_type` ([Limits](#limits)). Its lines are
 people's text: none goes on a metric, a span or a log line.
+
+What an issue requires is read from its own events, never from the
+workflow in force: the rev and profile its `issue.create`, or a change
+of type, records, and that rev's `workflow.set` event, which holds the
+document. A report of a required check that has no gate makes one, with
+a `gate.add` event before the report's, and the closing pass and a
+revert's reopen are `issue.close` (reason `landed`) and `issue.reopen`
+(reason `check failed`) by the reporting principal, in the report's
+write. A server CI cannot reach never hears a check pass, so an issue
+that requires one waits until a person the workflow's `ci` names
+reports it from their own terminal (`aries gate pass --check landed
+--issue ID --sha SHA`, the session `cli`, which an agent's is not), or
+an admin's `close --force` closes it, recording the checks it overrode.
 
 ```sh
 aries admin workflow diff .aries/workflow.yaml

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -44,6 +45,12 @@ type Dates struct {
 	// Overdue lists unclosed issues due at or before now, longest
 	// overdue first.
 	Overdue DigestSection
+	// Landing lists the issues awaiting landing (design §21.5): in
+	// progress, their last handoff of state done, and a check their
+	// workflow requires not passed. At is the handoff's time, By the
+	// assignee, and Note the checks as a refusal names them. Longest
+	// waiting first.
+	Landing DigestSection
 	// Capped reports that a section matched more rows than are read, so
 	// its total is a lower bound.
 	Capped bool
@@ -74,6 +81,9 @@ func (s *Store) Dates(ctx context.Context, f DatesFilter) (Dates, error) {
 	q := &digestQuery{tx: tx, f: DigestFilter{Since: since, DueSoon: f.DueSoon}, now: now}
 	d := Dates{Since: since, Now: now}
 	if err := q.dates(ctx, &d); err != nil {
+		return Dates{}, fmt.Errorf("dates: %w", err)
+	}
+	if err := q.landing(ctx, &d.Landing); err != nil {
 		return Dates{}, fmt.Errorf("dates: %w", err)
 	}
 	d.Capped = q.capped
@@ -137,4 +147,55 @@ func (q *digestQuery) dated(ctx context.Context, query string, args []any) ([]Di
 		out = append(out, it)
 	}
 	return out, rows.Err()
+}
+
+// landingRows bounds the issues landing reads: each costs a read of its
+// events and its gates.
+const landingRows = 500
+
+// landing fills in out with the issues awaiting landing, as
+// Dates.Landing says, filtered by the digest's By (the assignee) and
+// Label.
+func (q *digestQuery) landing(ctx context.Context, out *DigestSection) error {
+	var p params
+	const head = `SELECT i.id, i.title, i.priority, COALESCE(i.assignee, ''), h.at FROM issues i
+JOIN LATERAL (SELECT c.created_at AS at, ho.state FROM handoffs ho JOIN comments c ON c.id = ho.comment_id
+  WHERE ho.issue_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1) h ON TRUE
+WHERE i.status = 'in_progress' AND h.state = 'done'`
+	query := head + q.filters(&p, "i.assignee", "i.id") + ` ORDER BY h.at, i.id LIMIT ` + p.add(landingRows+1) //nolint:gosec // constant clauses; values are placeholders
+	rows, err := q.tx.QueryContext(ctx, query, p.args...)
+	if err != nil {
+		return fmt.Errorf("awaiting landing: %w", err)
+	}
+	var found []DigestItem
+	for rows.Next() {
+		var it DigestItem
+		if err := rows.Scan(&it.ID, &it.Title, &it.Priority, &it.By, &it.At); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("awaiting landing: %w", err)
+		}
+		if len(found) == landingRows {
+			q.capped = true
+			break
+		}
+		it.At = it.At.UTC()
+		found = append(found, it)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("awaiting landing: %w", err)
+	}
+	var items []DigestItem
+	for _, it := range found {
+		waits, err := checkWaits(ctx, q.tx, it.ID)
+		if err != nil {
+			return fmt.Errorf("awaiting landing: %w", err)
+		}
+		if len(waits) == 0 {
+			continue
+		}
+		it.Note = checksText(waits)
+		items = append(items, it)
+	}
+	*out = DigestSection{Total: len(items), Items: items[:min(len(items), DigestItems)]}
+	return nil
 }

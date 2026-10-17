@@ -374,6 +374,10 @@ type replay struct {
 	stepped int
 	// locks are the project's locks (soak_locks_test.go).
 	locks *lockReplay
+	// land is the workflow and the checks (soak_landed_test.go), and
+	// cur the transaction being applied.
+	land *landing
+	cur  []sevent
 
 	mu        sync.Mutex // guards the replay between snapshots
 	openCount int        // issues not closed, as of the last snapshot
@@ -456,6 +460,7 @@ func factsOf(tx []sevent) txFacts {
 
 func (r *replay) apply(tx []sevent) {
 	f := factsOf(tx)
+	r.cur = tx
 	r.released, r.access = map[string]rClaim{}, map[string]rIssue{}
 	defer r.reopened(tx)
 	defer r.endLocks(tx)
@@ -468,6 +473,10 @@ func (r *replay) apply(tx []sevent) {
 			r.applyLock(e)
 			continue
 		}
+		if e.op == "workflow.set" {
+			r.workflowSet(e)
+			continue
+		}
 		if e.op != "usage.add" {
 			r.causes[causeKey(e.target, e.at)] = true
 			if _, ok := r.issues[e.target]; !ok && e.op != "issue.create" {
@@ -478,18 +487,24 @@ func (r *replay) apply(tx []sevent) {
 		switch e.op {
 		case "issue.create":
 			r.create(e)
+			r.stampWorkflow(e)
 		case "issue.update":
 			if e.actor != reaper {
 				r.guard(e, f)
 			}
 			r.update(e)
+			r.stampWorkflow(e)
 		case "issue.close":
 			r.guard(e, f)
+			r.landedClose(e, tx)
 			r.close(e)
 		case "issue.reopen":
 			r.guard(e, f)
+			r.landedReopen(e, tx)
 			r.patch(e)
 			r.issues[e.target].rev++
+		case "gate.add", "gate.pass", "gate.fail":
+			r.gateEvent(e)
 		case "issue.paths":
 			r.guard(e, f)
 			var p struct {
@@ -601,7 +616,9 @@ func (r *replay) create(e sevent) {
 		is.labels[l] = true
 	}
 	r.created[e.target] = is.createdAt
-	r.markers[is.title]++
+	if is.typ != "gate" { // a gate a report made is titled by the server
+		r.markers[is.title]++
+	}
 }
 
 // patch applies the fields an event's after state sets; a field set to
@@ -662,9 +679,13 @@ func (r *replay) close(e sevent) {
 	var s issueState
 	_ = json.Unmarshal(e.after, &s)
 	reason := deref(s.CloseReason)
-	r.markers[reason]++
 	c := r.claimAtChange(e.target)
-	r.closedAt[reason] = atEpoch{issue: e.target, epoch: c.epoch, holder: c.holder, actor: e.actor, seq: e.seq}
+	// A gate's close, and the closing pass, are the server's, with no
+	// session's marker.
+	if is.typ != "gate" && !r.reported(e.target) {
+		r.markers[reason]++
+		r.closedAt[reason] = atEpoch{issue: e.target, epoch: c.epoch, holder: c.holder, actor: e.actor, seq: e.seq}
+	}
 	if now := r.claim(e.target); now.holder != (sessKey{}) {
 		r.fail(e.target, "event %d closes %s while %s holds epoch %d, with no claim.release", e.seq, e.target, now.holder, now.epoch)
 	}
@@ -943,6 +964,9 @@ func (r *replay) guard(e sevent, f txFacts) {
 	}
 	if _, lost := r.access[e.target]; lost && e.op == "issue.update" {
 		return // the issue returned to open as its holder lost access
+	}
+	if r.reported(e.target) {
+		return // the closing pass, or a revert's reopen: landedClose checks it
 	}
 	r.guards = append(r.guards, guardCheck{issue: e.target, epoch: c.epoch, at: e.at, actor: e.actor, op: e.op, seq: e.seq})
 }

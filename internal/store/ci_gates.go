@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -226,6 +227,17 @@ func (s *Store) reportCheck(ctx context.Context, actor Actor, r Report, result C
 	var out Gate
 	err := s.write(ctx, actor, func(w *wtx) error {
 		g, err := findCheck(ctx, w.tx, r)
+		if ge, ok := errors.AsType[*GateError](err); ok && ge.Reason == GateNoCheck {
+			// The first report of a check the subject's workflow
+			// requires makes its gate (landed.go).
+			req, rerr := requiredChecks(ctx, w.tx, r.Subject)
+			if rerr != nil {
+				return rerr
+			}
+			if rc := findRequired(req, r.Check); rc != nil {
+				g, err = s.makeCheckGate(ctx, w, r.Subject, rc)
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -306,6 +318,14 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 	if err != nil {
 		return Gate{}, err
 	}
+	var rc *requiredCheck
+	if g.Subject != "" {
+		req, err := requiredChecks(ctx, w.tx, g.Subject)
+		if err != nil {
+			return Gate{}, err
+		}
+		rc = findRequired(req, g.Check)
+	}
 	evidence := map[string]any{"check": g.Check, "subject": nullStr(g.Subject), "sha": r.SHA, "url": r.URL, "reason": r.Reason}
 	if r.Run != 0 {
 		evidence["run"] = r.Run
@@ -357,7 +377,17 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 				Body: fmt.Sprintf("%s failed on %s%s (gate %s)", g.Check, g.Subject, evidenceText(rep), g.ID)})
 		}
 	}
-	for _, it := range told {
+	landed, err := w.landing(ctx, g, rc, g.Outcome == GatePassed, rep)
+	if err != nil {
+		return Gate{}, err
+	}
+	// What the closing pass says replaces what a pass after a failure
+	// would tell the same principal.
+	told = slices.DeleteFunc(told, func(it InboxItem) bool {
+		return it.Kind == InboxGatePassed && it.Issue == g.Subject &&
+			slices.ContainsFunc(landed, func(l InboxItem) bool { return l.To == it.To })
+	})
+	for _, it := range slices.Concat(told, landed) {
 		if err := w.notify(ctx, it); err != nil {
 			return Gate{}, err
 		}

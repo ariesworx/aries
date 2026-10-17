@@ -55,6 +55,10 @@ type Prime struct {
 	Overdue     []DateItem `json:"overdue,omitempty"`
 	DueSoon     []DateItem `json:"due_soon,omitempty"`
 	ReadyByDate []DateItem `json:"ready_by_date,omitempty"`
+	// Landing are the issues awaiting landing (design §21.5): handed off
+	// done, waiting for a check their workflow requires, which closes
+	// them when it passes. At names the checks.
+	Landing []DateItem `json:"landing,omitempty"`
 	// Workflow is the project's workflow in one line (design §21.10):
 	// its rev, and what each type gets at create. Aries's own words: type
 	// and check names and counts, none of the document's text.
@@ -79,6 +83,18 @@ func dateItems(items []proto.DigestItem) []DateItem {
 	for _, it := range items[:min(len(items), primeDates)] {
 		t, _ := cut(it.Title, primeTitleLen)
 		out = append(out, DateItem{ID: it.ID, Title: t, Priority: it.Priority, At: stamp(it.At)})
+	}
+	return out
+}
+
+// landingItems is the issues awaiting landing as prime shows them, at
+// most primeDates: At is what each waits for.
+func landingItems(items []proto.DigestItem) []DateItem {
+	var out []DateItem
+	for _, it := range items[:min(len(items), primeDates)] {
+		t, _ := cut(it.Title, primeTitleLen)
+		w, _ := cut(it.Note, primeTitleLen)
+		out = append(out, DateItem{ID: it.ID, Title: t, Priority: it.Priority, At: w})
 	}
 	return out
 }
@@ -192,6 +208,7 @@ func BuildPrime(ctx context.Context, c Conn, clientVersion string, notices ...st
 	switch err := c.Call(ctx, proto.OpDates, proto.DatesArgs{}, &d); {
 	case err == nil:
 		p.Overdue, p.DueSoon, p.ReadyByDate = dateItems(d.Overdue), dateItems(d.DueSoon), dateItems(d.Ready)
+		p.Landing = landingItems(d.Landing)
 	case c.Err() != nil:
 		return nil, err
 	}
@@ -235,6 +252,8 @@ func (p *Prime) fit() {
 			p.Memories = slices.Delete(p.Memories, loose, loose+1)
 		case len(p.Inbox) > 0:
 			p.Inbox = p.Inbox[:len(p.Inbox)-1]
+		case len(p.Landing) > 0:
+			p.Landing = p.Landing[:len(p.Landing)-1]
 		case len(p.ReadyByDate) > 0:
 			p.ReadyByDate = p.ReadyByDate[:len(p.ReadyByDate)-1]
 		case len(p.DueSoon) > 0:
@@ -331,7 +350,8 @@ func (p *Prime) Text() string {
 	for _, sec := range []struct {
 		name, word string
 		items      []DateItem
-	}{{"overdue", "due", p.Overdue}, {"due soon", "due", p.DueSoon}, {"ready by date", "from", p.ReadyByDate}} {
+	}{{"overdue", "due", p.Overdue}, {"due soon", "due", p.DueSoon}, {"ready by date", "from", p.ReadyByDate},
+		{"awaiting landing", "waits for", p.Landing}} {
 		if len(sec.items) == 0 {
 			continue
 		}

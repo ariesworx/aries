@@ -68,11 +68,12 @@ func wireDigest(d store.Digest) proto.DigestResult {
 		Totals: proto.DigestTotals{Events: d.Events, Closed: d.Closed.Total, Started: d.Started.Total,
 			InProgress: d.InProgress.Total, Stalled: d.Stalled.Total, Blocked: d.Blocked.Total,
 			HandedOff: d.HandedOff.Total, Created: d.Created.Total, Discovered: d.Discovered.Total,
-			Conflicts: d.Conflicts.Total, Ready: d.Ready.Total, DueSoon: d.DueSoon.Total, Overdue: d.Overdue.Total},
+			Conflicts: d.Conflicts.Total, Ready: d.Ready.Total, DueSoon: d.DueSoon.Total, Overdue: d.Overdue.Total,
+			Landing: d.Landing.Total},
 		Closed: items(d.Closed), Started: items(d.Started), InProgress: items(d.InProgress),
 		Stalled: items(d.Stalled), Blocked: items(d.Blocked), HandedOff: items(d.HandedOff),
 		Created: items(d.Created), Discovered: items(d.Discovered), Conflicts: items(d.Conflicts),
-		Ready: items(d.Ready), DueSoon: items(d.DueSoon), Overdue: items(d.Overdue),
+		Ready: items(d.Ready), DueSoon: items(d.DueSoon), Overdue: items(d.Overdue), Landing: items(d.Landing),
 		Usage: wireDigestUsage(d.Usage), Truncated: d.Capped,
 	}
 }

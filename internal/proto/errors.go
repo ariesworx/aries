@@ -126,6 +126,10 @@ const (
 	FixGate = "wait for"
 	// FixGateAdd: invalid, an issue is made a gate only by gate add.
 	FixGateAdd = "add a gate with"
+	// FixLand: acceptance, a check the issue's workflow requires has not
+	// passed (design §21.5): the work is handed off done, and the
+	// check's pass closes it.
+	FixLand = "hand it off"
 	// FixSignIn: auth, the caller's sign-in ended, was ended, or does
 	// not check out: the person signs in again, at a terminal.
 	FixSignIn = "run `aries login`"
