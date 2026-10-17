@@ -228,11 +228,16 @@ passphrase-protected, and for a private key that is missing while its
 `.pub` is there, ssh-agent signs with that one key, which `aries` finds by
 its public half, and offers no other. This is how an agent is given an
 identity of its own
-([agent guide](agents.md#give-an-agent-its-own-identity)).
+([agent guide](agents.md#give-an-agent-its-own-identity)). A private key
+that other users can read (any group or other bit in its mode) is
+refused, with the fix `chmod 600`, as `ssh` refuses it; a `.pub` is not
+checked. Windows modes are not checked.
 
 With neither set (3 and 4) `aries` does what `ssh` does, so that a person
 whose key is `~/.ssh/id_ed25519` has nothing to configure:
 
+- A default file that other users can read is skipped, saying so and
+  naming `chmod 600`, as `ssh` skips it.
 - A default file that is passphrase-protected is used through ssh-agent
   when the agent holds its key, and is otherwise skipped. `aries` never
   asks for a passphrase.
