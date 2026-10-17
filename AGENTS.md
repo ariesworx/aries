@@ -35,7 +35,10 @@ a second. They need `aries` on `PATH` and a `.aries.yaml`, which this
 repository does not commit: each contributor keeps their own, untracked,
 at the top of their checkout, and a worktree reads the main worktree's.
 Without one, the hooks print nothing and the `aries` tools refuse,
-saying that no `.aries.yaml` was found: work without them.
+saying that no `.aries.yaml` was found: work without them. A
+contributor who keeps the backlog on the Docker test server rebuilds it
+as [docs/deploy/docker.md](docs/deploy/docker.md#rebuild-a-server-you-work-on)
+says: a dump first, the same variables, and the CA checked after.
 
 ## Layout
 

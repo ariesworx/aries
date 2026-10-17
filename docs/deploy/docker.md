@@ -500,6 +500,57 @@ starts. An image older than the database's schema refuses to open it
 volume made before the move to Postgres holds data this server cannot
 read: its first start says so, and `docker compose down -v` clears it.
 
+### Rebuild a server you work on
+
+A stack can track real work, as this repository's own backlog is kept
+on one (AGENTS.md, Issue tracking). Its volumes are then the only copy
+of that work, so a rebuild follows a few more steps than a test does.
+Give such a stack a project name of its own (`-p NAME`) and build it
+from a checkout used for nothing else, such as a worktree detached at
+`origin/main`, so that switching branches in your working checkout
+never changes the files it runs from.
+
+1. **Dump the database and keep the dump off the volume**, as
+   [Back up and restore](#back-up-and-restore) does, then
+   `docker compose -p NAME cp postgres:/var/lib/postgresql/aries.dump .`
+   and `chmod 600` it: it holds every issue, comment and memory.
+2. **Bring the checkout up to date**: `git fetch` and
+   `git checkout --detach origin/main` in that worktree.
+3. **Rebuild with the variables of the first start.** `ARIES_KEYS`,
+   `ARIES_TELEMETRY`, the profiles and the ports must be the same, or the
+   stack changes with them:
+
+   ```sh
+   COMPOSE_PROJECT_NAME=NAME ARIES_KEYS="alice $(cat ~/.ssh/id_ed25519.pub)" ARIES_TELEMETRY=1 \
+     docker compose --profile observe up -d --build --wait
+   ```
+
+4. **Rebuild `aries` from the same commit**, and put it where the
+   repository's agents find it on `PATH`.
+5. **Check the client:** `aries whoami` names the principal and the
+   project over HTTPS. If it says the certificate does not verify, the
+   CA changed; put the new one in `.aries.yaml`'s `server.ca`, from
+   `docker compose -p NAME exec -T aries cat /etc/aries/tls/ca.pem`.
+6. **With telemetry, check it reaches the backend.** The image has no
+   `curl`; ask the observe container's Prometheus instead, for example
+   `docker compose -p NAME exec -T observe curl -s --get http://127.0.0.1:9090/api/v1/query --data-urlencode 'query=count({__name__=~"aries_.*"})'`.
+
+**The CA changes once for a stack made before 17 October 2026.** The
+test CA has always been on the `state` volume, where `/etc/aries`
+points. Since the proxy profile, the CA and the certificate live on a
+volume of their own, `tls`, mounted at `/etc/aries/tls`, which hides
+the old directory. So the first start after that change makes a new CA,
+and every checkout that names the old one in `server.ca` must take the
+new one (step 5). It stays the same from then on.
+
+**What agents see meanwhile.** A restart drops every connection for as
+long as ariesd takes to start, under a minute here. `aries mcp`
+reconnects by itself; a write made while the server is away is queued
+and sent once it answers, and a read that needs the server is refused,
+saying so ([When the server cannot be reached](../cli.md#when-the-server-cannot-be-reached)).
+Claims keep their leases across a short restart. So a rebuild need not
+wait for agents to stop, though one between their tasks is tidier.
+
 ## Back up and restore
 
 The [guide's dump and restore](../server.md#backups-and-restore) work
