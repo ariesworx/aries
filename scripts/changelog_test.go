@@ -69,7 +69,11 @@ func TestChangelog(t *testing.T) {
 			if path == "" {
 				continue
 			}
-			if _, err := os.Stat(filepath.Join("..", filepath.FromSlash(path))); err != nil {
+			if !filepath.IsLocal(filepath.FromSlash(path)) {
+				t.Errorf("CHANGELOG.md links %s, which leaves the repository", target)
+				continue
+			}
+			if _, err := os.Stat(filepath.Join("..", filepath.FromSlash(path))); err != nil { //nolint:gosec // a relative path inside the repository, checked above
 				t.Errorf("CHANGELOG.md links %s, which does not resolve", target)
 			}
 		}
