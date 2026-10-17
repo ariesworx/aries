@@ -14,8 +14,10 @@ Aries is for teams, and single developers, who run several agents on
 one codebase and need them to agree on who does what, what is ready,
 what was learned and what has really landed.
 
-> **Status: stage 5 of 7 done; v0.5.0 is next.** Not ready for
-> production use yet.
+> **Status: v0.5.0 is the current release; stage 5 of 7 done.** Not
+> ready for production use yet: v1.0.0, the production release, is
+> held as long as possible, and until then releases are minor versions
+> ([decision 93](docs/design/aries.md#14-decisions)).
 >
 > - Works today: issues, claims, handoffs, the inbox, the live board,
 >   memory, token cost, people's hours, gates, locks, agent setup, and
@@ -206,8 +208,8 @@ development.
 | [Operating with Claude Code](docs/server.md#operate-a-server-with-claude-code) | The `aries-ops` plugin: deploy and run a server by talking to Claude, with every change shown and approved first |
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
-| [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server (a draft until v0.5.0 ships) |
-| [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports (a draft until it ships) |
+| [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server |
+| [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports |
 | [Changelog](CHANGELOG.md) | One entry per release, newest first, each linking its full notes |
 | [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 
@@ -237,25 +239,29 @@ development.
 
 Beside the stages, **a project's workflow**
 ([§21](docs/design/aries.md#21-a-projects-workflow-the-flow-aries-enforces)):
-default acceptance items (W0), close means landed (W1) and `aries land`
-(W2) are built; review and approval, close-out lines and a server-wide
-default (W3 to W5) are not.
+default acceptance items (W0), close means landed (W1), `aries land`
+(W2), review and approval (W3) and the close-out checklist (W4) are
+built, in v0.5.0; a server-wide default (W5) is not.
 
 **Releases.** Releases are minor versions, v0.5.0, v0.6.0 and on, until
 v1.0.0, which is held as long as possible
 ([decision 93](docs/design/aries.md#14-decisions)).
 
-- **v0.5.0, next:** the rename to Aries, Postgres in place of Dolt, many
-  projects, observability, working offline, gates and locks, HTTPS as
-  the primary transport, authentication by keys, and a hardening pass.
-  Left before it ships: ACME against a real CA, and the security review
-  of the HTTPS listener. The [release notes](docs/releases/v0.5.0.md)
-  have the full list.
+- **v0.5.0, the current release:** the rename to Aries, Postgres in
+  place of Dolt, many projects, observability, working offline, gates
+  and locks, a project's workflow, HTTPS as the primary transport,
+  authentication by keys, and a hardening pass with a security review
+  ([security-review-v1.md](docs/design/security-review-v1.md)). Its
+  ACME has run only against a test CA. The
+  [release notes](docs/releases/v0.5.0.md) have the full list.
 - **From v0.5.0 on:** a release that changes the protocol keeps
   accepting the one before it, and the names a dashboard or an alert
   relies on are kept.
-- **Before v1.0.0:** the project workflow setting and organization
-  memory.
+- **v0.6.0:** ACME against a real CA, the key proof bound to the TLS
+  session, and the review's other deferred findings
+  ([Not in this release](docs/releases/v0.5.0.md#not-in-this-release)).
+- **Before v1.0.0:** organization memory, and the server-wide default
+  workflow (W5) that builds on it.
 - **In 1.x:** sign-in against a real identity provider, with its
   security review; a remote MCP endpoint; GitHub's sign-in; a Claude
   Desktop extension; and stage 6's G3 to G5

@@ -11,17 +11,22 @@ minor version (decision 93). Entries for v0.1.0 to v0.4.0 were written
 afterward, from the notes GitHub generated for each release; the project
 had another name then, and its notes say Aries and `aries` today.
 
-## v0.5.0 (unreleased)
+## v0.5.0 (2026-10-17)
 
 - The first release as Aries, and a fresh start: new names for every
   binary, file, variable and path, a new release signing key and a new
-  license (AGPL-3.0-only). Breaking: nothing carries over from v0.4.0.
+  license (AGPL-3.0-only). Breaking: nothing carries over from v0.4.0;
+  reinstall `aries` and set up a new server.
 - Postgres replaces Dolt; the schema and the migrations begin again.
 - Many projects on one server, HTTPS as the primary transport (SSH off
-  unless turned on), sign-in through an identity provider, service
-  principals, gates, dates and locks, work offline, and observability.
-- The protocol is settled at 8 and spoken alone.
-- Notes: [docs/releases/v0.5.0.md](docs/releases/v0.5.0.md) (a draft until the cut).
+  unless turned on), keys that end, gates, dates and locks, work
+  offline, and observability. Sign-in, tokens and service principals
+  ship off unless configured, reviewed in 1.x.
+- A project's workflow: default acceptance items, closed means landed,
+  `aries land`, review and approval gates and a close-out checklist.
+- The protocol is settled at 8 and spoken alone; from v0.5.0 a protocol
+  change keeps accepting the version before.
+- Notes: [docs/releases/v0.5.0.md](docs/releases/v0.5.0.md).
 
 ## v0.4.0 (2026-10-09)
 

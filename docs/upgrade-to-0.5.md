@@ -4,11 +4,6 @@ From v0.4.0 to v0.5.0, for a developer who uses `aries` and for an
 operator who runs a server. [The release notes](releases/v0.5.0.md) say
 what changed and why.
 
-> **Draft.** v0.5.0 is not released, and this guide is kept current as
-> its work lands. A part marked **(planned)** describes work not yet on
-> `main`, with the decision that puts it in the release. Names may still
-> change in the release's review of public names (decision 81).
-
 v0.5.0 is not an upgrade in place. The project has a new name, every
 binary, file, variable and path is named to match, releases are signed
 by a new key, and the server keeps its data in a new database. So:
@@ -84,9 +79,15 @@ install script trusts the new key; check a download by hand as
 How you sign in depends on the transport your server uses. On the new
 server you are a new principal either way.
 
-**Over HTTPS, the default (decision 86).** Where your server signs
-people in at your company's identity provider, your admin invites you
-by the address the provider knows you by. Then, in the repository:
+**Over HTTPS, the default (decision 86).** `aries` proves a key, the
+key it would offer over SSH, as below: send your admin its `.pub`.
+That is what v0.5.0 promises (decision 91).
+
+Sign-in at your company's identity provider ships off unless your
+operator configures it, and is not yet security-reviewed or run
+against a real provider; it is reviewed in 1.x. Where your server does
+sign people in that way, your admin invites you by the address the
+provider knows you by. Then, in the repository:
 
 ```sh
 aries login
@@ -96,9 +97,7 @@ It opens the browser at your provider; where there is no browser,
 `aries login --url` prints a URL to open on any machine. The sign-in
 lasts a day by default, and the token it leaves is bound to a key on
 this machine and useless anywhere else. `aries logout` ends it. There
-is no SSH key to send ([Sign in](cli.md#sign-in)). Where your server
-signs no one in, `aries` proves a key over HTTPS, the key it would
-offer over SSH, as below; send your admin its `.pub`.
+is no SSH key to send ([Sign in](cli.md#sign-in)).
 
 **Over SSH,** where your operator turned SSH on: `aries` signs in with
 the key `ssh` would use, a default file in `~/.ssh` and then
@@ -107,8 +106,10 @@ file's path. A `key:` line in the config file may name only a file
 inside the repository; `key: ~/.ssh/…` is refused, and `aries` names
 the variable to use instead. Send your admin the `.pub` of the key you
 will use ([Your key is your
-identity](cli.md#your-key-is-your-identity)). **(planned, decision
-87)** Your admin may give the key an end date.
+identity](cli.md#your-key-is-your-identity)). A key file that others may
+read is refused, as `ssh` refuses it: `chmod 600` it. Your admin may
+give the key an end date (`--expires`); past it, the key signs in over
+neither transport.
 
 ### 5. Rename your environment variables
 
@@ -124,29 +125,29 @@ your shell's profile, an IDE's settings or a CI job:
 
 A CI secret that held a private key for the client to read is never
 read: write the key to a file in the job and set `ARIES_KEY_FILE`
-([Team deployment](deploy/team.md)). **(planned, decision 87)** Over
-HTTPS, a CI job instead signs in as a service principal with its
-platform's own token, `aries login --workload github-actions` (or
-`google`, `azure`), and holds no key.
+([Team deployment](deploy/team.md)). Over HTTPS, a CI job may instead
+sign in as a service principal with its platform's own token, `aries
+login --workload github-actions` (or `google`, `azure`), and hold no
+key, where the operator has configured it; v0.5.0 ships that exchange
+off, not yet security-reviewed (decision 91).
 
 ### 6. Connect the repository again
 
 Delete the former project config file from the repository's root and
 commit `.aries.yaml` in its place. The admin of the new server gives it
 to you: `aries admin project add` prints one for a new project. It
-names a new project (a new UUID) and the new server: **(planned,
-decision 86)** its HTTPS address, and its host and host key when SSH is
-on:
+names a new project (a new UUID) and the new server: its HTTPS
+address, and its host and host key when SSH is on:
 
 ```yaml
 project: 6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
 server:
-  url: https://aries.example.com   # planned: HTTPS, the default
+  url: https://aries.example.com   # HTTPS, the default
   host: aries.example.com          # SSH, when the server has it on
   host_key: SHA256:…
 ```
 
-`server.ca` (planned) holds a site's own certificate authority, for a
+`server.ca` holds a site's own certificate authority, for a
 machine whose system store lacks it. Where both transports are set,
 `aries` uses HTTPS, and `ARIES_TRANSPORT=ssh` in your environment
 chooses SSH, for a server reached through IAP.
@@ -231,7 +232,7 @@ writes:
 
 | Profile | For |
 |---|---|
-| `internet` (the default) | A team on any network: HTTPS, with a certificate from ACME. **(planned, decision 87)** Claude's connectors, and any identity provider |
+| `internet` (the default) | A team on any network: HTTPS, with a certificate from ACME, which has run only against a test CA (a real CA's is v0.6.0's); any identity provider, where sign-in is configured. Claude's connectors come in 1.x |
 | `private` | A company network or VPN: HTTPS with your company CA's certificate, or behind your proxy; an internal or a cloud identity provider |
 | `airgapped` | A site with no route out: HTTPS with the site CA's certificate, releases from a directory; an identity provider inside the network, its keys from a file ([Sign-in](server.md#sign-in)) |
 | `ssh-only` | The server of before 0.5: SSH alone, HTTPS off, keys and no sign-in |
@@ -264,9 +265,12 @@ it, remove the former server first ([On the former
 server](#on-the-former-server)). Its SSH host key does not change, so a
 `.aries.yaml` may pin the same fingerprint as before.
 
-**(planned, decision 86)** An HTTPS server needs a DNS name and a
-certificate (ACME, or your CA's files), and the registration of Aries
-at your identity provider, with one redirect,
+An HTTPS server needs a DNS name and a certificate: your CA's files,
+or ACME, which has run only against a test CA in v0.5.0 (against a
+real CA it is v0.6.0's), or a proxy that ends TLS
+([Certificates](server.md#certificates)). Sign-in at an identity
+provider ships off; to turn it on, at your own risk until its review
+in 1.x, register Aries at the provider with one redirect,
 `https://aries.example.com/auth/callback`. An Entra ID provider takes
 its cloud's authority from the settings, with no default; Microsoft's
 US Government and classified clouds are configurable and not tested.
@@ -279,15 +283,18 @@ machine ([Serving many projects](server.md#serving-many-projects)):
 ```sh
 aries admin project add …
 aries admin principal add …
-aries admin member set …
+aries admin member add …
 ```
 
 Send each project's `.aries.yaml` to its people (developer step 6).
-**(planned, decisions 85 and 87)** With sign-in configured, invite
-people by the address their identity provider knows them by; a
-sign-in binds only an identity an admin invited. Add CI jobs and
+Add each person's and each CI job's key (`aries admin key add NAME
+FILE.pub`, with `--expires` for a contractor's or a stopgap key). Where
+you turn sign-in on, invite people by the address their identity
+provider knows them by; a sign-in binds only an identity an admin
+invited. Where you turn the workload exchange on, add CI jobs and
 unattended agents as service principals, with trust rules matched on
-their platform's token.
+their platform's token. Both ship off and are reviewed in 1.x
+(decision 91).
 
 ### 4. Bring over what you configured
 
@@ -373,9 +380,12 @@ former daemon for its principal. Remove them before you leave the
 machine running. Each person's `.ssh/known_hosts` is not touched by
 Aries: `aries` pins the host key from `.aries.yaml`.
 
-**(planned, decision 79)** On a v0.5.0 server that you later retire,
-the database is Postgres; [Running a server](server.md) will say what
-to remove.
+On a v0.5.0 server that you later retire, the parts have the new
+names (`aries`, `ariesd`, `/etc/aries`, `/var/lib/aries`), and the
+database is Postgres: take a last dump
+([Backups and restore](server.md#backups-and-restore)), then drop
+ariesd's database and its role. [Running a server](server.md) has no
+section on retiring a server yet.
 
 ## Carrying issues across (optional)
 
