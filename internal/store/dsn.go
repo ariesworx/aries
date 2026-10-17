@@ -39,6 +39,10 @@ type DSN struct {
 	// Password reports whether it holds a password, in the URL's user
 	// information or as a password parameter.
 	Password bool
+	// Passfile and SSLKey are the files its passfile and sslkey
+	// parameters name, which hold the role's password and the key of
+	// its client certificate; empty when it names none.
+	Passfile, SSLKey string
 }
 
 // ParseDSN parses dsn, in the format [Open] takes. It reads only the URL:
@@ -59,6 +63,7 @@ func ParseDSN(dsn string) (DSN, error) {
 	d.User = cmp.Or(q.Get("user"), d.User)
 	d.Database = cmp.Or(q.Get("dbname"), d.Database)
 	d.Password = d.Password || q.Has("password")
+	d.Passfile, d.SSLKey = q.Get("passfile"), q.Get("sslkey")
 	if sp := q.Get("search_path"); sp != "" {
 		first, _, _ := strings.Cut(sp, ",")
 		d.Schema = strings.Trim(strings.TrimSpace(first), `"`)
