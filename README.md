@@ -232,8 +232,9 @@ versions, v0.5.0, v0.6.0 and on, which `aries upgrade` installs
 ([decision 93](docs/design/aries.md#14-decisions)). From v0.5.0 on, a
 release that changes the protocol keeps accepting the one before it.
 The releases before 1.0 carry the features pulled forward: the project
-workflow setting and organization memory. v1.0.0 is when the names and
-settings are frozen for 1.x. v0.5.0 is cut back so that Aries can be
+workflow setting and organization memory. The names a dashboard or an
+alert relies on are kept from v0.5.0, and v1.0.0 is when the settings
+are frozen for 1.x. v0.5.0 is cut back so that Aries can be
 used to build Aries sooner ([decision 90](docs/design/aries.md#14-decisions)),
 and cut back again to authenticate by keys alone
 ([decision 91](docs/design/aries.md#14-decisions)).
