@@ -536,7 +536,10 @@ it:
   or names a reserved principal, is no one's. The connection carries the
   store's key's fingerprint, as one by the keys file does, so removing
   the key closes it, and so does the key's end. A key past its end
-  proves nothing (decision 89), and is refused saying when it ended.
+  proves nothing (decision 89), and is refused saying when it ended
+  once its proof verifies; before that it is told no more than any key
+  whose proof fails, so its public key, which is no secret, does not
+  name its principal.
 - **Offering keys tells the server which you hold**, and a server tells
   anyone who offers a key whether it knows it, as sshd does. Proving a
   key needs its private half.
