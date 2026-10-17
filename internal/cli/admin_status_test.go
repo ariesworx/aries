@@ -29,7 +29,7 @@ func TestAdminStatusUsage(t *testing.T) {
 			}
 		})
 	}
-	if _, help, _ := runCLI(t, "help", "admin"); !strings.Contains(help, "admin status [-n N] [--after NAME]") {
+	if help := helpText(t, "admin"); !strings.Contains(help, "admin status [-n N] [--after NAME]") {
 		t.Errorf("aries help admin lacks the status command:\n%s", help)
 	}
 }

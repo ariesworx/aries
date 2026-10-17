@@ -19,6 +19,17 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errb.String()
 }
 
+// helpText is `aries help ARGS...`'s output, unwrapped.
+func helpText(t *testing.T, args ...string) string {
+	t.Helper()
+	_, out, _ := runCLI(t, append([]string{"help"}, args...)...)
+	return unwrap(out)
+}
+
+// unwrap joins the lines help wraps, so that a test can look for a usage
+// line whole: every run of spaces and newlines becomes one space.
+func unwrap(s string) string { return strings.Join(strings.Fields(s), " ") }
+
 // These need no server: they fail or finish before connecting.
 func TestRunWithoutServer(t *testing.T) {
 	t.Parallel()
@@ -136,7 +147,7 @@ func TestRunWithoutServer(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errb := runCLI(t, tc.args...)
-			if code != tc.code || !strings.Contains(out, tc.stdout) || !strings.Contains(errb, tc.stderr) {
+			if code != tc.code || !strings.Contains(out, tc.stdout) && !strings.Contains(unwrap(out), tc.stdout) || !strings.Contains(errb, tc.stderr) {
 				t.Fatalf("exit %d (want %d)\nstdout %q (want %q)\nstderr %q (want %q)", code, tc.code, out, tc.stdout, errb, tc.stderr)
 			}
 			if code != ExitOK && !strings.Contains(errb, "fix: ") && tc.stdout == "" {
