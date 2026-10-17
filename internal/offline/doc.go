@@ -30,6 +30,7 @@
 //
 //	seen.json            who the server took each key for; 0600
 //	missed               when the server was last not reached; 0600
+//	landed               the last commit `aries land` reported; 0600
 //	outbox-HASH          one outbox for each principal (internal/outbox),
 //	                     named by a hash of the principal's name; 0700
 //	outbox-HASH.principal  that principal's name; 0600
