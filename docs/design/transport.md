@@ -134,6 +134,7 @@ Each a `server.Limits` field with a default, a `limits:` key, a table-driven tes
 | `https_header_bytes` | 16 KiB | Request headers |
 | `https_header_timeout` | 10 s | Reading the headers; the slow client's bound |
 | `https_body` | 64 KiB | The body of an OAuth request; `/mcp` takes `proto.MaxFrame` (4 MiB) |
+| `https_body_timeout` | 10 s | Reading the body once the headers are in; added by the flood review (§12.4 item 6), as a request that names a body and sends none held its connection |
 | `upgrade_timeout` | 10 s | From the upgrade to the hello |
 | `ws_message` | 4 MiB | One message: one frame, `proto.MaxFrame` |
 | `auth_failures_per_addr` | 30 a minute, burst 60 | 401s per address before `busy`; refusals counted, never logged with the token |

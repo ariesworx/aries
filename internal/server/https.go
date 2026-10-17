@@ -215,11 +215,16 @@ func (w *web) handler() http.Handler {
 		writeRefusal(rw, http.StatusNotFound, proto.Errf(proto.CodeNotFound, "aries connects to "+keyproof.ConnectPath+"; check server.url in .aries.yaml",
 			"nothing is served at this path"))
 	})
-	body := int64(w.s.cfg.Limits.HTTPSBodyBytes)
+	body, bodyTime := int64(w.s.cfg.Limits.HTTPSBodyBytes), time.Duration(w.s.cfg.Limits.HTTPSBodyTimeout)
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		rw.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		rw.Header().Set("X-Content-Type-Options", "nosniff")
 		rw.Header().Set("Cache-Control", "no-store")
+		// The headers are in: the body has https_body_timeout, which also
+		// bounds net/http's read of a body the handler leaves before it
+		// answers. A WebSocket clears it as it is taken over
+		// (wsconn.Accept), and upgrade_timeout bounds it from there.
+		_ = http.NewResponseController(rw).SetReadDeadline(time.Now().Add(bodyTime))
 		r.Body = http.MaxBytesReader(rw, r.Body, body)
 		mux.ServeHTTP(rw, r)
 	})

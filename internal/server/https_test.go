@@ -500,6 +500,45 @@ func TestHTTPSLimits(t *testing.T) {
 			t.Errorf("an upgrade with 16 KiB of headers, past https_header_bytes of 1 KiB = %v, %v; want 431", resp, err)
 		}
 	})
+	// A request that says a body follows and sends none, or sends it a
+	// byte at a time, on any path: net/http reads a body the handler
+	// left before it answers, so nothing but the body's timeout ends it.
+	for _, tc := range []struct{ name, req, drip string }{
+		{"a body that never comes", "GET /.well-known/aries", ""},
+		{"a body sent a byte at a time", "POST /nowhere", "a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Config{Limits: Limits{HTTPSBodyTimeout: Duration(100 * time.Millisecond)}, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}
+			u, pool := listenHTTPS(t, &cfg, nil)
+			s, _ := newServerConfig(t, cfg, nil)
+			serving(t, s)
+			c, err := tls.Dial("tcp", strings.TrimPrefix(u, "https://"), &tls.Config{RootCAs: pool, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			if _, err := fmt.Fprintf(c, "%s HTTP/1.1\r\nHost: x\r\nContent-Length: 1000\r\n\r\n", tc.req); err != nil {
+				t.Fatal(err)
+			}
+			closed := make(chan struct{})
+			go func() { _, _ = io.Copy(io.Discard, c); close(closed) }()
+			const hold = 3 * time.Second // 30 times the body's timeout
+			for began := time.Now(); time.Since(began) < hold; {
+				select {
+				case <-closed:
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
+				if tc.drip != "" {
+					if _, err := io.WriteString(c, tc.drip); err != nil {
+						return
+					}
+				}
+			}
+			t.Errorf("the connection was open %v after its headers, past https_body_timeout of 100ms", hold)
+		})
+	}
 	t.Run("refusals from one address", func(t *testing.T) {
 		t.Parallel()
 		cfg := Config{Limits: Limits{AuthFailureRate: 1, AuthFailureBurst: 2}, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}
