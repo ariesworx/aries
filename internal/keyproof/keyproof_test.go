@@ -261,3 +261,79 @@ func FuzzParseProof(f *testing.F) {
 		}
 	})
 }
+
+// The transcript begins with its domain as an SSH string, so that no
+// signature a key makes for SSH (a userauth request begins with the
+// session id, 20 to 64 bytes) or for SSHSIG (whose blob begins with the
+// bare magic "SSHSIG") is also a key proof; and every part is framed by
+// its length, so that moving bytes between the URL and the nonce makes
+// another transcript.
+func TestTranscriptFraming(t *testing.T) {
+	t.Parallel()
+	s := signer(t, "ed25519")
+	nonce := NewNonce()
+	tr := transcript(serverURL, nonce, s.PublicKey())
+	want := append([]byte{0, 0, 0, byte(len(domain))}, domain...)
+	if !strings.HasPrefix(string(tr), string(want)) {
+		t.Fatalf("the transcript begins %q, want the domain %q as an SSH string", tr[:len(want)], want)
+	}
+	if n := len(domain); n >= 20 && n <= 64 {
+		t.Errorf("the domain's length %d is that of an SSH session id", n)
+	}
+	shifted := transcript(serverURL+string(nonce[:1]), append(nonce[1:], 0), s.PublicKey())
+	if string(shifted) == string(tr) {
+		t.Error("a byte moved from the nonce to the URL makes the same transcript")
+	}
+}
+
+// A signature is checked in its key's own algorithm: one whose format
+// names another type is refused before it is verified, and RSA may sign
+// with SHA-512 as well as SHA-256.
+func TestVerifyAlgorithms(t *testing.T) {
+	t.Parallel()
+	nonce := NewNonce()
+	rsaKey := signer(t, "rsa")
+	sha512, err := rsaKey.(ssh.AlgorithmSigner).SignWithAlgorithm(rand.Reader, transcript(serverURL, nonce, rsaKey.PublicKey()), ssh.KeyAlgoRSASHA512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(rsaKey.PublicKey(), serverURL, nonce, sha512); err != nil {
+		t.Errorf("Verify of an RSA proof in SHA-512 = %v, want nil", err)
+	}
+	ec := signer(t, "ecdsa")
+	good, err := Sign(ec, serverURL, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relabeled := *good
+	relabeled.Format = ssh.KeyAlgoED25519
+	if err := Verify(ec.PublicKey(), serverURL, nonce, &relabeled); err == nil || !strings.Contains(err.Error(), "by a key of type") {
+		t.Errorf("Verify of an ECDSA proof labeled %s = %v, want refused for its format", relabeled.Format, err)
+	}
+	if err := Verify(rsaKey.PublicKey(), serverURL, nonce, good); err == nil {
+		t.Error("Verify of an ECDSA signature for an RSA key = nil, want a refusal")
+	}
+}
+
+// What a server's URL may not be, beyond TestNormalizeURL's: an
+// escaped path, a URL that carries a query or a fragment however empty,
+// and one whose host is not plain. Each would let one spelling stand for
+// two URLs, or two spellings of one compare unequal. (A path with "." or
+// ".." segments is taken as written, and so only ever compares unequal
+// to the configured URL: refused, never confused.)
+func TestNormalizeURLRefuses(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{
+		"https://aries.example.com/%61ries",
+		"https://aries.example.com/a%2Fb",
+		"https://aries.example.com?",
+		"https://aries.example.com#",
+		"https://aries.example.com\\@evil.example.com",
+		"https://:443",
+		"ftp://aries.example.com",
+	} {
+		if got, err := NormalizeURL(in); err == nil {
+			t.Errorf("NormalizeURL(%q) = %q, want an error", in, got)
+		}
+	}
+}
