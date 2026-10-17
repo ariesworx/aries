@@ -466,11 +466,17 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 			key, principal, disabled = i, p, true
 		}
 	}
-	if key < 0 {
-		// A key past its end proves nothing (decision 89), and is told so.
-		if perr := w.s.endedOffer(offer.Keys); perr != nil {
-			return nil, perr, telemetry.ProofKeyEnded
+	// A key past its end proves nothing (decision 89), and is told so
+	// once proved, as a disabled principal's is: its public key is no
+	// secret, and an unproved offer learns neither whose it was nor when
+	// it ended.
+	var ended *proto.Error
+	for i := 0; key < 0 && i < len(offer.Keys); i++ {
+		if perr := w.s.endedKey(offer.Keys[i]); perr != nil {
+			key, ended = i, perr
 		}
+	}
+	if key < 0 {
 		return nil, proto.Errf(proto.CodeAuth,
 			"send your public key to the aries admin, who adds it with `aries admin key add NAME FILE.pub`; `aries whoami` lists the keys aries offers",
 			fmt.Sprintf("the server knows none of the keys offered (%d)", len(offer.Keys))), "unknown_key"
@@ -492,6 +498,9 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 	}
 	if disabled {
 		return nil, disabledErr(principal), telemetry.ProofDisabled
+	}
+	if ended != nil {
+		return nil, ended, telemetry.ProofKeyEnded
 	}
 	_ = c.SetDeadline(time.Time{})
 	return &proto.Frame{T: proto.FrameBridge, Principal: principal, Key: fingerprint}, nil, ""

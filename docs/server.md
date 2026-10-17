@@ -1914,7 +1914,10 @@ From its end the key signs in over neither transport (decisions 59 and
   wall clock.
 - **ariesd** refuses it at the handshake, and in the proof over HTTPS,
   on [its own clock](#the-servers-clock), which is never behind the
-  wall clock, with `auth` and the time it ended. So ariesd refuses at
+  wall clock, with `auth` and the time it ended. Over HTTPS the key is
+  challenged first, and told whose it was and when it ended only once
+  its proof verifies: its public key is no secret, and a proof by any
+  other key is refused as any proof that does not verify. So ariesd refuses at
   or before the moment sshd would, and a clock set back, which revives
   the line at sshd, does not revive the key.
 - **The connections it signed in close at its end**, over SSH and over
@@ -3753,7 +3756,7 @@ number of series cannot grow with what clients send:
 | `result` | `ok`, or the refusal's code: `not_found`, `conflict`, `exists`, `cycle`, `invalid`, `acceptance`, `forbidden`, `unavailable`, `version`, `auth`, `busy`, `stale`. For a handshake also `failed`: it ended without a refusal to name, as when a frame could not be read. For the keys file and the certificate's reloads: `ok` or `failed` |
 | `result` of an upgrade | `ok`, or `refused` |
 | `reason` of an upgrade | `none` for one upgraded; for one refused, `origin` (a browser's page, 403), `auth_failures` (the address past `auth_failures_per_minute`, 429), `token` (a sign-in's token or its DPoP proof refused, 401, or 503 for `dpop_busy`) or `bad_request` (not a WebSocket upgrade, 400, or one that could not be completed) |
-| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `key_ended` (a key offered is the server's and past its end), `bad_proof` (the signature does not verify), `disabled` (a disabled principal's key, proved); `failed` (the client left, or said nothing within `upgrade_timeout`) |
+| `result` of a key proof | `ok`; `invalid` (no key offer, or a malformed proof), `url` (a proof for a URL `public_urls` does not name), `unknown_key` (no key offered is known), `key_ended` (a key offered is the server's and past its end, proved), `bad_proof` (the signature does not verify), `disabled` (a disabled principal's key, proved); `failed` (the client left, or said nothing within `upgrade_timeout`) |
 | `result` of a token | `ok`; the token: `token_scheme` (not presented as DPoP), `token_missing`, `token_unknown` (never issued, or its sign-in ended and was pruned), `token_ended`, `token_bearer` (bound to no key), `token_no_login` (the server has no `login:`); its DPoP proof: `dpop_missing`, `dpop_malformed`, `dpop_signature` (not signed by the key it carries), `dpop_request` (for another method or URL), `dpop_token` (for another token), `dpop_time` (too far from the server's time), `dpop_replayed`, `dpop_busy` (past `dpop_proofs_per_server`), `dpop_key` (signed by another key than the token's) |
 | `reason` of a connection the HTTPS listener refused | `untrusted`, `limit` |
 | `result_class` | `ok`; `error` for `unavailable`, which is the server's failure; `refused` for every other refusal, which is the request's |

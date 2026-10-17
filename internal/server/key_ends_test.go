@@ -13,6 +13,9 @@ import (
 	"testing/synctest"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
+	"github.com/ariesworx/aries/internal/keyproof"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/store"
@@ -213,7 +216,12 @@ func TestHTTPSKeyEnded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := prove(t, c2, u, signerOf(t, "carol"), nil); f == nil || f.Err.Code != proto.CodeAuth ||
+	// The refusal follows the proof: an ended key is told so once proved.
+	f := prove(t, c2, u, signerOf(t, "carol"), nil)
+	if f == nil {
+		f = refusalIn(mustRead(t, c2))
+	}
+	if f == nil || f.Err.Code != proto.CodeAuth ||
 		!strings.Contains(f.Err.Message, "ended at 2026-10-16T21:00:00Z") || f.Err.Fix == "" {
 		t.Errorf("carol's proof after her key's end = %+v; want refused auth, saying when the key ended, with a fix", f)
 	}
@@ -316,4 +324,68 @@ func keyConn(t *testing.T, s *Server, fp string) (net.Conn, *atomic.Bool) {
 		ended.Store(true)
 	}()
 	return cli, &ended
+}
+
+// An ended key is told when it ended only once proved, as a disabled
+// principal's is: its public key, which anyone may hold, gets a
+// challenge, and a proof by another key is refused as any bad proof,
+// naming no principal and no end (sshd says nothing of a key it
+// refuses).
+func TestHTTPSKeyEndedUnproved(t *testing.T) {
+	t.Parallel()
+	ck := &clock{t: endsAt}
+	var u string
+	var pool *x509.CertPool
+	m := newMultiWith(t, Limits{}, ck, nil, func(c *Config) { u, pool = listenHTTPS(t, c, nil) }, dana.Principal)
+	m.project(t, projA, "carol")
+	if _, err := m.ctl.AddKeyEnding(t.Context(), dana, "carol", keyLine(t, "carol"), store.KeyEnd{In: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	m.refresh(t.Context())
+	serving(t, m.Server)
+	ck.advance(time.Hour)
+	m.ExpireKeys(t.Context())
+
+	c, _, err := wsDial(t, u, pool, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Write(keyproof.NewOffer(u, []ssh.PublicKey{signerOf(t, "carol").PublicKey()})); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := c.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := refusalIn(msg); f != nil {
+		t.Fatalf("an offer of carol's ended key, unproved, was refused at once: %+v; want a challenge", f.Err)
+	}
+	ch, err := keyproof.ParseChallenge(msg)
+	if err != nil {
+		t.Fatalf("the answer to an offer of an ended key: %v (%q)", err, msg)
+	}
+	sig, err := keyproof.Sign(signerOf(t, "mallory"), u, ch.Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Write(keyproof.NewProof(sig)); err != nil {
+		t.Fatal(err)
+	}
+	f := refusalIn(mustRead(t, c))
+	if f == nil || f.Err.Code != proto.CodeAuth || !strings.Contains(f.Err.Message, "does not verify") {
+		t.Fatalf("a proof of carol's ended key by another key = %+v; want the bad proof's refusal", f)
+	}
+	if text := f.Err.Message + " " + f.Err.Fix; strings.Contains(text, "carol") || strings.Contains(text, "ended") || strings.Contains(text, "2026") {
+		t.Errorf("an unproved ended key's refusal says %q; it names the principal or the end", text)
+	}
+}
+
+// mustRead reads one message on c.
+func mustRead(t *testing.T, c interface{ Read() ([]byte, error) }) []byte {
+	t.Helper()
+	m, err := c.Read()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return m
 }

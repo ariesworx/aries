@@ -143,17 +143,14 @@ func keyEnded(principal string, end time.Time) *proto.Error {
 		fmt.Sprintf("the key that signed in ended at %s", end.UTC().Format(time.RFC3339)))
 }
 
-// endedOffer refuses a key proof none of whose keys the server takes
-// when one of them is a key of the store that has ended, and returns nil
-// otherwise.
-func (s *Server) endedOffer(keys []ssh.PublicKey) *proto.Error {
+// endedKey returns the refusal of a key proved that is a key of the
+// store past its end, and nil for any other key.
+func (s *Server) endedKey(k ssh.PublicKey) *proto.Error {
 	if s.cfg.Control == nil {
 		return nil
 	}
-	for _, k := range keys {
-		if p, end, ok := s.cfg.Control.EndedKey(ssh.FingerprintSHA256(k)); ok {
-			return keyEnded(p, end)
-		}
+	if p, end, ok := s.cfg.Control.EndedKey(ssh.FingerprintSHA256(k)); ok {
+		return keyEnded(p, end)
 	}
 	return nil
 }
