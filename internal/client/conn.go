@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1068,7 +1069,24 @@ func readDefaultIdentity(path string) (signer ssh.Signer, pub ssh.PublicKey, why
 	if err != nil {
 		return nil, nil, "it is not a private key aries can read"
 	}
+	if mode, open := openToOthers(path); open {
+		return nil, nil, fmt.Sprintf("it can be read by other users (mode %04o), so it is not used; fix: chmod 600 %s", mode, path)
+	}
 	return s, nil, ""
+}
+
+// openToOthers reports whether group or others may read or write the
+// private key file at path, and its mode. OpenSSH refuses such a key,
+// and aries signs with none. Modes are not checked on Windows.
+func openToOthers(path string) (fs.FileMode, bool) {
+	if runtime.GOOS == "windows" {
+		return 0, false
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	return fi.Mode().Perm(), fi.Mode().Perm()&0o077 != 0
 }
 
 // readKeyFile reads the configured key file. It returns a signer when
@@ -1125,6 +1143,10 @@ func readKeyFile(path, from string) (signer ssh.Signer, pub ssh.PublicKey, why s
 		return nil, nil, "", proto.Errf(proto.CodeAuth,
 			fmt.Sprintf("point %s at an OpenSSH private key or its .pub file, or remove it to use ssh-agent", from),
 			fmt.Sprintf("cannot parse key file %s: %v", path, err))
+	}
+	if mode, open := openToOthers(path); open {
+		return nil, nil, "", proto.Errf(proto.CodeAuth, "chmod 600 "+path,
+			fmt.Sprintf("key file %s, which %s names, can be read by other users (mode %04o), so aries does not sign with it, as ssh does not", path, from, mode))
 	}
 	return s, nil, "", nil
 }
