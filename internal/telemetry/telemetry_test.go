@@ -244,7 +244,7 @@ func TestRecord(t *testing.T) {
 // allKeys is every attribute key an instrument may have. A new key is a
 // new dimension of every series: add it here only with a fixed list of
 // values (AGENTS.md rule 18).
-var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction", "kind"}
+var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction", "kind", "model"}
 
 // wantKeys is each instrument's attribute keys (design §16.4).
 var wantKeys = map[string][]string{
@@ -262,6 +262,7 @@ var wantKeys = map[string][]string{
 	"aries.locks":                       {"event"},
 	"aries.lock.wait.duration":          nil,
 	"aries.gates":                       {"kind", "event"},
+	"aries.usage.tokens":                {"project", "kind", "model"},
 	"aries.control.writes":              {"op", "result"},
 	"aries.keys_file.writes":            {"result"},
 	"aries.keys_file.last_write.time":   nil,
@@ -391,6 +392,7 @@ func TestSeriesAreBounded(t *testing.T) {
 		"aries.stores.open":               1,
 		"aries.store.open.duration":       3,
 		"aries.claims":                    5 * 5,
+		"aries.usage.tokens":              projects * 5, // kinds and the fallback, models all (other)
 		"aries.control.writes":            ops * res,
 		"aries.keys_file.writes":          3,
 		"aries.keys_file.last_write.time": 1,
@@ -532,6 +534,7 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.locks":                       "aries_locks_total",
 		"aries.lock.wait.duration":          "aries_lock_wait_duration_seconds",
 		"aries.gates":                       "aries_gates_total",
+		"aries.usage.tokens":                "aries_usage_tokens_total",
 		"aries.control.writes":              "aries_control_writes_total",
 		"aries.keys_file.writes":            "aries_keys_file_writes_total",
 		"aries.keys_file.last_write.time":   "aries_keys_file_last_write_time_seconds",
@@ -1084,5 +1087,46 @@ func TestExportCanceledAtStop(t *testing.T) {
 				t.Errorf("export failure logged = %t, want %t:\n%s", logged, tc.dropped > 0, log)
 			}
 		})
+	}
+}
+
+// Only a model the caller admitted is a value of the model attribute:
+// any other, a hostile string or an admitted one past MaxModels
+// included, is (other), so the series stay bounded.
+func TestUsageTokensModelsAreAdmitted(t *testing.T) {
+	t.Parallel()
+	tel, m, err := NewManual(Config{PerProject: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	for _, bad := range []string{"", ModelOther, "has space", "bad\nline", strings.Repeat("a", 129)} {
+		if tel.AdmitModel(bad) {
+			t.Errorf("AdmitModel(%q) = true, want false", bad)
+		}
+	}
+	for range 2 {
+		if !tel.AdmitModel("example-large") {
+			t.Fatal("AdmitModel(example-large) = false, want true, twice")
+		}
+	}
+	tel.Record(UsageTokens, 5, "", TokenInput, "example-large")
+	tel.Record(UsageTokens, 7, "", TokenInput, "not-admitted")
+	tel.Record(UsageTokens, 1, "", "bogus-kind", "example-large")
+	snap := collect(t, m)
+	if v := snap.Sum("aries.usage.tokens", "kind", TokenInput, "model", "example-large"); v != 5 {
+		t.Errorf("tokens of example-large = %v, want 5", v)
+	}
+	if v := snap.Sum("aries.usage.tokens", "kind", TokenInput, "model", ModelOther); v != 7 {
+		t.Errorf("tokens of a model not admitted = %v, want 7 under %s", v, ModelOther)
+	}
+	if v := snap.Sum("aries.usage.tokens", "kind", Other); v != 1 {
+		t.Errorf("tokens of an unknown kind = %v, want 1 under %s", v, Other)
+	}
+	for i := range MaxModels + 10 {
+		tel.AdmitModel(fmt.Sprintf("model-%d", i))
+	}
+	if tel.AdmitModel("one-too-many") {
+		t.Errorf("AdmitModel past MaxModels = true, want false")
 	}
 }

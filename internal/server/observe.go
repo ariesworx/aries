@@ -248,6 +248,29 @@ func (o storeObserver) GateChanged(ctx context.Context, actor store.Actor, g sto
 	}
 }
 
+// UsageAdded counts the tokens of the records a usage write stored. The
+// store names a model only when the server has a price for it, and says
+// UsageOther for any other, so the series are bounded by the price
+// table and not by what clients report.
+func (o storeObserver) UsageAdded(_ context.Context, _ store.Actor, u []store.UsageTokens) {
+	for _, t := range u {
+		if t.Model != store.UsageOther {
+			o.tel.AdmitModel(t.Model)
+		}
+		for _, k := range []struct {
+			kind string
+			n    int64
+		}{
+			{telemetry.TokenInput, t.Input}, {telemetry.TokenOutput, t.Output},
+			{telemetry.TokenCacheWrite, t.CacheWrite}, {telemetry.TokenCacheRead, t.CacheRead},
+		} {
+			if k.n > 0 {
+				o.tel.Record(telemetry.UsageTokens, float64(k.n), o.project, k.kind, t.Model)
+			}
+		}
+	}
+}
+
 // storeTracer is a store's [store.Tracer]: a span for each attempt of a
 // write, for its wait for the writer and for the migrations of an open, under the span of whatever asked for the work.
 type storeTracer struct {

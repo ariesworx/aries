@@ -26,8 +26,8 @@ troubleshooting. For complete deployments with costs, see the
   user connects to its socket.
 - **Ubuntu 24.04 LTS and 26.04 LTS are the supported platforms.** The
   steps below are written for both and were run on both
-  ([What was run, and where](#what-was-run-and-where)). amd64 and cloud
-  providers' images were not. Other distributions, and Ubuntu's releases
+  ([What was run, and where](#what-was-run-and-where)). amd64 was run on
+  GitHub's runners, and cloud providers' images were not. Other distributions, and Ubuntu's releases
   between the two, may work and are untested. One text serves both; where
   26.04 behaves differently the guide says so: its `sudo` is sudo-rs, its
   sshd turns away for a while an address that fails to log in
@@ -645,6 +645,31 @@ ar-aukz3rip  P1  open  Fix the login redirect
 and the [agent guide](agents.md) sets agents up in the repository.
 
 ### What was run, and where
+
+**On GitHub's runners**, on 16 October 2026, from `main` at c4b311d: the
+[`p5-machine` workflow](../.github/workflows/p5-machine.yml), run
+38978641331, on `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64).
+Each job is a fresh virtual machine with root, systemd and AppArmor, on
+Ubuntu 24.04 with Postgres from PGDG, installed by the installer; Ubuntu
+26.04 was not run there.
+
+| | |
+|---|---|
+| Machines | GitHub's `ubuntu-24.04` and `ubuntu-24.04-arm` runners |
+| ariesd | Built from the source tree at c4b311d for each machine, with the release's flags, and put where the installer looks first |
+| Clients | `aries` on the same machine, over HTTPS to `ariesd`, with a certificate from a throwaway CA |
+
+- **The installer**, `install-server.sh --profile private` as root, on
+  both. A second run changed nothing.
+- **AppArmor**: the profiles `ariesd-serve` and `ariesd-admin` loaded in
+  enforce mode, and `ariesd` ran under systemd labeled `ariesd-serve
+  (enforce)`. The job's check of the journal found no line that says an
+  ariesd profile denied anything.
+- **aries over HTTPS**, before and after a restart of `ariesd` under its
+  profile.
+
+Not run there: a cloud provider's own image, which the runners are not,
+and a managed Postgres.
 
 **On Postgres**, on 15 October 2026 (slice P4 of decision 79):
 
@@ -2903,8 +2928,9 @@ Fixed caps that no setting changes:
 This step is optional. It was tested on Ubuntu 24.04, on arm64, in a
 virtual machine, on 12 October 2026, and on Ubuntu 26.04 the same way
 on 14 October 2026
-([What was run, and where](#what-was-run-and-where)); amd64 was not
-tested.
+([What was run, and where](#what-was-run-and-where)). On amd64 and arm64
+GitHub's runners it was run with the profiles in enforce mode on 16
+October 2026, with no denial in the journal.
 
 Ubuntu runs AppArmor, and out of the box it confines neither sshd
 nor a program it has no profile for: on the machines above, `aa-status`
@@ -3656,6 +3682,7 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.locks` | `aries_locks_total` | counter | `event` |
 | `aries.lock.wait.duration` | `aries_lock_wait_duration_seconds` | histogram, seconds | none |
 | `aries.gates` | `aries_gates_total` | counter | `kind`, `event` |
+| `aries.usage.tokens` | `aries_usage_tokens_total` | counter | `project`, `kind`, `model` |
 | `aries.control.writes` | `aries_control_writes_total` | counter | `op`, `result` |
 | `aries.keys_file.writes` | `aries_keys_file_writes_total` | counter | `result` |
 | `aries.keys_file.last_write.time` | `aries_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |
@@ -3692,6 +3719,7 @@ What each counts:
 | `claims` | Changes of a claim, as the event log records them, and renewals |
 | `locks` | Changes of a [lock](concepts.md#locks)'s holds and queue, as the event log records them, and renewals of a hold or a place. A lock's name is no attribute: it is a person's text |
 | `gates` | Changes of a [gate](concepts.md#gates), as the event log records them: added, passed (by a person or a CI job's report), failed (a CI job's report), waived, rearmed. A report or a decision that changed nothing, such as a pass of a passed gate or a report of an older run, is not counted |
+| `usage.tokens` | The tokens of each usage record the server stored, once: a batch sent again, or replayed under its idempotency key, adds nothing. Harnesses report usage through `aries usage --hook` (Claude Code today). Tokens only: cost is computed on read from prices that change, so it is no counter and stays with `aries cost`. The `model` is the name of a model with a price in the project's table, and `(other)` for every other, however many a client reports. A model priced later is counted by name from then on |
 | `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
 | `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
 | `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
@@ -3731,6 +3759,8 @@ number of series cannot grow with what clients send:
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
 | `kind` of a gate | `human`, `ci` |
 | `event` of a gate | `added`, `passed`, `failed`, `waived`, `rearmed` |
+| `kind` of a token | `input`, `output`, `cache_write`, `cache_read` (`cache_write` includes the part written for an hour) |
+| `model` | The name of a model the project's price table has a price for, at most 64 of them; `(other)` for any other model, a client's text |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
 | `signal` | `metrics`, `traces`, `logs` |
 | `direction` | `forward`, `backward` |

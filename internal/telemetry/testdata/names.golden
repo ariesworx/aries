@@ -25,6 +25,9 @@ attribute aries.store.open.duration migrated
 attribute aries.store.write.duration project
 attribute aries.store.write.retries project
 attribute aries.telemetry.dropped signal
+attribute aries.usage.tokens kind
+attribute aries.usage.tokens model
+attribute aries.usage.tokens project
 instrument aries.claims aries_claims_total
 instrument aries.clock.behind aries_clock_behind_seconds
 instrument aries.clock.steps aries_clock_steps_total
@@ -57,6 +60,7 @@ instrument aries.store.write.duration aries_store_write_duration_seconds
 instrument aries.store.write.retries aries_store_write_retries_total
 instrument aries.stores.open aries_stores_open
 instrument aries.telemetry.dropped aries_telemetry_dropped_total
+instrument aries.usage.tokens aries_usage_tokens_total
 span access.sweep
 span clock.check
 span control.reload
@@ -229,3 +233,7 @@ value aries.store.open.duration migrated true
 value aries.telemetry.dropped signal logs
 value aries.telemetry.dropped signal metrics
 value aries.telemetry.dropped signal traces
+value aries.usage.tokens kind cache_read
+value aries.usage.tokens kind cache_write
+value aries.usage.tokens kind input
+value aries.usage.tokens kind output
