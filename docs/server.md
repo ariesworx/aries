@@ -2924,6 +2924,7 @@ limits:
 | `control_writes_per_second`, `control_write_burst` | 1, 30 | With `control_schema`: each principal's token bucket for `aries admin` changes to projects, principals, members, keys, invitations and identities: changes a second, and how many at once. It is the principal's on the whole server, apart from its write bucket in each project; the lists are not counted |
 | `https_conns_per_server` | 4096 | With HTTPS on: open TCP connections to the [HTTPS listener](#the-https-listener). One more is closed unanswered |
 | `https_conns_per_addr` | 64 | With HTTPS on: open connections from one client address; one more is closed unanswered. Behind a proxy that terminates TLS every connection is the proxy's, so this is the proxy's to keep, and does not apply |
+| `https_addr_prefix_v6` | 64 | With HTTPS on: how many leading bits of an IPv6 address name its client for `https_conns_per_addr`, `auth_failures_per_minute` and `signins_pending_per_addr`, so that the 2^64 addresses of one /64 share one share of each. An IPv4 address is counted alone, an IPv4-mapped one as IPv4. From 1 to 128; lower it (56, 48) where clients are given more than a /64, and raise it to 128 to count every address alone |
 | `https_header_bytes` | 16384 | With HTTPS on: bytes of a request's headers; more is answered 431 |
 | `https_header_timeout` | `10s` | With HTTPS on: how long a request's headers may take to arrive, the slow client's bound |
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |

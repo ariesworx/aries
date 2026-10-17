@@ -84,6 +84,12 @@ type Limits struct {
 	// cap per address is the proxy's to keep, and does not apply.
 	HTTPSConns        int `yaml:"https_conns_per_server"`
 	HTTPSConnsPerAddr int `yaml:"https_conns_per_addr"`
+	// HTTPSAddrPrefixV6 is how many leading bits of an IPv6 address
+	// name its client for every limit per address (the connections, the
+	// refused key proofs and the sign-ins in progress): 64 by default,
+	// since a client is given a /64 at the least and has 2^64
+	// addresses in it. An IPv4 address is counted alone.
+	HTTPSAddrPrefixV6 int `yaml:"https_addr_prefix_v6"`
 	// HTTPSHeaderBytes caps a request's headers, and HTTPSHeaderTimeout
 	// how long they may take to arrive: the slow client's bound.
 	HTTPSHeaderBytes   int      `yaml:"https_header_bytes"`
@@ -164,7 +170,7 @@ var DefaultLimits = Limits{
 	IdemWindow: Duration(store.DefaultIdemWindow), AwayMax: Duration(store.MaxLease),
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
-	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second), HTTPSBodyTimeout: Duration(10 * time.Second),
+	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSAddrPrefixV6: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second), HTTPSBodyTimeout: Duration(10 * time.Second),
 	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
 	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, SignInsPendingPerAddr: 16, DPoPProofs: 100000,
 	WorkloadTokens: 10000,
@@ -207,7 +213,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},
 		{&l.Control.Identities, &d.Control.Identities}, {&l.Control.Invites, &d.Control.Invites},
 		{&l.ControlWriteBurst, &d.ControlWriteBurst},
-		{&l.HTTPSConns, &d.HTTPSConns}, {&l.HTTPSConnsPerAddr, &d.HTTPSConnsPerAddr}, {&l.HTTPSHeaderBytes, &d.HTTPSHeaderBytes},
+		{&l.HTTPSConns, &d.HTTPSConns}, {&l.HTTPSConnsPerAddr, &d.HTTPSConnsPerAddr}, {&l.HTTPSAddrPrefixV6, &d.HTTPSAddrPrefixV6}, {&l.HTTPSHeaderBytes, &d.HTTPSHeaderBytes},
 		{&l.HTTPSBodyBytes, &d.HTTPSBodyBytes}, {&l.WSMessageBytes, &d.WSMessageBytes}, {&l.AuthFailureBurst, &d.AuthFailureBurst},
 		{&l.Control.Grants, &d.Control.Grants}, {&l.SignInsPending, &d.SignInsPending},
 		{&l.SignInsPendingPerAddr, &d.SignInsPendingPerAddr}, {&l.DPoPProofs, &d.DPoPProofs},
@@ -268,6 +274,9 @@ func (l Limits) Validate() error {
 		if f.bad {
 			return fmt.Errorf("limit %s must be zero or a positive number; fix: correct limits: in the config file, or leave it out for the default", f.name)
 		}
+	}
+	if p := l.HTTPSAddrPrefixV6; p < 0 || p > 128 {
+		return fmt.Errorf("limit https_addr_prefix_v6 is %d; it must be from 1 to 128; fix: correct limits: in the config file, or leave it out for the default, %d", p, DefaultLimits.HTTPSAddrPrefixV6)
 	}
 	if w := time.Duration(l.IdemWindow); w != 0 && (w < minIdemWindow || w > maxIdemWindow) {
 		return fmt.Errorf("limit idem_window is %s; it must be from %s to %s; fix: correct limits: in the config file, or leave it out for the default, %s",
