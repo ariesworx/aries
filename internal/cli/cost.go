@@ -180,7 +180,7 @@ var rateFlags = []string{"input", "output", "cache-write", "cache-write-1h", "ca
 // status),
 // with the rest, so flags given before the group are its own.
 func cmdAdmin(ctx context.Context, r *runner, args []string) error {
-	const usage = "admin price|plan|project|principal|member|key|invite|identity|signin|trust|status ..."
+	const usage = "admin price|plan|project|principal|member|key|invite|identity|signin|trust|workflow|status ..."
 	i := slices.IndexFunc(args, func(a string) bool { return slices.Contains(adminGroups, a) })
 	if i < 0 {
 		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -208,6 +208,8 @@ func cmdAdmin(ctx context.Context, r *runner, args []string) error {
 		return adminSignIn(ctx, r, rest)
 	case "trust":
 		return adminTrust(ctx, r, rest)
+	case "workflow":
+		return adminWorkflow(ctx, r, rest)
 	case "status":
 		return adminStatus(ctx, r, rest)
 	}

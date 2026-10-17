@@ -31,6 +31,8 @@ func TestUnqueued(t *testing.T) {
 		{proto.OpLockRenew, "client's own chore"},
 		{proto.OpLockRelease, "ends a lock"},
 		{proto.OpLockLeave, "ends a lock"},
+		{proto.OpWorkflowSet, "admin's act"},
+		{proto.OpWorkflow, ""},
 		{proto.OpLocks, ""},
 		{proto.OpGates, ""},
 		{proto.OpDates, ""},

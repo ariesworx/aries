@@ -1,0 +1,39 @@
+# This repository's workflow (docs/design/aries.md §21.3, decision 95):
+# the acceptance items, required checks, approval and close-out lines the
+# Aries server adds to every issue it creates here. Change it in a pull
+# request like any code; once that merges, a project admin applies it:
+#
+#   aries admin workflow diff .aries/workflow.yaml
+#   aries admin workflow set .aries/workflow.yaml --rev N
+#
+# and anyone checks the server's against it with
+# `aries workflow check .aries/workflow.yaml`.
+version: 1
+# Principals that may report a required check. CI cannot reach this
+# project's server, so the maintainer reports `landed` (§21.8).
+ci: [ed]
+types:
+  default:                  # every type not named below
+    acceptance:
+      - PR opened from the template, saying what ran and what was left to CI
+      - Tests run as AGENTS.md's Test tiers require for the change
+      # Not bound to the check build: CI cannot report it to this
+      # server, so the agent ticks it (§21.8).
+      - CI green on the PR
+      - text: Reviewed and merged by the maintainer
+        check: landed
+    checks: [landed]
+    closeout:
+      - Stop and remove any compose stack you started, never a shared one
+      - Delete files you left outside the repository
+      - Leave the session to be archived when its PR merges
+  epic:
+    acceptance: []
+    checks: []
+    approve: {approvers: [ed]}   # a human gate on the epic at create (§21.6)
+    closeout:
+      - git fetch --prune and git worktree prune; delete merged branches
+      - Put the main checkout back on main; archive finished sessions
+  chore:                    # read-only runs: post the result, then finish
+    acceptance: [The result is posted where the issue says]
+    checks: []

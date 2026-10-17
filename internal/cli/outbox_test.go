@@ -175,9 +175,9 @@ func TestQueuedWrite(t *testing.T) {
 			since + "entry 1, accept ar-a1b2" + sent + "\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "accept", "issue": "ar-a1b2", "since": "2026-10-13T14:02:00Z"}},
 		{"create has no id yet", []string{"create", "A", "new", "issue"},
-			since + "entry 1, create" + sent + "; the issue has no id until then, so nothing queued can refer to it\n",
+			since + "entry 1, create" + sent + "; the issue has no id until then, so nothing queued can refer to it, and the workflow applies when it is sent\n",
 			map[string]any{"queued": true, "entry": 1.0, "op": "create", "since": "2026-10-13T14:02:00Z",
-				"note": "the issue has no id until it is sent, so nothing queued can refer to it"}},
+				"note": "the issue has no id until it is sent, so nothing queued can refer to it; the project's workflow adds its items then"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newAway(t)

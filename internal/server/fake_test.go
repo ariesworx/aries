@@ -40,8 +40,8 @@ type fakeStore struct {
 	closed int
 }
 
-func (f *fakeStore) CreateIssue(context.Context, store.Actor, store.NewIssue) (store.Issue, error) {
-	return store.Issue{}, f.err
+func (f *fakeStore) Create(context.Context, store.Actor, store.NewIssue) (store.Created, error) {
+	return store.Created{}, f.err
 }
 
 func (f *fakeStore) TouchAgent(context.Context, store.Actor, string) error { return nil }

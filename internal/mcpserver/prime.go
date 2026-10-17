@@ -55,6 +55,10 @@ type Prime struct {
 	Overdue     []DateItem `json:"overdue,omitempty"`
 	DueSoon     []DateItem `json:"due_soon,omitempty"`
 	ReadyByDate []DateItem `json:"ready_by_date,omitempty"`
+	// Workflow is the project's workflow in one line (design §21.10):
+	// its rev, and what each type gets at create. Aries's own words: type
+	// and check names and counts, none of the document's text.
+	Workflow string `json:"workflow,omitempty"`
 
 	// cached: this prime is this machine's copy, shown while the server
 	// cannot be reached ([CachedPrime]); its first notice says so.
@@ -191,6 +195,15 @@ func BuildPrime(ctx context.Context, c Conn, clientVersion string, notices ...st
 	case c.Err() != nil:
 		return nil, err
 	}
+	// The workflow; a server older than it has no workflow op, and its
+	// prime goes without the line.
+	var wf proto.WorkflowResult
+	switch err := c.Call(ctx, proto.OpWorkflow, proto.WorkflowArgs{}, &wf); {
+	case err == nil:
+		p.Workflow = wf.Summary()
+	case c.Err() != nil:
+		return nil, err
+	}
 	p.fit()
 	return p, nil
 }
@@ -209,6 +222,7 @@ func (p *Prime) fit() {
 	for i := range p.Notices {
 		p.Notices[i], _ = cut(p.Notices[i], 300)
 	}
+	p.Workflow, _ = cut(p.Workflow, 300)
 	for i := range p.Inbox {
 		p.Inbox[i].Body, _ = cut(p.Inbox[i].Body, primeTitleLen)
 	}
@@ -280,6 +294,9 @@ func (p *Prime) Text() string {
 	}
 	if len(p.Lost) > 0 {
 		fmt.Fprintf(&b, "lost claim (stop work on it): %s\n", esc(strings.Join(p.Lost, " ")))
+	}
+	if p.Workflow != "" {
+		fmt.Fprintf(&b, "%s\n", esc(p.Workflow))
 	}
 	if p.Unread > 0 {
 		fmt.Fprintf(&b, "inbox: %d unread (call inbox)\n", p.Unread)

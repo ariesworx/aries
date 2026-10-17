@@ -372,6 +372,72 @@ closes it anyway and records the open items in the event.
 A `- [x]` box counts as ticked only in the text an issue is created or
 imported with. Later edits to the text tick nothing.
 
+## The workflow
+
+A project may have one workflow: a file in its repository, by
+convention `.aries/workflow.yaml`, that a project admin applies with
+`aries admin workflow set FILE` once the pull request that changed it
+merges. For each issue type it names a profile; `default` is the
+profile of every type not named, and a named type replaces it whole.
+
+```yaml
+version: 1
+ci: [alice]                 # principals that may report a required check
+types:
+  default:
+    acceptance:
+      - PR opened from the template, saying what ran and what was left to CI
+      - Tests run as the project's test tiers require
+      - text: Reviewed and merged by the maintainer
+        check: landed       # the check whose pass will tick it
+    checks: [landed]
+    closeout:
+      - Delete files you left outside the repository
+  epic:
+    approve: {approvers: [alice]}
+  chore:
+    acceptance: [The result is posted where the issue says]
+```
+
+- **Default items, at create.** The server appends the profile's
+  `acceptance` items to the acceptance text of every issue it creates,
+  after the creator's own and each once, in the create's own write: a
+  `create`, from any client, the issues a `finish` files as discovered,
+  and an `update` that changes the type, which adds the new profile's
+  items and keeps the old ones. The create's event records the
+  workflow's rev and the profile, and `aries create` says how many items
+  it added. Text that holds no list becomes the first item of one.
+  Templates, gates and `ariesd import-bd` take none.
+- **Leaving.** What the workflow added is the issue's own text: an item
+  leaves only ticked or waived (`aries accept ID N --waive REASON`), on
+  the record, as any item does, since an update that drops an open
+  item is refused. An admin's `close --force` stays the override.
+- **Not retroactive.** A later set changes no issue already made; the
+  new rev applies to the next create. A create queued while the server
+  could not be reached gets the workflow in force when it is sent.
+- **Who sets it.** A project admin, or a server admin, from their own
+  terminal: a set from an agent's session, `aries admin workflow set`
+  run in an agent's shell included, is refused, as is a member's. No MCP
+  tool sets or reads it. `aries admin workflow show` prints it, `diff
+  FILE` what a set would change, and `aries workflow check FILE` exits 1
+  when the server's differs from the file, for any member or a CI job.
+  `set --rev N` refuses a set over a rev applied since.
+- **Checked at set.** Unknown keys and types are refused, naming the
+  key; each line must be one line of safe text with no secret in it,
+  and an item must read back as itself; the principals it names must be
+  members of the project; and a profile holds at most the server's
+  [limits](server.md#limits) `workflow_items_per_type` items,
+  `workflow_checks_per_type` checks and `workflow_closeout_per_type`
+  close-out lines, in a document of at most `workflow_bytes`.
+- **What is not enforced yet.** `checks`, `review`, `approve` and
+  `closeout` are kept and shown, and checked at set, but this release
+  enforces only the items: a required check that refuses `finish` until
+  it passes, the gates of a review and an approval, and the close-out
+  lines in `handoff` and `finish` come in later releases.
+
+`prime` gives the workflow in one line, such as `workflow rev 4: bug,
+feature, task: 4 items, landed; epic: approval`.
+
 ## Handoffs
 
 `aries handoff ID NOTE` leaves a note for whoever continues. It can say how

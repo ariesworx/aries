@@ -166,7 +166,7 @@ func TestQueuedToolCalls(t *testing.T) {
 		{"comment", map[string]any{"id": "ar-1", "body": "decided on tabs"}, proto.OpComment, fmt.Sprintf(queuedLine, "comment")},
 		{"remember", map[string]any{"key": "style", "body": "tabs"}, proto.OpRemember, fmt.Sprintf(queuedLine, "remember")},
 		{"create", map[string]any{"title": "Something new"}, proto.OpCreate,
-			fmt.Sprintf(queuedLine, "create") + " The issue has no id until then, so nothing can refer to it."},
+			fmt.Sprintf(queuedLine, "create") + " The issue has no id until then, so nothing can refer to it; the workflow applies when sent."},
 		{"update", map[string]any{"id": "ar-1", "rev": 2, "title": "renamed"}, proto.OpUpdate, fmt.Sprintf(queuedLine, "update")},
 		{"dep", map[string]any{"action": "add", "id": "ar-1", "depends_on": "ar-2"}, proto.OpDepAdd, fmt.Sprintf(queuedLine, "dep.add")},
 		{"label", map[string]any{"action": "remove", "id": "ar-1", "labels": []string{"old"}}, proto.OpLabelRm, fmt.Sprintf(queuedLine, "label.rm")},

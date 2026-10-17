@@ -451,7 +451,7 @@ func newBenchMulti(b *testing.B, n int) *benchMulti {
 			b.Fatal(err)
 		}
 		for i := range 3 {
-			if _, err := st.CreateIssue(ctx, alice, store.NewIssue{Title: "A long report " + strconv.Itoa(i), Body: long, Design: long, Notes: long}); err != nil {
+			if _, err := st.Create(ctx, alice, store.NewIssue{Title: "A long report " + strconv.Itoa(i), Body: long, Design: long, Notes: long}); err != nil {
 				b.Fatal(err)
 			}
 		}

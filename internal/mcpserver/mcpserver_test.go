@@ -655,6 +655,55 @@ func TestResultsAreCapped(t *testing.T) {
 	}
 }
 
+// prime says the project's workflow in one line among Aries's own, in
+// about 25 tokens, and says nothing of one when none is set or the server
+// has none to tell.
+func TestPrimeWorkflow(t *testing.T) {
+	t.Parallel()
+	w, err := proto.ParseWorkflow([]byte(`{"version": 1, "types": {
+  "default": {"acceptance": ["a", "b", "c", {"text": "d", "check": "landed"}], "checks": ["landed"]},
+  "epic": {"approve": {"approvers": ["bob"]}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		reply any
+		want  string
+	}{
+		{"a workflow", proto.WorkflowResult{Rev: 4, Workflow: &w, Effective: w.Effective()},
+			"\nworkflow rev 4: bug, feature, task, chore: 4 items, landed; epic: approval\n"},
+		{"none set", proto.WorkflowResult{}, ""},
+		{"an older server", errors.New(`unknown operation "workflow"`), ""},
+	} {
+		f := &fakeConn{who: "alice", reply: func(op string, _ any) (any, error) {
+			if op == proto.OpWorkflow {
+				if err, ok := tc.reply.(error); ok {
+					return nil, err
+				}
+				return tc.reply, nil
+			}
+			return proto.ListResult{}, nil
+		}}
+		p, err := BuildPrime(t.Context(), f, "v0.2.0")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		txt := p.Text()
+		head, _, _ := strings.Cut(txt, primeDataBegin)
+		switch {
+		case tc.want == "" && strings.Contains(txt, "workflow"):
+			t.Errorf("%s: prime mentions a workflow:\n%s", tc.name, txt)
+		case tc.want != "" && !strings.Contains(head, tc.want):
+			t.Errorf("%s: prime lacks %q before its data:\n%s", tc.name, tc.want, txt)
+		case tc.want != "":
+			if n := Tokens([]byte(tc.want)); n > 35 {
+				t.Errorf("%s: the workflow line is %d tokens, want about 25", tc.name, n)
+			}
+		}
+	}
+}
+
 func TestPrime(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -663,9 +712,9 @@ func TestPrime(t *testing.T) {
 		n, title int
 		wantOps  []string
 	}{
-		{"typical", "alice", 3, 60, []string{"list", "ready", "inbox", "recall", "dates"}},
-		{"worst case", "alice", 5, 500, []string{"list", "ready", "inbox", "recall", "dates"}},
-		{"old server, no principal", "", 5, 500, []string{"ready", "inbox", "recall", "dates"}},
+		{"typical", "alice", 3, 60, []string{"list", "ready", "inbox", "recall", "dates", "workflow"}},
+		{"worst case", "alice", 5, 500, []string{"list", "ready", "inbox", "recall", "dates", "workflow"}},
+		{"old server, no principal", "", 5, 500, []string{"ready", "inbox", "recall", "dates", "workflow"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

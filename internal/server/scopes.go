@@ -47,6 +47,10 @@ var opScopes = sync.OnceValue(func() map[string][]string {
 		// Locks: over the CLI, never an agent's (decision 70); a CI job holds
 		// one around a deploy.
 		proto.OpLockAcquire: ciOnly, proto.OpLockRenew: ciOnly, proto.OpLockRelease: ciOnly, proto.OpLockLeave: ciOnly, proto.OpLocks: ciOnly,
+		// The workflow: any member reads it, prime among them, and a CI job
+		// checks it against the repository's file; a project admin sets
+		// it, at a terminal (design §21.3).
+		proto.OpWorkflow: both, proto.OpWorkflowSet: none,
 		// Access and the server: a person's, at a terminal (rule 12).
 		proto.OpProjects: none, proto.OpProjectAdd: none, proto.OpProjectArchive: none, proto.OpProjectActivate: none,
 		proto.OpPrincipals: none, proto.OpPrincipalAdd: none, proto.OpPrincipalDisable: none, proto.OpPrincipalEnable: none,

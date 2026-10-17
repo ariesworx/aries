@@ -114,7 +114,7 @@ func queuedResult(k offline.Kept, n int) *mcp.CallToolResult {
 			n, k.Entry.Op)
 	}
 	if k.Entry.Op == proto.OpCreate {
-		line += " The issue has no id until then, so nothing can refer to it."
+		line += " The issue has no id until then, so nothing can refer to it; the workflow applies when sent."
 	}
 	doc, _ := json.Marshal(struct {
 		Queued bool   `json:"queued"`

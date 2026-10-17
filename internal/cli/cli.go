@@ -131,6 +131,7 @@ func init() {
 		{"close", "close ID [--reason TEXT] [--rev N] [--force]", "close an issue (--force, admins only: despite open acceptance items)", cmdClose},
 		{"reopen", "reopen ID [--rev N]", "reopen a closed issue", cmdReopen},
 		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
+		{"workflow", workflowCheckUsage, "check that the server's workflow is the one in FILE; exits 1 when it differs", cmdWorkflow},
 		{"lock", lockUsage, "take, renew, release or list a lock, a leased mutex or semaphore for a deploy or a merge; run a command under one", cmdLock},
 		{"dep", depUsage, "add or remove a dependency: FROM depends on TO", cmdDep},
 		{"label", labelUsage, "add or remove labels", cmdLabel},
@@ -167,7 +168,7 @@ func init() {
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},
 		{"setup", "setup AGENT|--all [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
 		{"admin", priceUsage + " | " + planUsage + " | " + adminUsage,
-			"list model prices and subscription plans, or set one; manage a server's projects, principals, members and keys (admins only)", cmdAdmin},
+			"list model prices and subscription plans, or set one; manage a server's projects, principals, members and keys, and a project's workflow (admins only)", cmdAdmin},
 		{"upgrade", "upgrade [--check] [--rollback]", "replace aries with the latest verified release; --rollback undoes it", cmdUpgrade},
 		{"version", "version", "print the aries version", cmdVersion},
 	}
