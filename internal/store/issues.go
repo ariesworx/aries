@@ -324,38 +324,58 @@ func checkTitle(t string) error {
 // repeat of the same create returns the issue the first one made and writes
 // nothing, and the key reused for another request is refused with an
 // [*IdemError]. An assignee other than the actor gets an inbox item.
+// The project's workflow adds its items, as [Store.Create] says.
 //
 // Invalid input, or more labels, acceptance items or paths than the
 // store's [Limits] allow, is refused with ErrInvalid; an ID in use with
 // ErrExists; a parent that does not exist with ErrNotFound.
 func (s *Store) CreateIssue(ctx context.Context, actor Actor, in NewIssue) (Issue, error) {
+	c, err := s.Create(ctx, actor, in)
+	return c.Issue, err
+}
+
+// Created is what a create made: the issue, and how many acceptance
+// items the project's workflow added to it.
+type Created struct {
+	Issue
+	Items int `json:"workflow_items,omitempty"`
+}
+
+// Create is [Store.CreateIssue], and says how many items the workflow
+// added. In the create's write, the profile the issue's type gets from
+// the project's workflow appends its acceptance items that the issue's
+// own text lacks (workflow.go), and the issue.create event records the
+// workflow's rev and the profile; a template takes none. Its own items
+// and the workflow's together past acceptance_items_per_issue are
+// refused with ErrInvalid.
+func (s *Store) Create(ctx context.Context, actor Actor, in NewIssue) (Created, error) {
 	if err := in.normalize(); err != nil {
-		return Issue{}, err
+		return Created{}, err
 	}
 	if err := s.checkNew(in); err != nil {
-		return Issue{}, err
+		return Created{}, err
 	}
 	meta, err := nullJSON(in.Metadata)
 	if err != nil {
-		return Issue{}, err
+		return Created{}, err
 	}
 	declared, err := checkDeclared(in.Paths, s.opts.Limits.Paths)
 	if err != nil {
-		return Issue{}, err
+		return Created{}, err
 	}
 	id := in.ID
 	if id == "" {
 		if id, err = NewID(s.opts.Prefix); err != nil {
-			return Issue{}, err
+			return Created{}, err
 		}
 	}
-	var out Issue
+	var out Created
 	err = s.write(ctx, actor, func(w *wtx) error {
 		if done, err := replay(ctx, w, in.IdempotencyKey, "create", in, &out); done || err != nil {
 			return err
 		}
 		var err error
-		if out, err = insertIssue(ctx, w, id, in, meta); err != nil {
+		if out.Issue, out.Items, err = insertIssue(ctx, w, id, in, meta, true); err != nil {
 			return err
 		}
 		if _, err := setDeclaredPaths(ctx, w, id, declared); err != nil {
@@ -364,27 +384,39 @@ func (s *Store) CreateIssue(ctx context.Context, actor Actor, in NewIssue) (Issu
 		if err := w.settle(out); err != nil {
 			return err
 		}
-		return w.notifyAssigned(ctx, out)
+		return w.notifyAssigned(ctx, out.Issue)
 	})
 	if err != nil {
-		return Issue{}, err
+		return Created{}, err
 	}
 	return out, nil
 }
 
 // insertIssue writes a normalized new issue with the given ID and records
-// its create event.
-func insertIssue(ctx context.Context, w *wtx, id IssueID, in NewIssue, meta any) (Issue, error) {
+// its create event. With defaults, unless the issue is a template, the
+// project's workflow appends its type's items to the acceptance text
+// first, and the event records the workflow (workflowDefaults); it
+// returns how many items that added.
+func insertIssue(ctx context.Context, w *wtx, id IssueID, in NewIssue, meta any, defaults bool) (Issue, int, error) {
 	ok, err := exists(ctx, w.tx, id)
 	if err != nil {
-		return Issue{}, err
+		return Issue{}, 0, err
 	}
 	if ok {
-		return Issue{}, fmt.Errorf("issue %s: %w", id, ErrExists)
+		return Issue{}, 0, fmt.Errorf("issue %s: %w", id, ErrExists)
 	}
 	if in.ParentID != "" {
 		if err := mustExist(ctx, w.tx, in.ParentID); err != nil {
-			return Issue{}, fmt.Errorf("parent: %w", err)
+			return Issue{}, 0, fmt.Errorf("parent: %w", err)
+		}
+	}
+	var (
+		added int
+		stamp *WorkflowStamp
+	)
+	if defaults && !in.Template {
+		if in.Acceptance, added, stamp, err = w.workflowDefaults(ctx, in.Type, in.Acceptance); err != nil {
+			return Issue{}, 0, err
 		}
 	}
 	if _, err := w.exec(ctx, `INSERT INTO issues (id, parent_id, title, body, design, acceptance, notes,
@@ -396,24 +428,31 @@ func insertIssue(ctx context.Context, w *wtx, id IssueID, in NewIssue, meta any)
 		nullTime(in.DueAt), nullTime(in.DeferUntil), in.Ephemeral, nullTime(in.ExpiresAt), in.Pinned, in.Template,
 		meta, nullStr(in.Account), w.actor.Principal, w.now, w.now); err != nil {
 		if isDuplicate(err) {
-			return Issue{}, fmt.Errorf("issue %s: %w", id, ErrExists)
+			return Issue{}, 0, fmt.Errorf("issue %s: %w", id, ErrExists)
 		}
-		return Issue{}, fmt.Errorf("insert issue: %w", err)
+		return Issue{}, 0, fmt.Errorf("insert issue: %w", err)
 	}
 	for _, l := range in.Labels {
 		if _, err := w.exec(ctx, `INSERT INTO labels (issue_id, label, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 			string(id), l, w.now); err != nil {
-			return Issue{}, fmt.Errorf("insert label: %w", err)
+			return Issue{}, 0, fmt.Errorf("insert label: %w", err)
 		}
 	}
 	if err := tickInText(ctx, w, id, in.Acceptance); err != nil {
-		return Issue{}, err
+		return Issue{}, 0, err
 	}
 	out, err := loadIssue(ctx, w.tx, id)
 	if err != nil {
-		return Issue{}, err
+		return Issue{}, 0, err
 	}
-	return out, w.revEvent(ctx, OpIssueCreate, id, out.Rev, nil, out)
+	var after any = out
+	if stamp != nil {
+		after = struct {
+			Issue
+			Workflow *WorkflowStamp `json:"workflow"`
+		}{out, stamp}
+	}
+	return out, added, w.revEvent(ctx, OpIssueCreate, id, out.Rev, nil, after)
 }
 
 // UpdateIssue applies patch if the issue is still at rev expected, and
@@ -573,6 +612,10 @@ func applyPatch(ctx context.Context, w *wtx, before Issue, pp prepared) (Issue, 
 			return Issue{}, err
 		}
 	}
+	sets, args, extra, err := w.typeDefaults(ctx, before, pp)
+	if err != nil {
+		return Issue{}, err
+	}
 	pathsChanged := false
 	if patch.Paths != nil {
 		if pathsChanged, err = setDeclaredPaths(ctx, w, id, pp.declared); err != nil {
@@ -580,20 +623,20 @@ func applyPatch(ctx context.Context, w *wtx, before Issue, pp prepared) (Issue, 
 		}
 	}
 	out := before
-	if len(pp.sets) > 0 || pathsChanged {
+	if len(sets) > 0 || pathsChanged {
 		// The paths live in their own table, so a paths-only change
 		// writes the issue row too: two replaces from one rev then
 		// write the same cells and conflict, rather than both
 		// committing and leaving their union.
-		if out, err = casUpdate(ctx, w, before, pp.sets, pp.args); err != nil {
+		if out, err = casUpdate(ctx, w, before, sets, args); err != nil {
 			return Issue{}, err
 		}
 	}
 	if err := w.checkHolds(ctx, id, holds, "move"); err != nil {
 		return Issue{}, err
 	}
-	if len(pp.sets) > 0 {
-		if err := w.issueEvent(ctx, OpIssueUpdate, before, out, nil); err != nil {
+	if len(sets) > 0 {
+		if err := w.issueEvent(ctx, OpIssueUpdate, before, out, extra); err != nil {
 			return Issue{}, err
 		}
 		if out.Assignee != before.Assignee {

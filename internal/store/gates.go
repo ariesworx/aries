@@ -559,7 +559,7 @@ func (s *Store) AddGate(ctx context.Context, actor Actor, in NewGate) (Gate, err
 			return err
 		}
 		ni.Type, ni.Priority = TypeGate, &prio
-		if _, err := insertIssue(ctx, w, id, ni, nil); err != nil {
+		if _, _, err := insertIssue(ctx, w, id, ni, nil, false); err != nil {
 			return err
 		}
 		if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev)
