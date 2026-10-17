@@ -500,6 +500,72 @@ func TestHTTPSLimits(t *testing.T) {
 			t.Errorf("an upgrade with 16 KiB of headers, past https_header_bytes of 1 KiB = %v, %v; want 431", resp, err)
 		}
 	})
+	t.Run("body timeout", func(t *testing.T) {
+		t.Parallel()
+		// A request that names a body and sends none, or sends it a byte
+		// at a time, is cut off within https_body_timeout, and its slot
+		// (here the only one) is free again.
+		for _, tc := range []struct {
+			name  string
+			drip  bool
+			extra string
+		}{{name: "no body"}, {name: "a byte at a time", drip: true}} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				cfg := Config{Limits: Limits{HTTPSBodyTimeout: Duration(300 * time.Millisecond), HTTPSConns: 1}, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}
+				u, pool := listenHTTPS(t, &cfg, nil)
+				s, _ := newServerConfig(t, cfg, nil)
+				serving(t, s)
+				nc, err := tls.Dial("tcp", strings.TrimPrefix(u, "https://"), &tls.Config{RootCAs: pool, ServerName: "localhost", NextProtos: []string{"http/1.1"}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = nc.Close() }()
+				if _, err := nc.Write([]byte("POST /nothing HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000\r\n\r\n")); err != nil {
+					t.Fatal(err)
+				}
+				start := time.Now()
+				done := make(chan struct{})
+				if tc.drip {
+					go func() {
+						for {
+							select {
+							case <-done:
+								return
+							case <-time.After(50 * time.Millisecond):
+								if _, err := nc.Write([]byte("x")); err != nil {
+									return
+								}
+							}
+						}
+					}()
+				}
+				defer close(done)
+				_ = nc.SetReadDeadline(time.Now().Add(5 * time.Second))
+				_, err = io.Copy(io.Discard, nc)
+				var ne net.Error
+				if errors.As(err, &ne) && ne.Timeout() {
+					t.Fatalf("the connection was still open after %v, past https_body_timeout of 300ms", time.Since(start))
+				}
+				if d := time.Since(start); d > 3*time.Second {
+					t.Errorf("the connection was cut off after %v; want about 300ms", d)
+				}
+				// The slot is free: a new connection is served.
+				// (the listener counts it closed a moment after the client sees it).
+				var c *wsconn.Conn
+				for end := time.Now().Add(3 * time.Second); ; {
+					if c, _, err = wsDial(t, u, pool, nil); err == nil {
+						break
+					}
+					if time.Now().After(end) {
+						t.Fatalf("a connection after the cut-off one: %v", err)
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				_ = c.Close()
+			})
+		}
+	})
 	t.Run("refusals from one address", func(t *testing.T) {
 		t.Parallel()
 		cfg := Config{Limits: Limits{AuthFailureRate: 1, AuthFailureBurst: 2}, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}

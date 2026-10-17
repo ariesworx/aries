@@ -39,8 +39,9 @@
 # ARIES_SMOKE_PROXY=1 runs all of it through the compose file's `proxy`
 # profile: ariesd serves plain HTTP on loopback (ARIES_PROXY=1) and nginx
 # serves TLS on the HTTPS port, so aries, the sign-in and the CI commands
-# reach the server as they would behind a load balancer. The container
-# of nginx shares the server's network namespace, so it is restarted
+# reach the server as they would behind a load balancer, and a flood of
+# requests that start a key proof is answered 429 (proxy_checks, below).
+# The container of nginx shares the server's network namespace, so it is restarted
 # after the server. It pulls one more image.
 #
 # ARIES_SMOKE_IDENTITY=1 also runs the compose file's `identity`
@@ -308,6 +309,25 @@ no_ssh_path() {
     fail "$1: the bridge with SSH off was not refused unavailable, SSH is off" "$got"
   fi
   passed=$((passed + 3))
+}
+
+# proxy_checks: the limits per client address are nginx's, since every
+# connection ariesd sees is nginx's (docs/server.md, Behind a proxy). A
+# flood of requests to /v1/connect, which start a key proof, is answered
+# 429 past limit_req's burst of 200, while the first ones are not. It runs last:
+# the address's bucket is empty after it and refills at 10 a second.
+proxy_checks() {
+  echo "smoke: nginx limits the requests that start a key proof, per client address"
+  local codes n_ok n429
+  # In parallel, so that the bucket, which refills 10 a second, does not
+  # keep up with the flood.
+  # shellcheck disable=SC2016 # the inner shell expands its arguments
+  codes=$(seq 400 | xargs -P 50 -I{} sh -c 'curl -sS --max-time 20 --cacert "$1" -o /dev/null -w "%{http_code}\n" "https://localhost:$2/v1/connect" || echo 000' _ "$work/ca.pem" "$https_port")
+  n429=$(grep -c '^429$' <<<"$codes" || true)
+  n_ok=$(grep -Evc '^(429|000)$' <<<"$codes" || true)
+  ((n_ok >= 100)) || fail "too few of 400 requests to /v1/connect through nginx were let through" "$(sort <<<"$codes" | uniq -c)"
+  ((n429 >= 100)) || fail "400 requests to /v1/connect through nginx were answered 429 $n429 times, want at least 100 past a burst of 200" "$(sort <<<"$codes" | uniq -c)"
+  passed=$((passed + 2))
 }
 
 up() {
@@ -1560,6 +1580,10 @@ fi
 if [[ -n $identity ]]; then
   identity_checks
   signin_checks
+fi
+
+if [[ -n $proxy ]]; then
+  proxy_checks
 fi
 
 echo "smoke: ok, $passed checks passed"
