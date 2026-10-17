@@ -17,7 +17,7 @@ const (
 	OpReady    = "ready"     // LimitArgs → ListResult
 	OpBlocked  = "blocked"   // LimitArgs → BlockedResult
 	OpUpdate   = "update"    // UpdateArgs → WriteResult
-	OpClose    = "close"     // CloseArgs → WriteResult
+	OpClose    = "close"     // CloseArgs → CloseResult
 	OpReopen   = "reopen"    // ReopenArgs → WriteResult
 	OpDepAdd   = "dep.add"   // DepArgs → Empty
 	OpDepRm    = "dep.rm"    // DepArgs → Empty
@@ -635,12 +635,24 @@ type FinishArgs struct {
 // in the order given. A finish sent with park says Lapsed when it
 // applied after its claim's lease ran out, and Comment when it was kept
 // as that comment instead, the issue left as it was.
+//
+// Closeout is the close-out checklist of the issue's workflow profile
+// (design §21.7): lines shown, never tracked. A result field only, so a
+// client that does not know it ignores it.
 type FinishResult struct {
-	ID      string   `json:"id"`
-	Rev     int64    `json:"rev"`
-	Created []string `json:"created,omitempty"`
-	Lapsed  bool     `json:"lapsed,omitempty"`
-	Comment string   `json:"comment,omitempty"`
+	ID       string   `json:"id"`
+	Rev      int64    `json:"rev"`
+	Created  []string `json:"created,omitempty"`
+	Lapsed   bool     `json:"lapsed,omitempty"`
+	Comment  string   `json:"comment,omitempty"`
+	Closeout []string `json:"closeout,omitempty"`
+}
+
+// CloseResult is close's WriteResult, with the close-out lines of an
+// epic that the close closed (design §21.7).
+type CloseResult struct {
+	WriteResult
+	Closeout []string `json:"closeout,omitempty"`
 }
 
 // HandoffArgs records a handoff note and its fields. Release also lets
@@ -662,11 +674,13 @@ type HandoffArgs struct {
 }
 
 // HandoffResult is the issue's revision, with Lapsed and Comment as in
-// FinishResult.
+// FinishResult. Closeout is the issue's close-out lines, given for a
+// handoff whose state is done.
 type HandoffResult struct {
 	WriteResult
-	Lapsed  bool   `json:"lapsed,omitempty"`
-	Comment string `json:"comment,omitempty"`
+	Lapsed   bool     `json:"lapsed,omitempty"`
+	Comment  string   `json:"comment,omitempty"`
+	Closeout []string `json:"closeout,omitempty"`
 }
 
 // DigestArgs selects a digest. Since is an RFC 3339 time, a date
@@ -714,6 +728,8 @@ type DigestTotals struct {
 	Overdue int `json:"overdue,omitempty"`
 	// Landing counts the issues awaiting landing.
 	Landing int `json:"landing,omitempty"`
+	// Closeout counts the epics whose last child has closed.
+	Closeout int `json:"closeout,omitempty"`
 }
 
 // DigestResult summarizes the window from Since to Until and the work in
@@ -746,6 +762,10 @@ type DigestResult struct {
 	// passed. At is the handoff's time, By the assignee, Note the checks
 	// and their last reports.
 	Landing []DigestItem `json:"landing,omitempty"`
+	// Closeout lists the epics whose last child has closed and that are
+	// not closed themselves (design §21.7): Note holds the close-out
+	// lines of their workflow profiles, joined by "; ".
+	Closeout []DigestItem `json:"closeout,omitempty"`
 	// Usage totals the window's time and tokens.
 	Usage *DigestUsage `json:"usage,omitempty"`
 	// Truncated: a total is a lower bound, or items were left out to fit

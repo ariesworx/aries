@@ -116,6 +116,10 @@ type Digest struct {
 	Ready, DueSoon, Overdue DigestSection
 	// Landing lists the issues awaiting landing, as [Dates] has it.
 	Landing DigestSection
+	// Closeout lists the epics whose last child has closed and that are
+	// not closed themselves, with the close-out lines of their profiles
+	// as Note, joined by "; " (design §21.7).
+	Closeout DigestSection
 	// Usage totals the time held and the tokens reported in the window
 	// (design §12.1), filtered like the sections.
 	Usage DigestUsage
@@ -225,6 +229,9 @@ func (q *digestQuery) run(ctx context.Context, d *Digest) error {
 	}
 	d.Ready, d.DueSoon, d.Overdue = dt.Ready, dt.DueSoon, dt.Overdue
 	if err := q.landing(ctx, &d.Landing); err != nil {
+		return err
+	}
+	if err := q.closeout(ctx, &d.Closeout); err != nil {
 		return err
 	}
 	if err := q.usage(ctx, d); err != nil {

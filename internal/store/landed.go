@@ -87,10 +87,16 @@ type requiredCheck struct {
 	items []string
 }
 
-// requiredChecks returns the checks the profiles stamped on issue id's
-// events require, in the order the profiles name them; none for an issue
-// no workflow governed.
-func requiredChecks(ctx context.Context, q querier, id IssueID) ([]requiredCheck, error) {
+// stampedProfile is a profile stamped on an issue: the document in force
+// at the stamp's rev and the profile's type in it.
+type stampedProfile struct {
+	doc *proto.Workflow
+	typ string
+}
+
+// stampedProfiles returns the profiles stamped on issue id's events, in
+// the order they were stamped; none for an issue no workflow governed.
+func stampedProfiles(ctx context.Context, q querier, id IssueID) ([]stampedProfile, error) {
 	rows, err := q.QueryContext(ctx, `SELECT CAST(after_state->'workflow' AS TEXT) FROM events
   WHERE target = $1 AND op IN ($2, $3) AND after_state->'workflow' IS NOT NULL ORDER BY seq`,
 		string(id), string(OpIssueCreate), string(OpIssueUpdate))
@@ -116,7 +122,7 @@ func requiredChecks(ctx context.Context, q querier, id IssueID) ([]requiredCheck
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, fmt.Errorf("workflow of %s: %w", id, err)
 	}
-	var out []requiredCheck
+	var out []stampedProfile
 	docs := map[int64]*proto.Workflow{}
 	for _, st := range stamps {
 		doc, ok := docs[st.Rev]
@@ -126,10 +132,24 @@ func requiredChecks(ctx context.Context, q querier, id IssueID) ([]requiredCheck
 			}
 			docs[st.Rev] = doc
 		}
-		if doc == nil {
-			continue
+		if doc != nil {
+			out = append(out, stampedProfile{doc: doc, typ: st.Type})
 		}
-		p := doc.Types[st.Type]
+	}
+	return out, nil
+}
+
+// requiredChecks returns the checks the profiles stamped on issue id's
+// events require, in the order the profiles name them; none for an issue
+// no workflow governed.
+func requiredChecks(ctx context.Context, q querier, id IssueID) ([]requiredCheck, error) {
+	profiles, err := stampedProfiles(ctx, q, id)
+	if err != nil {
+		return nil, err
+	}
+	var out []requiredCheck
+	for _, sp := range profiles {
+		doc, p := sp.doc, sp.doc.Types[sp.typ]
 		for _, c := range p.Checks {
 			i := slices.IndexFunc(out, func(r requiredCheck) bool { return r.check == c })
 			if i < 0 {
@@ -144,6 +164,38 @@ func requiredChecks(ctx context.Context, q querier, id IssueID) ([]requiredCheck
 		}
 	}
 	return out, nil
+}
+
+// closeoutLines returns the close-out lines (design §21.7) of the
+// profiles stamped on issue id, in the order they were stamped, each
+// once; none for an issue no workflow governed.
+func closeoutLines(ctx context.Context, q querier, id IssueID) ([]string, error) {
+	profiles, err := stampedProfiles(ctx, q, id)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, sp := range profiles {
+		for _, l := range sp.doc.Types[sp.typ].Closeout {
+			if !slices.Contains(out, l) {
+				out = append(out, l)
+			}
+		}
+	}
+	return out, nil
+}
+
+// Closeout returns the close-out lines of the workflow profiles stamped
+// on issue id (design §21.7): what the harness does when its work ends.
+// They are shown, never tracked. None for an issue no workflow governed
+// or whose profiles name none.
+func (s *Store) Closeout(ctx context.Context, id IssueID) ([]string, error) {
+	tx, err := s.r.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("closeout of %s: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }() // read-only: nothing to keep
+	return closeoutLines(ctx, tx, id)
 }
 
 // workflowAt reads the workflow's document at rev from the workflow.set
@@ -270,6 +322,7 @@ func (w *wtx) landing(ctx context.Context, g *gateRow, rc *requiredCheck, passed
 		return nil, err
 	}
 	what := fmt.Sprintf("%s passed on %s%s (gate %s)", g.Check, is.ID, evidenceText(rep), g.ID)
+	var closeout []string
 	switch open := openItems(items); {
 	case len(open) > 0:
 		what += fmt.Sprintf("; still open: items %s, then finish it", joinInts(open))
@@ -280,14 +333,23 @@ func (w *wtx) landing(ctx context.Context, g *gateRow, rc *requiredCheck, passed
 			return nil, err
 		}
 		what = fmt.Sprintf("%s closed: %s", is.ID, what)
+		// The session that did the work may be gone: the close-out goes
+		// where its people will read it (design §21.7).
+		if closeout, err = closeoutLines(ctx, w.tx, is.ID); err != nil {
+			return nil, err
+		}
 	}
 	to, err := landingPeople(ctx, w.tx, is)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]InboxItem, len(to))
-	for i, p := range to {
-		out[i] = InboxItem{To: p, Kind: InboxGatePassed, Issue: is.ID, Body: what}
+	var out []InboxItem
+	for _, p := range to {
+		out = append(out, InboxItem{To: p, Kind: InboxGatePassed, Issue: is.ID, Body: what})
+		if len(closeout) > 0 {
+			out = append(out, InboxItem{To: p, Kind: InboxGatePassed, Issue: is.ID,
+				Body: fmt.Sprintf("close-out of %s: %s", is.ID, strings.Join(closeout, "; "))})
+		}
 	}
 	return out, nil
 }
