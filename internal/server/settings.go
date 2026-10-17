@@ -575,7 +575,9 @@ const (
 // ARIESD_TELEMETRY_LISTEN when that is set, and AllowUnsafeAccount from
 // flags only. It refuses a password in
 // flags.DSN, which the process list would show; a config file with an
-// unknown key, or with a password and any access for group or others; an
+// unknown key, or with a password and any access for group or others; a
+// password file or client certificate key the DSN would read that group
+// or others may read (checkDatabaseFiles); an
 // admin name that is invalid or reserved; an invalid limit; an account
 // that is not a code name; a control schema that is not a schema name,
 // is the DSN's own, or starts as a project's does; a systemd
@@ -698,6 +700,9 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		return Settings{}, fmt.Errorf("account %q is not a code name; fix: set account: to 1-64 lowercase letters, digits and inner hyphens, such as %s", out.Account, DefaultAccount)
 	}
 	if err := out.checkControlSchema(); err != nil {
+		return Settings{}, err
+	}
+	if err := checkDatabaseFiles(out.DSN, getenv); err != nil {
 		return Settings{}, err
 	}
 	if !ValidBridge(out.Bridge) {
