@@ -2422,6 +2422,17 @@ or `aries gate pass --check landed --issue ID --sha SHA`, each from the
 session `cli`, which an agent's is not. An admin's `close --force`
 closes it too, recording the checks it overrode.
 
+A profile's `review` and `approve` make human gates in the write that
+creates the issue (a `gate.add` event after the `issue.create`, by the
+creating principal; Aries's own gate for the issue). An approval gate
+holds the issue back with a `blocks` edge, as `aries gate add` does; a
+review gate has the issue as its subject and holds nothing, so `finish`
+and `close` are refused with `acceptance` until a person passes or an
+admin waives it, and a forced close records `reviews_overridden`. They
+count against `open_gates_per_project` and `approvers_per_gate`, and a
+create the limit refuses is refused whole. Neither adds an op, an
+argument or a protocol version.
+
 ```sh
 aries admin workflow diff .aries/workflow.yaml
 aries admin workflow set .aries/workflow.yaml --rev 3

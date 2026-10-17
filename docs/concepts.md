@@ -455,10 +455,29 @@ types:
   changes nothing it requires. Meanwhile the issue waits in progress,
   holding nothing once its claim lapses: `prime` and `digest` list it
   as *awaiting landing*, with its checks' last reports.
-- **What is not enforced yet.** `review`, `approve` and `closeout` are
-  kept and shown, and checked at set, but come in later releases: the
-  gates of a review and an approval, and the close-out lines in
-  `handoff` and `finish`.
+- **Review before close.** A profile's `review: {approvers: [...]}`
+  makes, in the create's own write, a [human gate](#gates) on the new
+  issue that holds nothing: the issue can be started and worked as any
+  other. `finish` and `close` are refused (`acceptance`, with the fix
+  `ask a person to review …`) until the gate passes or an admin waives
+  it, naming the gate and who passes it. It is passed as any human gate
+  is: by an approver it names (else an admin other than the one who made
+  it), and only from the session `cli`, a person's own terminal, never an
+  agent's. The assignee and holder are told (`gate.passed`) that it
+  passed; they then finish the issue. An admin's `close --force` closes
+  past it, recording the gate it overrode. It is off unless a profile
+  names it: where the host already requires a review before merge,
+  `landed` means reviewed and a second review is ceremony. Use it for
+  what the host does not see, such as a design, a decision or an
+  operations task. "Not the author" waits for agent identities.
+- **Approval before start.** A profile's `approve: {approvers: [...]}`
+  makes a human gate that holds the new issue back, so that it and every
+  issue under it stay out of `ready`, and cannot be started, until the
+  gate passes: for an epic, a plan approved before its children begin.
+  Its approvers are told (`gate.pending`).
+- **What is not enforced yet.** `closeout` is kept and shown, and
+  checked at set, but comes in a later release: its lines in `handoff`
+  and `finish`.
 
 `prime` gives the workflow in one line, such as `workflow rev 4: bug,
 feature, task: 4 items, landed; epic: approval`.

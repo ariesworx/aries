@@ -463,6 +463,23 @@ func unmetErr(op string, e *store.AcceptanceError) *proto.Error {
 			fmt.Sprintf("tick them with `aries accept %s %s`, or waive each with `aries accept %s N --waive REASON`, "+proto.FixEditText,
 				e.ID, strings.Join(nums, " "), e.ID), e.Error())
 	}
+	if len(e.Reviews) > 0 && len(e.Checks) == 0 {
+		who := make([]string, len(e.Reviews))
+		for i, r := range e.Reviews {
+			who[i] = fmt.Sprintf("`aries gate pass %s`", r.Gate)
+			if len(r.Approvers) > 0 {
+				who[i] += " (" + strings.Join(r.Approvers, " or ") + ")"
+			}
+		}
+		fix := proto.FixReview + " of " + string(e.ID) + ": a named approver or an admin runs " + strings.Join(who, " and ") + " in their own terminal, then finish it"
+		if op == proto.OpClose {
+			fix += "; an aries admin can close it anyway with --force, on the record"
+		}
+		if len(nums) > 0 {
+			fix += fmt.Sprintf("; items %s are still open too (`aries accept %s %s`)", strings.Join(nums, " "), e.ID, strings.Join(nums, " "))
+		}
+		return proto.Errf(proto.CodeAcceptance, fix, e.Error())
+	}
 	if len(e.Checks) > 0 {
 		names := make([]string, len(e.Checks))
 		for i, c := range e.Checks {

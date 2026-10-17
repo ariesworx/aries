@@ -130,6 +130,10 @@ const (
 	// passed (design §21.5): the work is handed off done, and the
 	// check's pass closes it.
 	FixLand = "hand it off"
+	// FixReview: acceptance, a review the issue's workflow requires has
+	// not passed (design §21.6): a person passes its gate at their own
+	// terminal, and then the issue can be finished.
+	FixReview = "ask a person to review"
 	// FixSignIn: auth, the caller's sign-in ended, was ended, or does
 	// not check out: the person signs in again, at a terminal.
 	FixSignIn = "run `aries login`"

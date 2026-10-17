@@ -75,6 +75,13 @@ func TestFixPhrases(t *testing.T) {
 	waits := mustCall[proto.WriteResult](t, landing, alice, proto.OpCreate, proto.CreateArgs{Title: "waits"})
 	mustCall[proto.StartResult](t, landing, alice, proto.OpStart, proto.StartArgs{ID: waits.ID})
 
+	// reviewing's workflow requires a review of a feature by carol.
+	reviewing := newServer(t)
+	mustCall[proto.WorkflowSetResult](t, reviewing, danaCLI, proto.OpWorkflowSet,
+		workflowArgs(`{"version": 1, "types": {"feature": {"review": {"approvers": ["carol"]}}}}`, 0))
+	review := mustCall[proto.WriteResult](t, reviewing, alice, proto.OpCreate, proto.CreateArgs{Title: "design", Type: "feature"})
+	mustCall[proto.StartResult](t, reviewing, alice, proto.OpStart, proto.StartArgs{ID: review.ID})
+
 	alice2 := store.Actor{Principal: alice.Principal, Session: "s-a2", Machine: alice.Machine}
 	blocked, inProgress, fewer := "blocked", "in_progress", "- [ ] one"
 	tests := []struct {
@@ -111,6 +118,8 @@ func TestFixPhrases(t *testing.T) {
 		{"an issue made a gate", s, bob, proto.OpCreate, proto.CreateArgs{Title: "x", Type: "gate"}, proto.CodeInvalid, proto.FixGateAdd},
 		{"waits for a required check", landing, alice, proto.OpFinish, proto.FinishArgs{ID: waits.ID, Ticked: []int{1, 2, 3}},
 			proto.CodeAcceptance, proto.FixLand},
+		{"waits for a review", reviewing, alice, proto.OpFinish, proto.FinishArgs{ID: review.ID}, proto.CodeAcceptance, proto.FixReview},
+		{"closed before a review", reviewing, alice, proto.OpClose, proto.CloseArgs{ID: review.ID}, proto.CodeAcceptance, proto.FixReview},
 		{"closed before a required check", landing, alice, proto.OpClose, proto.CloseArgs{ID: waits.ID}, proto.CodeAcceptance, proto.FixLand},
 	}
 	for _, tc := range tests {
