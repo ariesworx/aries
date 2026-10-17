@@ -321,9 +321,15 @@ func (w *wtx) landing(ctx context.Context, g *gateRow, rc *requiredCheck, passed
 	if err != nil {
 		return nil, err
 	}
+	reviews, err := reviewWaits(ctx, w.tx, is.ID)
+	if err != nil {
+		return nil, err
+	}
 	what := fmt.Sprintf("%s passed on %s%s (gate %s)", g.Check, is.ID, evidenceText(rep), g.ID)
 	var closeout []string
 	switch open := openItems(items); {
+	case len(reviews) > 0:
+		what += fmt.Sprintf("; waits for review %s, then finish it", reviewsText(reviews))
 	case len(open) > 0:
 		what += fmt.Sprintf("; still open: items %s, then finish it", joinInts(open))
 	case len(held) > 0:

@@ -283,7 +283,7 @@ func (s *Store) finish(ctx context.Context, actor Actor, id IssueID, epoch int64
 		}
 		if why := moved(w, before, c, epoch, true); late && why != "" {
 			for i, d := range f.Discovered {
-				if err := fileDiscovered(ctx, w, id, ids[i], d, metas[i]); err != nil {
+				if err := s.fileDiscovered(ctx, w, id, ids[i], d, metas[i]); err != nil {
 					return err
 				}
 			}
@@ -316,7 +316,7 @@ func (s *Store) finish(ctx context.Context, actor Actor, id IssueID, epoch int64
 			}
 		}
 		for i, d := range f.Discovered {
-			if err := fileDiscovered(ctx, w, id, ids[i], d, metas[i]); err != nil {
+			if err := s.fileDiscovered(ctx, w, id, ids[i], d, metas[i]); err != nil {
 				return err
 			}
 		}
@@ -340,8 +340,11 @@ func (s *Store) finish(ctx context.Context, actor Actor, id IssueID, epoch int64
 
 // fileDiscovered files d, work found while doing issue from, as issue
 // id, discovered from it.
-func fileDiscovered(ctx context.Context, w *wtx, from, id IssueID, d NewIssue, meta any) error {
+func (s *Store) fileDiscovered(ctx context.Context, w *wtx, from, id IssueID, d NewIssue, meta any) error {
 	if _, _, err := insertIssue(ctx, w, id, d, meta, true); err != nil {
+		return fmt.Errorf("discovered %q: %w", d.Title, err)
+	}
+	if err := s.profileGates(ctx, w, id, d.Type); err != nil {
 		return fmt.Errorf("discovered %q: %w", d.Title, err)
 	}
 	_, err := insertDep(ctx, w, id, from, DepDiscoveredFrom)

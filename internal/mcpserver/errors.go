@@ -171,6 +171,9 @@ func nextStep(pe *proto.Error) string {
 		if strings.HasSuffix(pe.Fix, proto.FixEditText) {
 			return "the edit drops open acceptance items: keep them in the text, or tell the user they must be ticked or waived first"
 		}
+		if strings.HasPrefix(pe.Fix, proto.FixReview) {
+			return "do not call finish again now: a review is a person's act at their own terminal; tell the user the issue waits for the approvers named above, hand off with state: done if you stop, and never run aries gate yourself"
+		}
 		if strings.HasPrefix(pe.Fix, proto.FixLand) {
 			return "do not call finish again now: call handoff with state: done and the pull request's link in the note; the check's pass closes the issue, or, if items are still open then, your inbox says so and finish with them ticked closes it"
 		}

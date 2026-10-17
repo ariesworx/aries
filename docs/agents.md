@@ -275,6 +275,12 @@ window's in `digest`.
   in the agent's `inbox`, after which `finish` with the items ticked
   closes it. `prime` lists such issues as `awaiting landing`, with what
   each waits for ([Required checks](concepts.md#the-workflow)).
+  Where it requires a review, `finish` is refused the same way until a
+  person passes the review gate from their own terminal: the agent
+  hands off, tells the user the issue waits for the approvers the
+  refusal names, and never runs `aries gate` itself; its `inbox` says
+  when the review passed. An epic created under an approval stays out
+  of `ready`, with its children, until a person approves it.
   The profile's close-out lines come as a short `closeout:` list after
   the result line of `handoff` (state `done`), `finish` and the `close`
   of an epic, and in `digest` once an epic's last child has closed:

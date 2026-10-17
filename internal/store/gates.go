@@ -118,6 +118,10 @@ type NewGate struct {
 	// at most one ci gate for each check.
 	Check   string
 	Subject IssueID
+	// review is the issue a human gate reviews instead of holding back
+	// (review.go): Blocks is then empty, and the gate's subject is the
+	// issue. Only a workflow's profile sets it.
+	review IssueID
 	// Priority defaults to the held issue's.
 	Priority *Priority
 	// IdempotencyKey makes a retried add return the first result.
@@ -453,7 +457,7 @@ func (n *NewGate) normalize(limit int) error {
 		if n.Check != "" || n.Subject != "" {
 			return fmt.Errorf("%w: a check and a subject are a ci gate's; add it with kind ci", ErrInvalid)
 		}
-		if n.Blocks == "" {
+		if n.Blocks == "" && n.review == "" {
 			return fmt.Errorf("%w: a gate holds an issue back; name it", ErrInvalid)
 		}
 	case GateCI:
@@ -470,6 +474,9 @@ func (n *NewGate) normalize(limit int) error {
 	}
 	if n.Title == "" {
 		n.Title = "Approve " + string(n.Blocks)
+		if n.review != "" {
+			n.Title = "Review " + string(n.review)
+		}
 		if n.Kind == GateCI {
 			n.Title = n.Check + " of " + string(n.Subject)
 		}
@@ -550,7 +557,7 @@ func (s *Store) insertGate(ctx context.Context, w *wtx, id IssueID, in NewGate) 
 	}
 	// The issue the gate is about: the one it holds back, or a ci gate's
 	// subject when it holds none.
-	about := cmp.Or(in.Blocks, in.Subject)
+	about := cmp.Or(in.Blocks, in.Subject, in.review)
 	held, err := loadIssue(ctx, w.tx, about)
 	if err != nil {
 		return nil, err
@@ -581,12 +588,15 @@ func (s *Store) insertGate(ctx context.Context, w *wtx, id IssueID, in NewGate) 
 	}
 	if _, err := w.exec(ctx, `INSERT INTO gates (issue_id, kind, approvers, outcome, decided_by, decided_at, reason, check_name, subject, report, rev)
   VALUES ($1, $2, $3, NULL, NULL, NULL, '', $4, $5, NULL, 1)`, string(id), string(in.Kind), string(approvers),
-		in.Check, nullStr(in.Subject)); err != nil {
+		in.Check, nullStr(cmp.Or(in.Subject, in.review))); err != nil {
 		return nil, fmt.Errorf("insert gate: %w", err)
 	}
 	added := map[string]any{"kind": in.Kind, "approvers": in.Approvers, "blocks": nullStr(in.Blocks)}
 	if in.Kind == GateCI {
 		added["check"], added["subject"] = in.Check, in.Subject
+	}
+	if in.review != "" {
+		added["review"] = in.review
 	}
 	if err := w.event(ctx, OpGateAdd, string(id), nil, added); err != nil {
 		return nil, err
@@ -769,6 +779,20 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 		}
 		if err != nil {
 			return err
+		}
+		if outcome != "" && g.Kind == GateHuman && g.Subject != "" {
+			// A review holds nothing: tell who works on its subject.
+			people, err := w.subjectPeople(ctx, g.Subject)
+			if err != nil {
+				return err
+			}
+			for _, it := range people {
+				it.Kind, it.Issue = InboxGatePassed, g.Subject
+				it.Body = fmt.Sprintf("review gate %s %s by %s: finish %s when its items are met", id, outcome, w.actor.Principal, g.Subject)
+				if err := w.notify(ctx, it); err != nil {
+					return err
+				}
+			}
 		}
 		for _, it := range told {
 			it.Body = fmt.Sprintf("gate %s %s by %s: %s", id, outcome, w.actor.Principal, it.Body)

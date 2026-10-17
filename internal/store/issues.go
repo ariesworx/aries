@@ -378,6 +378,11 @@ func (s *Store) Create(ctx context.Context, actor Actor, in NewIssue) (Created, 
 		if out.Issue, out.Items, err = insertIssue(ctx, w, id, in, meta, true); err != nil {
 			return err
 		}
+		if !in.Template {
+			if err := s.profileGates(ctx, w, id, in.Type); err != nil {
+				return err
+			}
+		}
 		if _, err := setDeclaredPaths(ctx, w, id, declared); err != nil {
 			return err
 		}
@@ -896,10 +901,14 @@ func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force boo
 	if err != nil {
 		return Issue{}, err
 	}
+	reviews, err := reviewWaits(ctx, w.tx, before.ID)
+	if err != nil {
+		return Issue{}, err
+	}
 	var extra map[string]any
-	if open := openItems(items); len(open) > 0 || len(waits) > 0 {
+	if open := openItems(items); len(open) > 0 || len(waits) > 0 || len(reviews) > 0 {
 		if !force {
-			return Issue{}, &AcceptanceError{ID: before.ID, Open: open, Checks: waits}
+			return Issue{}, &AcceptanceError{ID: before.ID, Open: open, Checks: waits, Reviews: reviews}
 		}
 		extra = map[string]any{}
 		if len(open) > 0 {
@@ -911,6 +920,13 @@ func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force boo
 				names[i] = wt.Check
 			}
 			extra["checks_overridden"] = names
+		}
+		if len(reviews) > 0 {
+			gates := make([]IssueID, len(reviews))
+			for i, r := range reviews {
+				gates[i] = r.Gate
+			}
+			extra["reviews_overridden"] = gates
 		}
 	}
 	c, err := loadClaim(ctx, w.tx, before.ID)
