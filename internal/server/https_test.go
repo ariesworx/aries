@@ -157,10 +157,25 @@ func wsDial(t *testing.T, u string, pool *x509.CertPool, header http.Header) (*w
 }
 
 // prove runs the key proof on c as aries does, offering signer's key for
-// the server at offered, and signing with sign (signer itself when nil).
+// the server at offered, and signing with sign (signer itself when nil)
+// the v2 transcript, bound to c's TLS session when the challenge asks.
 // It returns the server's refusal, a welcome frame with its error, or
 // nil once the proof is sent.
 func prove(t *testing.T, c *wsconn.Conn, offered string, signer, sign ssh.Signer) *proto.Frame {
+	t.Helper()
+	return proveAs(t, c, offered, signer, sign, 2, nil)
+}
+
+// proveV1 is prove as v0.5.0's aries, of protocol 8, proves: the v1
+// transcript, whatever the challenge asks.
+func proveV1(t *testing.T, c *wsconn.Conn, offered string, signer ssh.Signer) *proto.Frame {
+	t.Helper()
+	return proveAs(t, c, offered, signer, nil, 1, nil)
+}
+
+// proveAs is prove with the transcript of version v, bound to exporter
+// where the challenge asks, or to c's TLS session's when it is nil.
+func proveAs(t *testing.T, c *wsconn.Conn, offered string, signer, sign ssh.Signer, v int, exporter []byte) *proto.Frame {
 	t.Helper()
 	if sign == nil {
 		sign = signer
@@ -179,11 +194,33 @@ func prove(t *testing.T, c *wsconn.Conn, offered string, signer, sign ssh.Signer
 	if err != nil {
 		t.Fatalf("the answer to the key offer: %v (%q)", err, m)
 	}
-	sig, err := keyproof.Sign(sign, offered, ch.Nonce)
+	if v == 1 {
+		sig, err := keyproof.Sign(sign, offered, ch.Nonce)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Write(keyproof.NewProof(sig)); err != nil {
+			t.Fatalf("send the key proof: %v", err)
+		}
+		return nil
+	}
+	switch ch.Bind {
+	case keyproof.BindTLSExporter:
+		if exporter == nil {
+			if exporter, err = keyproof.Exporter(c.TLS()); err != nil {
+				t.Fatalf("the challenge asks for the TLS exporter: %v", err)
+			}
+		}
+	case keyproof.BindNone:
+		exporter = nil
+	default:
+		t.Fatalf("the challenge asks for the binding %q", ch.Bind)
+	}
+	sig, err := keyproof.SignV2(sign, offered, ch.Nonce, exporter)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Write(keyproof.NewProof(sig)); err != nil {
+	if err := c.Write(keyproof.NewProofV2(sig)); err != nil {
 		t.Fatalf("send the key proof: %v", err)
 	}
 	return nil
@@ -204,8 +241,14 @@ func hello(t *testing.T, c *wsconn.Conn) *proto.Frame { return helloTo(t, c, pro
 // helloTo is hello for project proj.
 func helloTo(t *testing.T, c *wsconn.Conn, proj string) *proto.Frame {
 	t.Helper()
+	return helloProto(t, c, proj, proto.Proto)
+}
+
+// helloProto is helloTo from a client of protocol p.
+func helloProto(t *testing.T, c *wsconn.Conn, proj string, p int) *proto.Frame {
+	t.Helper()
 	s := wsconn.Stream(c)
-	if err := proto.NewEncoder(s).Encode(&proto.Frame{T: proto.FrameHello, Proto: proto.Proto, Project: proj, Session: "s-h", Machine: "m"}); err != nil {
+	if err := proto.NewEncoder(s).Encode(&proto.Frame{T: proto.FrameHello, Proto: p, Project: proj, Session: "s-h", Machine: "m"}); err != nil {
 		t.Fatalf("send the hello: %v", err)
 	}
 	_ = c.SetReadDeadline(time.Now().Add(patience))

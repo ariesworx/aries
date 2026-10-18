@@ -83,6 +83,17 @@ type HTTPS struct {
 	// Nil looks where sshd would ([Server.keyOwner]); a test's world sets
 	// its own, as its SSH server has.
 	Keys func(ssh.PublicKey) (principal, fingerprint string, ok bool)
+	// Exporter reads the tls-exporter a key proof on r is bound to, where
+	// TLS is set. Nil reads r's own TLS session, as ariesd does; a test's
+	// world sets its own, as its front terminates the client's TLS and
+	// stands for a network with no one between.
+	Exporter func(r *http.Request) ([]byte, error)
+	// RefuseKeyProofV1 refuses the key proof of protocol 8's aries
+	// (https: refuse_key_proof_v1), whose transcript binds nothing of the
+	// TLS session: until it is set, a relay with a certificate the
+	// client trusts can still take a v1 proof from a client of protocol
+	// 8 (keyproof's doc). This aries never signs one.
+	RefuseKeyProofV1 bool
 }
 
 // DefaultPing is how often an HTTPS connection is pinged by default.
@@ -389,7 +400,7 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 	var perr *proto.Error
 	var reason string
 	if in == nil {
-		given, perr, reason = w.prove(c)
+		given, perr, reason = w.prove(c, w.exporter(r))
 		// Counted before the refusal or the welcome is written, so that a
 		// client that has read either finds it counted.
 		switch {
@@ -442,10 +453,34 @@ func (w *web) connect(rw http.ResponseWriter, r *http.Request) {
 	pings.Wait()
 }
 
-// prove runs the key proof on c within upgrade_timeout. It returns the
-// bridge frame the proof makes, or a refusal with a word for why, or
-// neither when the client left or said nothing in time.
-func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
+// inspectedFix is the fix of a proof refused for its TLS session: the
+// client's key is right, but it signed for another TLS session than the
+// server's end of this one, which is what something that terminates
+// TLS between them makes it do.
+const inspectedFix = "something between you and the server terminates TLS, such as a proxy that inspects TLS: connect where nothing inspects it, or have the server's name exempted from inspection, or use SSH where the server has it (ARIES_TRANSPORT=ssh); if nothing should stand between, do not connect"
+
+// exporter is the tls-exporter of r's TLS session where ariesd
+// terminates TLS, and nil where it does not or the session exports none.
+func (w *web) exporter(r *http.Request) []byte {
+	if w.h.TLS == nil {
+		return nil
+	}
+	read := w.h.Exporter
+	if read == nil {
+		read = func(r *http.Request) ([]byte, error) { return keyproof.Exporter(r.TLS) }
+	}
+	b, err := read(r)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// prove runs the key proof on c within upgrade_timeout, bound to the
+// TLS session's exporter where ariesd terminates TLS (keyproof's doc).
+// It returns the bridge frame the proof makes, or a refusal with a word
+// for why, or neither when the client left or said nothing in time.
+func (w *web) prove(c *wsconn.Conn, exporter []byte) (*proto.Frame, *proto.Error, string) {
 	_ = c.SetDeadline(time.Now().Add(time.Duration(w.s.cfg.Limits.UpgradeTimeout)))
 	// A peer that has proved nothing is held to the proof's own bound,
 	// not ws_message_bytes: it cannot make the server read, or hold, a
@@ -494,20 +529,28 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 			"send your public key to the aries admin, who adds it with `aries admin key add NAME FILE.pub`; `aries whoami` lists the keys aries offers",
 			fmt.Sprintf("the server knows none of the keys offered (%d)", len(offer.Keys))), "unknown_key"
 	}
+	// Where ariesd terminates TLS, the proof is bound to the session's
+	// exporter, which the client reads from its end. Should the session
+	// export none (TLS 1.2 without the extended master secret, which no
+	// Go client leaves out), the challenge still asks for it and no v2
+	// proof verifies: asking for none would let a relay ask the same.
+	bind := keyproof.BindNone
+	if w.h.TLS != nil {
+		bind = keyproof.BindTLSExporter
+	}
 	nonce := keyproof.NewNonce()
-	if err := c.Write(keyproof.NewChallenge(key, nonce)); err != nil {
+	if err := c.Write(keyproof.NewChallenge(key, nonce, bind)); err != nil {
 		return nil, nil, ""
 	}
 	if m, err = c.Read(); err != nil {
 		return nil, nil, ""
 	}
-	sig, err := keyproof.ParseProof(m)
+	proof, err := keyproof.ParseProof(m)
 	if err != nil {
 		return nil, proto.Errf(proto.CodeInvalid, proto.FixUpgrade+" aries to match the server", fmt.Sprintf("expected the key proof: %v", err)), "invalid"
 	}
-	if err := keyproof.Verify(offer.Keys[key], offer.URL, nonce, sig); err != nil {
-		return nil, proto.Errf(proto.CodeAuth, "check that the key file aries reads is the private half of the key it offers; `aries whoami` names it",
-			"the key proof does not verify"), "bad_proof"
+	if perr, reason := w.verify(offer, key, nonce, bind, exporter, proof); perr != nil {
+		return nil, perr, reason
 	}
 	if disabled {
 		return nil, disabledErr(principal), telemetry.ProofDisabled
@@ -518,6 +561,49 @@ func (w *web) prove(c *wsconn.Conn) (*proto.Frame, *proto.Error, string) {
 	_ = c.SetDeadline(time.Time{})
 	c.SetMax(w.s.cfg.Limits.WSMessageBytes)
 	return &proto.Frame{T: proto.FrameBridge, Principal: principal, Key: fingerprint}, nil, ""
+}
+
+// verify checks proof, by the offer's key at index key, of nonce,
+// against the binding the challenge asked for and the server's exporter
+// of the session (nil where it has none). A v1 proof binds nothing, and
+// is taken from protocol 8's aries until refuse_key_proof_v1; a v2
+// proof must be bound where bind asks, and unbound where it does not.
+// A v2 proof that verifies only unbound, where the server asked for a
+// binding, was made by a client whose challenge someone changed: both
+// that and a proof of another session are refused with inspectedFix.
+func (w *web) verify(offer keyproof.Offer, key int, nonce []byte, bind string, exporter []byte, proof keyproof.Proof) (*proto.Error, string) {
+	pub := offer.Keys[key]
+	badKey := proto.Errf(proto.CodeAuth, "check that the key file aries reads is the private half of the key it offers; `aries whoami` names it",
+		"the key proof does not verify")
+	if proof.V == 1 {
+		if w.h.RefuseKeyProofV1 {
+			return proto.Errf(proto.CodeVersion, "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`",
+				"this server takes only a key proof bound to the TLS session, which aries signs from protocol 9 on"), telemetry.ProofInvalid
+		}
+		if keyproof.Verify(pub, offer.URL, nonce, proof.Sig) != nil {
+			return badKey, telemetry.ProofBadProof
+		}
+		return nil, ""
+	}
+	if bind == keyproof.BindNone {
+		if keyproof.VerifyV2(pub, offer.URL, nonce, nil, proof.Sig) != nil {
+			return badKey, telemetry.ProofBadProof
+		}
+		return nil, ""
+	}
+	if exporter != nil && keyproof.VerifyV2(pub, offer.URL, nonce, exporter, proof.Sig) == nil {
+		return nil, ""
+	}
+	switch {
+	case keyproof.VerifyV2(pub, offer.URL, nonce, nil, proof.Sig) == nil:
+		return proto.Errf(proto.CodeAuth, inspectedFix,
+			"the key proof is bound to no TLS session: someone between you and the server changed the server's challenge"), telemetry.ProofBadProof
+	case exporter == nil:
+		return proto.Errf(proto.CodeAuth, "connect with TLS 1.3, or TLS 1.2 with the extended master secret, as aries does; "+inspectedFix,
+			"this TLS session exports no channel binding, so no key proof can be bound to it"), telemetry.ProofBadProof
+	}
+	return proto.Errf(proto.CodeAuth, "check that the key file aries reads is the private half of the key it offers (`aries whoami` names it); if it is, "+inspectedFix,
+		"the key proof does not verify for this TLS session"), telemetry.ProofBadProof
 }
 
 // keyOwner finds whose pub is as sshd would take it (decision 26): by

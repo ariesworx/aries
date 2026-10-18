@@ -826,6 +826,7 @@ https:
       key: /etc/aries/tls/key.pem
     proxy:
       trusted: [127.0.0.1]
+  refuse_key_proof_v1: false        # true refuses v0.5.0's aries's key proof
 ```
 
 - **`listen`** is `HOST:PORT`; `:443` listens on every address. A port
@@ -837,6 +838,11 @@ https:
 - **Only the `tls:` block of the mode is read.** `ariesd serve` refuses
   to start with HTTPS on and `https:` unset, naming both fixes: set it,
   or `transports: [ssh]`.
+- **`refuse_key_proof_v1`** refuses the key proof of `aries` of
+  protocol 8 (v0.5.0), which binds nothing of the TLS session (below).
+  Off by default, so that those clients keep working until `ProtoMin`
+  moves to 9; set it once every client is v0.6.0 or later. A client it
+  refuses is told, with code `version`, to run `aries upgrade`.
 
 ### How aries signs in over HTTPS
 
@@ -857,6 +863,17 @@ bytes, and the key signs them with the server's URL; the server checks
 the signature, and that the URL is one of `public_urls`. A proof cannot
 be replayed on another connection, since the challenge is that
 connection's, nor relayed to another server, since its URL is signed.
+Where ariesd terminates TLS (`tls: files` or `acme`), the proof is also
+bound to the TLS session (RFC 9266 `tls-exporter`), so that whoever
+stands between with a certificate the client trusts cannot relay it to
+ariesd: a proof made on another TLS session is refused with
+`the key proof does not verify for this TLS session`, and a fix that
+names a proxy that inspects TLS, the usual cause, and says to connect
+where nothing inspects it, to have the server's name exempted, or to
+use SSH. Behind a proxy (`tls: proxy`) nothing is bound, since ariesd
+never sees the client's session. v0.5.0's `aries`, of protocol 8, binds
+nothing either, and is served until `refuse_key_proof_v1` is set
+([security-model.md](security-model.md#the-https-listener)).
 The connection is then the key's principal's, with the key's
 fingerprint as a connection through the keys file has it: removing the
 key, disabling the principal or ending its membership closes it, as it
@@ -1201,6 +1218,13 @@ then be true, and what ariesd cannot check:
   idle for 60 keeps them; `idle_timeout` counts frames, not pings.
 - **`public_urls` names what clients use,** the proxy's URL. A proxy
   that serves Aries under a path strips it.
+- **The key proof is not bound to the TLS session** behind a proxy:
+  ariesd never sees the client's session, and nginx exports no channel
+  binding, so the proxy's certificate is what stands between a client
+  and a relay ([security-model.md](security-model.md#the-https-listener)).
+  Use `mode: proxy` behind one: a proxy that re-encrypts to an ariesd
+  with `mode: files` is, to ariesd, a second TLS session, and
+  `aries` from v0.6.0 on is refused there.
 - **The limits per address are the proxy's.** Every connection comes
   from it, so `https_conns_per_addr`, `auth_failures_per_minute` and
   `signins_pending_per_addr` do not apply behind one, and ariesd does
@@ -2828,6 +2852,7 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `control_schema` | The schema of the control store, in the database `dsn` names and as its role. Setting it makes this a server of [many projects](#serving-many-projects), each in a schema ariesd names `project_NAME` ([Opt in](#opt-in), step 3). A lowercase letter, then lowercase letters, digits and underscores; not the schema `dsn` names, and not starting `project_` | none: one project | `ARIESD_CONTROL_SCHEMA` |
 | `transports` | What `serve` serves: `[https]`, `[https, ssh]` or `[ssh]` ([SSH on and off](#ssh-on-and-off)). With SSH off, ariesd writes no keys file and refuses the bridge | `[https]` | |
 | `https` | The HTTPS listener: `listen`, `public_urls` and `tls` ([The HTTPS listener](#the-https-listener)). Required when `transports` names `https` | none | |
+| `https.refuse_key_proof_v1` | Refuse the key proof of `aries` of protocol 8 (v0.5.0), which is not bound to the TLS session ([How aries signs in over HTTPS](#how-aries-signs-in-over-https)). Set it once every client is v0.6.0 or later; it is off until `ProtoMin` moves to 9 | `false` | |
 | `keys_file` | With `control_schema` and SSH on: the file ariesd writes the control store's keys to, for sshd ([Keys from the store](#keys-from-the-store)). A relative path is under the home directory of the user ariesd runs as | `.ssh/aries_keys` | `ARIESD_KEYS_FILE` |
 | `authorized_keys` | With `control_schema`: the hand-maintained file sshd reads beside it. ariesd only reads it, to say which keys are in both. Never the same file as `keys_file` | `.ssh/authorized_keys` | `ARIESD_AUTHORIZED_KEYS` |
 | `bridge` | With `control_schema`: the path of ariesd in the forced command of each line of `keys_file`. Absolute, of letters, digits and `._+-` | `/usr/local/bin/ariesd` | `ARIESD_BRIDGE` |

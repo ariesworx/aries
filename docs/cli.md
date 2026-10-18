@@ -636,12 +636,13 @@ Only a write replayed from the outbox is treated so: a `finish` or
 `handoff` you run while the server answers is refused, as always, when
 another session has taken the issue since your epoch.
 
-**A server of another protocol.** `aries` speaks protocol 9, and a
-server of this release serves clients of 8 and 9. A server that does
-not accept 9, such as v0.5.0's, refuses the connection with `version`
-(exit code 3) and says which side to upgrade: have the server upgraded
-first. What waits in the outbox stays there, unsent and not refused,
-until a server that speaks 9 is reached.
+**A server of another protocol.** `aries` speaks protocol 9 (v0.6.0),
+and a server of this release serves clients of 8 and 9, so v0.5.0's
+`aries` keeps working against it. A server that does not accept 9,
+such as v0.5.0's, refuses the connection with `version` (exit code 3)
+and says which side to upgrade: have the server upgraded first. What
+waits in the outbox stays there, unsent and not refused, until a server
+that speaks 9 is reached.
 
 **What counts as not reached.** The connection could not be made (the
 network, the tunnel, sshd, or `ariesd` not running), it was lost

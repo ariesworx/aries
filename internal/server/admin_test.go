@@ -1040,7 +1040,7 @@ func TestOpenProjectsRecovers(t *testing.T) {
 
 // A released client, or a build of a protocol no release spoke, is
 // refused at the handshake, before any request: the protocol settled at
-// 8, spoken alone (decisions 78 and 88). What it reads is the server's
+// 8 for v0.5.0 (decisions 78 and 88), and 9 keeps 8's clients. What it reads is the server's
 // to choose, since a released client prints the welcome's error as it
 // is: that the client is the side to upgrade, and how.
 func TestReleasedClientsRefused(t *testing.T) {

@@ -55,8 +55,8 @@
 // §16.4), and takes the ids and the flags of the context and nothing
 // else: the tracestate is never put on a span or a log line.
 //
-// v0.5.0 speaks protocol 8 alone; this build speaks 9 and serves 8 too
-// (Proto, ProtoMin, ProtoMax). A client whose protocol
+// v0.5.0 speaks protocol 8 alone; this build (v0.6.0's protocol) speaks
+// 9 and serves 8 too (Proto, ProtoMin, ProtoMax). A client whose protocol
 // version is outside [min,max] gets a welcome carrying err with code
 // "version", whose fix says which side to upgrade (CheckProto), and the
 // connection closes; a client refused so says hello in no other version. The health check of `ariesd

@@ -22,9 +22,15 @@ import (
 // 10). TestReleasedClients pins which clients are refused, and what each
 // is told.
 //
-// Protocol 9 is the first bump since v0.5.0: handoff takes ticked and
-// waived (HandoffArgs), which a protocol 8 server refuses as unknown
-// fields and a protocol 8 client never sends.
+// Protocol 9 is v0.6.0's, the first bump since v0.5.0; a release raises
+// the protocol once, and later changes before it ships join it. Two
+// changes make it: handoff takes ticked and waived (HandoffArgs), which
+// a protocol 8 server refuses as unknown fields and a protocol 8 client
+// never sends; and the HTTPS key proof is bound to the TLS session where
+// ariesd terminates TLS (internal/keyproof), its client signing the v2
+// transcript alone. The server still takes protocol 8's v1 proof, and so
+// 8's clients, until ProtoMin moves to 9; https: refuse_key_proof_v1
+// refuses them sooner.
 //
 // A refused client is told which side to upgrade (CheckProto). A client
 // older than the server prints the message and fix the server sends, as

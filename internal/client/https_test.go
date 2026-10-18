@@ -1,6 +1,7 @@
 package client
 
 import (
+	"cmp"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,6 +40,14 @@ type fakeHTTPS struct {
 	// after the key proof, before the hello is read, as the server's
 	// handshake refuses a disabled principal; the fake then hangs up.
 	refuseAfterProof *proto.Error
+	// bind is the binding the challenge asks for: the TLS exporter, as
+	// ariesd that terminates TLS asks, when empty. old makes the fake
+	// v0.5.0's ariesd instead: it asks for none, takes v1 alone, and
+	// speaks protocol 8.
+	bind string
+	old  bool
+	// proofs counts the proofs the fake was sent.
+	proofs atomic.Int32
 }
 
 func newFakeHTTPS(t *testing.T, edit func(*fakeHTTPS)) *fakeHTTPS {
@@ -99,12 +109,32 @@ func (f *fakeHTTPS) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nonce := keyproof.NewNonce()
-	_ = c.Write(keyproof.NewChallenge(key, nonce))
+	bind := cmp.Or(f.bind, keyproof.BindTLSExporter)
+	if f.old {
+		bind = ""
+	}
+	_ = c.Write(keyproof.NewChallenge(key, nonce, bind))
 	if m, err = c.Read(); err != nil {
 		return
 	}
-	sig, err := keyproof.ParseProof(m)
-	if err != nil || keyproof.Verify(offer.Keys[key], offer.URL, nonce, sig) != nil {
+	f.proofs.Add(1)
+	p, err := keyproof.ParseProof(m)
+	if err == nil {
+		switch {
+		case f.old:
+			err = keyproof.Verify(offer.Keys[key], offer.URL, nonce, p.Sig)
+		case p.V != 2:
+			err = errors.New("this aries signs v2")
+		case bind == keyproof.BindTLSExporter:
+			var exporter []byte
+			if exporter, err = keyproof.Exporter(r.TLS); err == nil {
+				err = keyproof.VerifyV2(offer.Keys[key], offer.URL, nonce, exporter, p.Sig)
+			}
+		default:
+			err = keyproof.VerifyV2(offer.Keys[key], offer.URL, nonce, nil, p.Sig)
+		}
+	}
+	if err != nil {
 		refuse(proto.Errf(proto.CodeAuth, "check your key", "the key proof does not verify"))
 		return
 	}
@@ -384,5 +414,57 @@ func TestDialHTTPSRefusedBeforeTheHello(t *testing.T) {
 		if !errors.As(err, &pe) || pe.Code != proto.CodeForbidden || pe.Message != "carol is disabled on this server" {
 			t.Fatalf("Dial to a server that refused before the hello = %v, want its refusal", err)
 		}
+	}
+}
+
+// aries proves its key by the v2 transcript, bound to its own TLS
+// session where the challenge asks for the exporter, and unbound where
+// it asks for none (behind a proxy). A challenge that asks for no
+// binding at all is v0.5.0's ariesd's, of protocol 8, or one someone
+// between changed: aries signs nothing for it, so no signature it makes
+// is a v1 proof a relay could take elsewhere, and says the server is
+// older. One that asks for a binding aries does not know says aries is.
+func TestDialHTTPSBinds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		edit    func(*fakeHTTPS)
+		code    proto.Code // empty when served
+		message string
+		fix     string
+	}{
+		{name: "the TLS exporter"},
+		{name: "none", edit: func(f *fakeHTTPS) { f.bind = keyproof.BindNone }},
+		{name: "an older server", edit: func(f *fakeHTTPS) { f.old = true }, code: proto.CodeVersion,
+			message: "asks for no TLS binding", fix: "ariesd upgrade"},
+		{name: "a binding aries does not know", edit: func(f *fakeHTTPS) { f.bind = "tls-unique" }, code: proto.CodeVersion,
+			message: `"tls-unique"`, fix: "aries upgrade"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFakeHTTPS(t, tc.edit)
+			cfg, getenv, pub := httpsUser(t, f, false, "")
+			f.known[ssh.FingerprintSHA256(pub)] = "alice"
+			c, err := Dial(t.Context(), cfg, dialOpts(getenv))
+			if tc.code == "" {
+				if err != nil {
+					t.Fatalf("Dial with a challenge that asks for %s = %v", tc.name, err)
+				}
+				_ = c.Close()
+				return
+			}
+			if err == nil {
+				_ = c.Close()
+				t.Fatalf("Dial with a challenge that asks for %s succeeded", tc.name)
+			}
+			pe, ok := errors.AsType[*proto.Error](err)
+			if !ok || pe.Code != tc.code || !strings.Contains(pe.Message, tc.message) || !strings.Contains(pe.Fix, tc.fix) {
+				t.Errorf("Dial with a challenge that asks for %s = %v; want %s naming %q, with a fix naming %q", tc.name, err, tc.code, tc.message, tc.fix)
+			}
+			if n := f.proofs.Load(); n != 0 {
+				t.Errorf("aries sent %d proofs for a challenge that asks for %s, want none", n, tc.name)
+			}
+		})
 	}
 }

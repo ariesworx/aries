@@ -394,9 +394,13 @@ and what a test that passes there does not do.
     decisions 78 and 88): until v0.5.0 ships, a change joins 8 without a
     bump, and from v0.5.0 on the bump above applies to every change,
     since `aries upgrade` installs v0.5.0 and a released client must
-    keep working against a newer server (decision 93). Protocol 9, the
-    first bump (`handoff` takes `ticked` and `waived`), has `Proto` and
-    `ProtoMax` 9 and `ProtoMin` 8. v1.0.0 is held
+    keep working against a newer server (decision 93). From v0.5.0 on,
+    the protocol is raised once per release: the first change after a
+    release raises `Proto` and `ProtoMax`, and later changes before that
+    release ships join it, with `ProtoMin` at the last released version.
+    Protocol 9 is v0.6.0's (`Proto = ProtoMax = 9`, `ProtoMin = 8`):
+    `handoff` takes `ticked` and `waived`, and the HTTPS key proof is
+    bound to the TLS session. v1.0.0 is held
     as long as possible, and the releases before it are minor versions.
     There is no step-down: a client or server of another version is
     refused at the handshake. Keep the protocol number out of routine

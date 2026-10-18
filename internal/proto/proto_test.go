@@ -169,7 +169,8 @@ func TestCheckProto(t *testing.T) {
 // reads, with exit code 3: which side is too old, the version the server
 // needs, and that the client is the one to upgrade. From v0.5.0 on, rule
 // 10's bump keeps ProtoMin at the version before, and a client that is
-// then refused must be added here deliberately.
+// then refused must be added here deliberately. Protocol 9 (v0.6.0)
+// keeps serving v0.5.0's clients, of protocol 8.
 func TestReleasedClients(t *testing.T) {
 	t.Parallel()
 	const fix = "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`"
@@ -200,7 +201,7 @@ func TestReleasedClients(t *testing.T) {
 		})
 	}
 	if Proto != 9 || ProtoMin != 8 || ProtoMax != 9 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 9, 8, 9: protocol 9 added ticked and waived to handoff, and ProtoMin stays at v0.5.0's 8. A bump raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 9, 8, 9: protocol 9, v0.6.0's, added ticked and waived to handoff and bound the key proof to the TLS session, and ProtoMin stays at v0.5.0's 8. One bump per release raises Proto and ProtoMax and keeps ProtoMin at the last released version: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 

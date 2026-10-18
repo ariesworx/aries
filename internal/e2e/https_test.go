@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -52,7 +53,11 @@ func (w *world) overHTTPS() bool { return w.opts.https || suiteTransport == "htt
 // TLS of its own. Relaying message by message is what lets the world
 // drop a connection at a response (dropReplyTo), or leave one out
 // (silentAfter), as its sshd's tap does. The daemon checks key proofs
-// against the front's URL, which is what clients use.
+// against the front's URL, which is what clients use, and binds them
+// to the client's TLS session with the front, whose exporter the front
+// hands the daemon (frontExporter): the front stands for the network
+// between a client and a daemon that terminates TLS, not for a relay,
+// which the binding refuses (internal/server's TestHTTPSProofRelayed).
 type front struct {
 	url  string // https://127.0.0.1:PORT, what users' server.url names
 	ca   string // the CA's certificate in PEM, users' server.ca
@@ -139,7 +144,17 @@ func (w *world) daemonHTTPS() (*server.HTTPS, error) {
 	w.web.mu.Lock()
 	w.web.upstream = l.Addr().String()
 	w.web.mu.Unlock()
-	return &server.HTTPS{Listener: l, TLS: w.web.tls, URLs: []string{w.web.url}, Keys: w.httpsKey}, nil
+	return &server.HTTPS{Listener: l, TLS: w.web.tls, URLs: []string{w.web.url}, Keys: w.httpsKey, Exporter: frontExporter}, nil
+}
+
+// exporterHeader carries the exporter of a client's TLS session with
+// the front to the daemon, which only a test's daemon reads.
+const exporterHeader = "X-E2e-Exporter"
+
+// frontExporter is the daemon's tls-exporter of a key proof on r: the
+// client's session with the front, as the front passed it on.
+func frontExporter(r *http.Request) ([]byte, error) {
+	return hex.DecodeString(r.Header.Get(exporterHeader))
 }
 
 // httpsKey finds whose a key is as the world's sshd does (startSSH): by
@@ -190,6 +205,9 @@ func (w *world) relay(wg *sync.WaitGroup, rw http.ResponseWriter, r *http.Reques
 			if v := r.Header.Get(k); v != "" {
 				h.Set(k, v)
 			}
+		}
+		if exporter, err := keyproof.Exporter(r.TLS); err == nil {
+			h.Set(exporterHeader, hex.EncodeToString(exporter))
 		}
 		up, resp, err = wsconn.Dial(r.Context(), "wss://"+upstream+keyproof.ConnectPath, &tls.Config{RootCAs: f.pool, MinVersion: tls.VersionTLS12}, h, 0)
 	}

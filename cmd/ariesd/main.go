@@ -408,7 +408,8 @@ func listenHTTPS(ctx context.Context, s server.Settings, log *slog.Logger, tel *
 	if err != nil {
 		return nil, fmt.Errorf("https: listen on %s: %w; fix: free the port, or set https: listen: to another, and when it is below 1024 give ariesd CAP_NET_BIND_SERVICE (docs/server.md, The HTTPS listener)", s.HTTPS.Listen, err)
 	}
-	return &server.HTTPS{Listener: l, TLS: lt.TLS, Trusted: trusted, URLs: s.HTTPS.PublicURLs, Mode: lt.Mode, NotAfter: lt.NotAfter}, nil
+	return &server.HTTPS{Listener: l, TLS: lt.TLS, Trusted: trusted, URLs: s.HTTPS.PublicURLs, Mode: lt.Mode, NotAfter: lt.NotAfter,
+		RefuseKeyProofV1: s.HTTPS.RefuseKeyProofV1}, nil
 }
 
 // hooks are what runDaemon adds to the daemon openDaemonWith builds.

@@ -68,14 +68,43 @@ func dialHTTPS(ctx context.Context, cfg *Config, opts Options, id *identity) (*C
 	if err != nil || ch.Key >= len(id.signers) {
 		return fail(proto.Errf(proto.CodeVersion, proto.FixUpgrade+" aries to match the server", fmt.Sprintf("the server answered the key offer with what this aries does not read (%v)", err)))
 	}
-	sig, err := keyproof.Sign(id.signers[ch.Key], u, ch.Nonce)
+	exporter, err := binding(ws, far, ch.Bind)
+	if err != nil {
+		return fail(err)
+	}
+	sig, err := keyproof.SignV2(id.signers[ch.Key], u, ch.Nonce, exporter)
 	if err != nil {
 		return fail(proto.Errf(proto.CodeAuth, fmt.Sprintf("name another key with %s", EnvKeyFile), fmt.Sprintf("the key %s could not sign the server's challenge: %v", id.keys[ch.Key].Fingerprint, err)))
 	}
-	if err := ws.Write(keyproof.NewProof(sig)); err != nil {
+	if err := ws.Write(keyproof.NewProofV2(sig)); err != nil {
 		return fail(gone(ctx, far, "take the key proof", err, opts))
 	}
 	return greet(ctx, ws, cfg, opts)
+}
+
+// binding is what the key proof on ws is bound to, as the challenge's
+// bind asks: the exporter of aries's own TLS session, or nothing behind
+// a proxy (keyproof's doc). A challenge that asks for no binding at all
+// is a server's older than protocol 9, or one someone between changed;
+// aries signs nothing for it, since the only proof such a server takes
+// (v1) is one a relay could take to any server that still accepts it.
+func binding(ws *wsconn.Conn, far, bind string) ([]byte, error) {
+	switch bind {
+	case keyproof.BindTLSExporter:
+		exporter, err := keyproof.Exporter(ws.TLS())
+		if err != nil {
+			return nil, proto.Errf(proto.CodeAuth, "connect over TLS 1.3, or TLS 1.2 with the extended master secret; if something between you and the server terminates TLS, connect where nothing does",
+				fmt.Sprintf("the server at %s asks for a key proof bound to the TLS session: %v", far, err))
+		}
+		return exporter, nil
+	case keyproof.BindNone:
+		return nil, nil
+	case "":
+		return nil, proto.Errf(proto.CodeVersion, "ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server",
+			fmt.Sprintf("aries speaks protocol %d; the server at %s asks for no TLS binding of the key proof, as one older than protocol 9 does (or something between you changed its challenge)", proto.Proto, far))
+	}
+	return nil, proto.Errf(proto.CodeVersion, "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md)",
+		fmt.Sprintf("the server at %s asks for a key proof bound by %q, which this aries does not know", far, bind))
 }
 
 // dialSignedIn is Dial over HTTPS with a sign-in (transport.md §5.4):
