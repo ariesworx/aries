@@ -5,11 +5,13 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestEveryConnectingPackageIsIsolated reads the module's tests: a
@@ -246,4 +248,31 @@ func TestIsolateGit(t *testing.T) {
 	if got := os.Getenv("GIT_CONFIG_NOSYSTEM"); got != "" {
 		t.Errorf("GIT_CONFIG_NOSYSTEM after restore = %q, want what it was", got)
 	}
+}
+
+// SilentPort accepts and never answers while the test runs, and resets
+// the connections waiting in its backlog when it ends.
+func TestSilentPort(t *testing.T) {
+	t.Parallel()
+	var c net.Conn
+	t.Run("open", func(t *testing.T) {
+		var err error
+		if c, err = net.Dial("tcp", SilentPort(t)); err != nil {
+			t.Fatal(err)
+		}
+		_ = c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		if n, err := c.Read(make([]byte, 1)); n != 0 || !isTimeout(err) {
+			t.Fatalf("read %d bytes, err %v: want a timeout, as the port never answers", n, err)
+		}
+	})
+	defer func() { _ = c.Close() }()
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Read(make([]byte, 1)); err == nil || isTimeout(err) {
+		t.Fatalf("the connection was not ended when the test ended: %v", err)
+	}
+}
+
+func isTimeout(err error) bool {
+	ne, ok := err.(net.Error)
+	return ok && ne.Timeout()
 }

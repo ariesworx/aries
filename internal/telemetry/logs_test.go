@@ -18,6 +18,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -466,21 +467,20 @@ func TestDeadCollectorLogs(t *testing.T) {
 	}
 	closedAddr := closed.Addr().String()
 	_ = closed.Close()
-	silent, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = silent.Close() })
 
 	const lines = 20000
-	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", silent.Addr().String()}} {
+	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", ""}} {
 		t.Run(tc.name, func(t *testing.T) {
 			noLeak(t)
+			addr := tc.addr
+			if addr == "" {
+				addr = clienttest.SilentPort(t)
+			}
 			out := &syncBuffer{}
 			h := logs.NewHandler(slog.NewTextHandler(out, nil), IDs)
 			log := slog.New(h)
 			tel, err := New(t.Context(), Config{Logger: log, Ops: testOps, Pull: true, KeyFile: filepath.Join(t.TempDir(), "principals.key"), Getenv: env{
-				"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://" + tc.addr + "/v1/logs", "OTEL_LOGS_EXPORTER": "otlp",
+				"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://" + addr + "/v1/logs", "OTEL_LOGS_EXPORTER": "otlp",
 				"OTEL_BLRP_SCHEDULE_DELAY": "20", "OTEL_BLRP_EXPORT_TIMEOUT": "150", "OTEL_EXPORTER_OTLP_TIMEOUT": "150",
 				"OTEL_BLRP_MAX_QUEUE_SIZE": "256", "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE": "64",
 			}.get})

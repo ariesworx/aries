@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/logs"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -998,15 +999,14 @@ func TestDeadCollector(t *testing.T) {
 	}
 	closedAddr := closed.Addr().String()
 	_ = closed.Close()
-	silent, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = silent.Close() }) // accepts in the backlog, and never reads or answers
 
-	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", silent.Addr().String()}} {
+	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", ""}} {
 		t.Run(tc.name, func(t *testing.T) {
 			noLeak(t)
+			addr := tc.addr
+			if addr == "" {
+				addr = clienttest.SilentPort(t)
+			}
 			log := &syncBuffer{}
 			// An export to the listener that never answers lasts its
 			// timeout, a minute here, and the first starts 20 ms in: a
@@ -1014,7 +1014,7 @@ func TestDeadCollector(t *testing.T) {
 			const exportTimeout = time.Minute
 			ms := fmt.Sprint(exportTimeout.Milliseconds())
 			tel, err := New(t.Context(), Config{Logger: logTo(log), Ops: testOps, PerProject: true, Getenv: env{
-				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + tc.addr, "OTEL_METRIC_EXPORT_INTERVAL": "20",
+				"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + addr, "OTEL_METRIC_EXPORT_INTERVAL": "20",
 				"OTEL_METRIC_EXPORT_TIMEOUT": ms, "OTEL_EXPORTER_OTLP_TIMEOUT": ms,
 			}.get})
 			if err != nil {

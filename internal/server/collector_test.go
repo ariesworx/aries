@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/telemetry"
 )
@@ -90,11 +91,6 @@ func TestDeadCollector(t *testing.T) {
 	closedAddr := closed.Addr().String()
 	_ = closed.Close()
 	// Connections queue in the listener's backlog and are never read.
-	silent, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = silent.Close() })
 
 	// side is one server and a connection to it, with how long its
 	// rounds took.
@@ -173,11 +169,15 @@ func TestDeadCollector(t *testing.T) {
 	})
 	for _, tc := range []struct{ name, endpoint string }{
 		{"a closed port", closedAddr},
-		{"a listener that never answers", silent.Addr().String()},
+		{"a listener that never answers", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			noLeak(t)
-			off, dead := start(t, ""), start(t, tc.endpoint)
+			addr := tc.endpoint
+			if addr == "" {
+				addr = clienttest.SilentPort(t)
+			}
+			off, dead := start(t, ""), start(t, addr)
 			turns(t, off, dead)
 			stop(t, off)
 			heap, log := stop(t, dead), dead.log.String()

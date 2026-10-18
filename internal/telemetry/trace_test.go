@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -612,19 +613,18 @@ func TestDeadCollectorTraces(t *testing.T) {
 	}
 	closedAddr := closed.Addr().String()
 	_ = closed.Close()
-	silent, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = silent.Close() })
 
 	const spans = 20000
-	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", silent.Addr().String()}} {
+	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", ""}} {
 		t.Run(tc.name, func(t *testing.T) {
 			noLeak(t)
+			addr := tc.addr
+			if addr == "" {
+				addr = clienttest.SilentPort(t)
+			}
 			log := &syncBuffer{}
 			tel, err := New(t.Context(), Config{Logger: logTo(log), Ops: testOps, Pull: true, Getenv: env{
-				"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://" + tc.addr + "/v1/traces",
+				"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://" + addr + "/v1/traces",
 				"OTEL_BSP_SCHEDULE_DELAY":            "20", "OTEL_BSP_EXPORT_TIMEOUT": "150", "OTEL_EXPORTER_OTLP_TIMEOUT": "150",
 				"OTEL_BSP_MAX_QUEUE_SIZE": "256", "OTEL_BSP_MAX_EXPORT_BATCH_SIZE": "64",
 			}.get})

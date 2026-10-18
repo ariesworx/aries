@@ -19,7 +19,9 @@ package clienttest
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"testing"
 )
 
 // Isolate gives the process an empty home directory of its own and no
@@ -88,4 +90,22 @@ func setenv(set map[string]string) (restore func()) {
 			}
 		}
 	}
+}
+
+// SilentPort returns the address of a loopback listener that accepts
+// connections into its backlog and never reads or answers, until t ends.
+//
+// Close it before the test checks for leaked goroutines, which a cleanup
+// registered after that check does: an exporter's HTTP transport keeps a
+// connection it dialed after its request gave up, in the idle pool for
+// 90 seconds, and its two goroutines with it. Closing the listener
+// resets the connections waiting in its backlog, which ends them.
+func SilentPort(t testing.TB) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("clienttest: %v", err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	return l.Addr().String()
 }
