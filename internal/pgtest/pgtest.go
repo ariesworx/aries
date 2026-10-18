@@ -64,6 +64,13 @@ import (
 // their tests. Start never returns it when RequireEnv is set.
 var ErrNoPostgres = errors.New("postgres and initdb not found on PATH")
 
+// ErrOutOfIPC means Postgres could not get System V shared memory or
+// semaphores, because the machine is out of them: too many servers, of
+// this run or of others, are running, or killed ones left theirs. Start
+// wraps it; running fewer test binaries at once, or removing what was
+// left, is the fix. pgtest never changes the system's limits.
+var ErrOutOfIPC = errors.New("pgtest: the machine is out of System V shared memory or semaphores (shmget or semget failed with ENOSPC)")
+
 // RequireEnv names the environment variable that makes a missing
 // Postgres a failure rather than a skip. CI sets it to 1, so a test that
 // needs Postgres can never pass by skipping.
@@ -169,7 +176,7 @@ func Start(ctx context.Context, dir string) (*Server, error) {
 	initdb := exec.CommandContext(ctx, filepath.Join(bin, "initdb"), "-D", s.data(), "-U", superuser, "-A", "trust", //nolint:gosec // initdb from PATH
 		"--locale=C", "-E", "UTF8", "--no-sync", "--no-instructions")
 	if out, err := initdb.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("pgtest: initdb: %w: %s", err, out)
+		return nil, errors.Join(fmt.Errorf("pgtest: initdb: %w: %s", err, out), outOfIPC(string(out)))
 	}
 	if err := s.launch(ctx); err != nil {
 		return nil, err
@@ -287,7 +294,7 @@ END $$`); err != nil {
 		}
 		select {
 		case err := <-exit:
-			return fmt.Errorf("pgtest: postgres exited early (see %s/server.log): %v", s.dir, err)
+			return startFailure(err, filepath.Join(s.dir, "server.log"))
 		case <-ctx.Done():
 			return errors.Join(ctx.Err(), s.Stop())
 		case <-time.After(50 * time.Millisecond):
@@ -296,6 +303,34 @@ END $$`); err != nil {
 			return errors.Join(errors.New("pgtest: server not ready after 30s"), s.Stop())
 		}
 	}
+}
+
+// startFailure is the error for a postgres that exited before it took a
+// connection, err being how it exited: it shows the end of the server's
+// log, and when that says the machine is out of System V shared memory
+// or semaphores, wraps [ErrOutOfIPC] and says what to do.
+func startFailure(err error, logPath string) error {
+	b, _ := os.ReadFile(logPath) //nolint:gosec // the caller's directory
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	tail := strings.Join(lines[max(0, len(lines)-10):], "\n")
+	failure := fmt.Errorf("pgtest: postgres exited early (%v); %s ends:\n%s", err, logPath, tail)
+	return errors.Join(failure, outOfIPC(tail))
+}
+
+// outOfIPC returns [ErrOutOfIPC] with the fix when out, the output of
+// initdb or the end of a server's log, says a System V call failed for
+// want of room, and nil otherwise. Postgres reports it as "could not
+// create shared memory segment" or "could not create semaphores", with
+// "No space left on device" and the failed call: shmget, or semget.
+func outOfIPC(out string) error {
+	failedCall := false
+	for _, marker := range []string{"shmget", "semget", "could not create shared memory segment", "could not create semaphores"} {
+		failedCall = failedCall || strings.Contains(out, marker)
+	}
+	if !failedCall || !strings.Contains(out, "No space left on device") {
+		return nil
+	}
+	return fmt.Errorf("%w; fix: run fewer test binaries at once (a pool runs up to %d servers, each holding shared memory and semaphores), or remove what killed ones left (ipcs -m and ipcs -s list them, ipcrm removes one); on macOS the number of segments is kern.sysv.shmmni, 32 unless changed, and pgtest never changes it", ErrOutOfIPC, PoolLimit)
 }
 
 // dsn is the DSN of role on database db, over the socket.
