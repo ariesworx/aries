@@ -347,3 +347,61 @@ func TestAwaitingLanding(t *testing.T) {
 		t.Errorf("Dates().Landing once landed = %+v, %v; want none", d.Landing, err)
 	}
 }
+
+// An agent that hands off with state done, its met items ticked, is the
+// whole of what the closing pass needs: landed then closes the issue as
+// landed, with no finish or accept after it. Ticks and waivers go in the
+// handoff's own write, and need state done.
+func TestHandoffTicksLetLandedClose(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	is := startedUnder(t, s, "handed off with ticks")
+	h := HandoffNote{Note: "https://example.com/pr/3", HandoffFields: HandoffFields{State: HandoffDone}}
+	h.Accept = Acceptance{Tick: []int{1}}
+	if _, err := s.HandoffIssue(ctx, alice, is.ID, 0, h, false, "", nil); err != nil {
+		t.Fatalf("HandoffIssue with ticks = %v; want it recorded", err)
+	}
+	if got := itemStates(t, s, is.ID); len(got) < 2 || got[0] != ItemTicked || got[1] != ItemOpen {
+		t.Errorf("items after the handoff = %v; want item 1 ticked and the landed item open", got)
+	}
+	if _, err := s.PassCheck(ctx, ciJob, landed(is.ID)); err != nil {
+		t.Fatalf("PassCheck: %v", err)
+	}
+	if got := mustShow(t, s, is.ID); got.Status != StatusClosed || got.CloseReason != "landed" {
+		t.Errorf("after landed = %s (%q); want closed, landed", got.Status, got.CloseReason)
+	}
+}
+
+// A handoff waives an item with a reason as a finish does.
+func TestHandoffWaivesItem(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	is := startedUnder(t, s, "waived at handoff")
+	h := HandoffNote{Note: "n", HandoffFields: HandoffFields{State: HandoffDone}}
+	h.Accept = Acceptance{Waive: map[int]string{1: "no PR needed"}}
+	if _, err := s.HandoffIssue(t.Context(), alice, is.ID, 0, h, false, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := itemStates(t, s, is.ID); got[0] != ItemWaived {
+		t.Errorf("items after the handoff = %v; want item 1 waived", got)
+	}
+}
+
+// Ticks in a handoff of any other state are refused, and a handoff that
+// is refused ticks nothing.
+func TestHandoffTicksNeedDone(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	is := startedUnder(t, s, "ticks before done")
+	for _, state := range []HandoffState{"", HandoffPartial, HandoffBlocked} {
+		h := HandoffNote{Note: "n", HandoffFields: HandoffFields{State: state}}
+		h.Accept = Acceptance{Tick: []int{1}}
+		if _, err := s.HandoffIssue(t.Context(), alice, is.ID, 0, h, false, "", nil); !errors.Is(err, ErrInvalid) {
+			t.Errorf("HandoffIssue with ticks and state %q = %v; want ErrInvalid", state, err)
+		}
+	}
+	if got := itemStates(t, s, is.ID); got[0] != ItemOpen {
+		t.Errorf("items after refused handoffs = %v; want item 1 open", got)
+	}
+}

@@ -270,10 +270,15 @@ window's in `digest`.
   workflow, and `aries admin workflow set` refuses an agent's session.
   Where the workflow requires a check such as `landed`, `finish` is
   refused (`acceptance`) until the check passes: the agent calls
-  `handoff` with state `done` and the pull request's link instead, and
-  CI's pass closes the issue, or, with an item still open then, says so
-  in the agent's `inbox`, after which `finish` with the items ticked
-  closes it. `prime` lists such issues as `awaiting landing`, with what
+  `handoff` with state `done`, the pull request's link and `ticked`
+  (the items it met, and `waived` with a reason for any it will not)
+  instead, which settles those items in the handoff's own write, and
+  CI's pass then closes the issue with nothing more from the agent. If
+  an item is still open then, the pass says so in the agent's `inbox`,
+  after which `finish` with the items ticked closes it. `ticked` and
+  `waived` on `handoff` need state `done`; before protocol 9 (v0.5.0)
+  only `finish` took them, so an agent that handed off without them left
+  its issue open after landing. `prime` lists such issues as `awaiting landing`, with what
   each waits for ([Required checks](concepts.md#the-workflow)).
   Where it requires a review, `finish` is refused the same way until a
   person passes the review gate from their own terminal: the agent

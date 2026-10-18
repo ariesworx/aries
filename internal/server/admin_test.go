@@ -1057,9 +1057,9 @@ func TestReleasedClientsRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocol 8", tc.proto)
+			want := fmt.Sprintf("aries speaks protocol %d; the server (v0.2.0) needs protocols 8 to 9", tc.proto)
 			if w.T != proto.FrameWelcome || w.Err == nil || w.Err.Code != proto.CodeVersion || w.Err.Message != want || w.Err.Fix != fix ||
-				w.Min != 8 || w.Max != 8 {
+				w.Min != 8 || w.Max != 9 {
 				t.Fatalf("a protocol %d hello = %+v (%+v)\nwant a welcome refusing it with code version, %q\nfix %q", tc.proto, w, w.Err, want, fix)
 			}
 		})

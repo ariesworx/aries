@@ -175,7 +175,7 @@ func nextStep(pe *proto.Error) string {
 			return "do not call finish again now: a review is a person's act at their own terminal; tell the user the issue waits for the approvers named above, hand off with state: done if you stop, and never run aries gate yourself"
 		}
 		if strings.HasPrefix(pe.Fix, proto.FixLand) {
-			return "do not call finish again now: call handoff with state: done and the pull request's link in the note; the check's pass closes the issue, or, if items are still open then, your inbox says so and finish with them ticked closes it"
+			return "do not call finish again now: call handoff with state: done, the pull request's link in the note and ticked: [the items you met] (waived: {number: reason} for the rest); the check's pass then closes the issue, or, if items are still open, your inbox says so and finish with them ticked closes it"
 		}
 		return "call finish with ticked: [numbers met] and waived: {number: reason} for the rest; show lists the items"
 	case proto.CodeForbidden:

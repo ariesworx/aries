@@ -442,6 +442,9 @@ types:
   a required check makes it, in the report's write, reported by the
   workflow's `ci` principals, and a report by anyone else is refused. A
   pass ticks the items bound to its check; an agent may tick them too.
+  An agent settles the rest before the merge, in its handoff: `handoff`
+  with state `done` takes `ticked` and `waived` as `finish` does (the
+  CLI's `aries accept` does the same), so the pass finds no item open.
   When a pass leaves every required check passed, no item open and no
   open gate holding the issue, the same write closes it, as the
   reporter, with the reason `landed`, ending any claim, and tells the

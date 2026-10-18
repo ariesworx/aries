@@ -196,3 +196,20 @@ func TestClientIgnoresUnknownResultFields(t *testing.T) {
 		t.Errorf("start's result %s decoded without its newer field: %+v, %v", f.OK, old, err)
 	}
 }
+
+// A protocol 8 client, which has no ticked or waived on handoff, is
+// welcomed, and its handoff is served as it was (rule 10): the request
+// is decoded with unknown fields refused and has none of the new ones.
+func TestProtocol8ClientHandsOff(t *testing.T) {
+	t.Parallel()
+	s := newServer(t)
+	is := mustCall[proto.WriteResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
+	w, c := handshakeProto(t, s, alice, proto.ProtoMin)
+	if w.T != proto.FrameWelcome || w.Err != nil {
+		t.Fatalf("hello at protocol %d = %+v, want a welcome", proto.ProtoMin, w)
+	}
+	id := c.send(proto.OpHandoff, json.RawMessage(`{"id":"`+string(is.ID)+`","note":"n","state":"done"}`))
+	if f := c.read(); f.T != proto.FrameRes || f.ID != id || f.Err != nil {
+		t.Fatalf("a protocol 8 handoff = %+v, want it served", f)
+	}
+}
