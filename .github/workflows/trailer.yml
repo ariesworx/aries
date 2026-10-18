@@ -1,0 +1,55 @@
+# The Aries: trailer check (internal/tools/trailer; CONTRIBUTING.md,
+# "The Aries: trailer").
+#
+# main takes squash merges whose message is the pull request's commit
+# messages, so `aries land` finds a merged pull request's issue only
+# through an `Aries: ID` trailer in one of them. On a pull request this
+# check fails unless the commits from the base to the head, merges left
+# out, carry such a trailer and every one names the same issue.
+#
+# A pull request with the label no-issue is exempt, and only someone with
+# write access can add a label, so the workflow also runs when a label is
+# added or removed. Dependabot's pull requests are skipped, as cla.yml
+# skips them: a bot's update has no Aries issue. Both exemptions are in
+# this file, and the maintainer controls it.
+#
+# It runs on pull_request, with a read-only token and the pull request's
+# own checkout: a pull request that changes the tool is reviewed like any
+# other change. Making it a required check is a setting of the "Protect
+# main" ruleset, the maintainer's. A required check must report in the
+# merge queue too, so the workflow also runs on merge_group, where the job
+# is skipped (the trailer was checked on the pull request before it could
+# be queued) and GitHub counts a skipped required check as passing.
+name: trailer
+on:
+  merge_group:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+permissions:
+  contents: read
+concurrency:
+  group: trailer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  trailer:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every commit from the base to the head.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go at go.mod's toolchain line
+        uses: ./.github/actions/go-toolchain
+      - name: Check the trailer
+        env:
+          GOFLAGS: -mod=readonly
+        run: go run ./internal/tools/trailer --exempt-label no-issue
