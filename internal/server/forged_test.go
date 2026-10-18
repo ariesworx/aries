@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/ariesworx/aries/internal/keyproof"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/wsconn"
@@ -71,8 +73,11 @@ func (f forgery) apply(r *http.Request) {
 // can, and then relays bytes both ways: to target over TLS with tc, or
 // in plain when tc is nil. wsconn.Dial cannot set Host itself (net/http
 // writes the URL's), so a WebSocket with a forged Host goes through
-// this. It returns the relay's address.
-func forger(t *testing.T, target string, tc *tls.Config, f forgery) string {
+// this. Over TLS, it sends the exporter of each session it opens on
+// exporters, which a proof made through it is bound to: the forger
+// stands for a client that writes its own request, whose TLS session
+// with ariesd it is. It returns the relay's address.
+func forger(t *testing.T, target string, tc *tls.Config, f forgery, exporters chan<- []byte) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -86,13 +91,13 @@ func forger(t *testing.T, target string, tc *tls.Config, f forgery) string {
 			if err != nil {
 				return
 			}
-			wg.Go(func() { relayForged(c, target, tc, f) })
+			wg.Go(func() { relayForged(c, target, tc, f, exporters) })
 		}
 	})
 	return l.Addr().String()
 }
 
-func relayForged(c net.Conn, target string, tc *tls.Config, f forgery) {
+func relayForged(c net.Conn, target string, tc *tls.Config, f forgery, exporters chan<- []byte) {
 	defer func() { _ = c.Close() }()
 	br := bufio.NewReader(c)
 	r, err := http.ReadRequest(br)
@@ -109,6 +114,12 @@ func relayForged(c net.Conn, target string, tc *tls.Config, f forgery) {
 		if t.Handshake() != nil {
 			return
 		}
+		cs := t.ConnectionState()
+		exporter, err := keyproof.Exporter(&cs)
+		if err != nil {
+			return
+		}
+		exporters <- exporter
 		up = t
 	}
 	f.apply(r)
@@ -126,17 +137,21 @@ func relayForged(c net.Conn, target string, tc *tls.Config, f forgery) {
 // 127.0.0.1 alone), logging to log; and how to reach it.
 type forgedListener struct {
 	s      *Server
-	public string                 // the URL clients have, and a proof must name
-	addr   string                 // the listener's address
-	tc     *tls.Config            // TLS to the listener; nil behind a proxy
-	pool   *x509.CertPool         // trusts the listener's certificate, in direct mode
-	log    *syncBuffer            // the server's log
-	via    func(f forgery) string // a forger's ws:// URL to the listener
+	public string                                          // the URL clients have, and a proof must name
+	addr   string                                          // the listener's address
+	tc     *tls.Config                                     // TLS to the listener; nil behind a proxy
+	pool   *x509.CertPool                                  // trusts the listener's certificate, in direct mode
+	log    *syncBuffer                                     // the server's log
+	via    func(f forgery, exporters chan<- []byte) string // a forger's ws:// URL to the listener
+	// bound is the exporter of the TLS session the forger of each
+	// connection opened to the listener, in direct mode.
+	mu    sync.Mutex
+	bound map[*wsconn.Conn][]byte
 }
 
 func newForgedListener(t *testing.T, mode string, lim Limits) *forgedListener {
 	t.Helper()
-	fl := &forgedListener{log: &syncBuffer{}}
+	fl := &forgedListener{log: &syncBuffer{}, bound: map[*wsconn.Conn][]byte{}}
 	cfg := Config{Limits: lim, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice")), Logger: slogTo(fl.log)}
 	u, pool := listenHTTPS(t, &cfg, func(h *HTTPS) {
 		if mode == "proxy" {
@@ -150,16 +165,36 @@ func newForgedListener(t *testing.T, mode string, lim Limits) *forgedListener {
 	}
 	fl.s, _ = newServerConfig(t, cfg, nil)
 	serving(t, fl.s)
-	fl.via = func(f forgery) string { return "ws://" + forger(t, fl.addr, fl.tc, f) + keyproof.ConnectPath }
+	fl.via = func(f forgery, exporters chan<- []byte) string {
+		return "ws://" + forger(t, fl.addr, fl.tc, f, exporters) + keyproof.ConnectPath
+	}
 	return fl
+}
+
+// prove is prove through a forger: bound, in direct mode, to the TLS
+// session the forger opened for c.
+func (fl *forgedListener) prove(t *testing.T, c *wsconn.Conn, offered string, signer ssh.Signer) *proto.Frame {
+	t.Helper()
+	fl.mu.Lock()
+	exporter := fl.bound[c]
+	fl.mu.Unlock()
+	return proveAs(t, c, offered, signer, nil, 2, exporter)
 }
 
 // dial opens /v1/connect through a forger of f.
 func (fl *forgedListener) dial(t *testing.T, f forgery) (*wsconn.Conn, *http.Response, error) {
 	t.Helper()
-	c, resp, err := wsconn.Dial(t.Context(), fl.via(f), nil, nil, 0)
+	exporters := make(chan []byte, 1)
+	c, resp, err := wsconn.Dial(t.Context(), fl.via(f, exporters), nil, nil, 0)
 	if err == nil {
 		t.Cleanup(func() { _ = c.Close() })
+		if fl.tc != nil {
+			// The forger opened its TLS session before it sent the
+			// upgrade, which Dial has the answer to.
+			fl.mu.Lock()
+			fl.bound[c] = <-exporters
+			fl.mu.Unlock()
+		}
 	}
 	return c, resp, err
 }
@@ -181,7 +216,7 @@ func TestForgedHeadersKeyProof(t *testing.T) {
 					if err != nil {
 						t.Fatalf("dial with a forged %s: %v", f.name, err)
 					}
-					if r := prove(t, c, fl.public, signerOf(t, "alice"), nil); r != nil {
+					if r := fl.prove(t, c, fl.public, signerOf(t, "alice")); r != nil {
 						t.Fatalf("alice's proof for %s, with a forged %s: refused %v", fl.public, f.name, r.Err)
 					}
 					if w := hello(t, c); w.Err != nil || w.Principal != "alice" {
@@ -198,7 +233,7 @@ func TestForgedHeadersKeyProof(t *testing.T) {
 						if strings.HasPrefix(named, "https://") {
 							want = proto.CodeAuth
 						}
-						r := prove(t, c, named, signerOf(t, "alice"), nil)
+						r := fl.prove(t, c, named, signerOf(t, "alice"))
 						if r == nil || r.Err.Code != want || strings.Contains(r.Err.Fix, forgedHost) ||
 							want == proto.CodeAuth && !strings.Contains(r.Err.Fix, fl.public) {
 							t.Errorf("a proof for %s with a forged %s: %+v; want refused %s, with a fix that names %s and not the forged host", named, f.name, r, want, fl.public)
@@ -226,13 +261,13 @@ func TestForgedHeadersLog(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if r := prove(t, c, fl.public, signerOf(t, "mallory"), nil); r == nil {
+			if r := fl.prove(t, c, fl.public, signerOf(t, "mallory")); r == nil {
 				t.Fatal("mallory's key was not refused")
 			}
 			if c, _, err = fl.dial(t, all); err != nil {
 				t.Fatal(err)
 			}
-			if r := prove(t, c, "https://"+forgedHost, signerOf(t, "alice"), nil); r == nil {
+			if r := fl.prove(t, c, "https://"+forgedHost, signerOf(t, "alice")); r == nil {
 				t.Fatal("a proof for the forged host was not refused")
 			}
 			origin := forgery{name: "Origin", host: forgedHost, header: all.header.Clone()}
@@ -279,7 +314,7 @@ func TestForgedHeadersLimits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if r := prove(t, c, fl.public, signerOf(t, "mallory"), nil); r == nil {
+			if r := fl.prove(t, c, fl.public, signerOf(t, "mallory")); r == nil {
 				t.Fatal("mallory's key was not refused")
 			}
 		}
@@ -311,7 +346,7 @@ func TestForgedHeadersLimits(t *testing.T) {
 			if err != nil {
 				t.Fatalf("behind a proxy, a connection was refused by a limit per address: %v", err)
 			}
-			if r := prove(t, c, fl.public, signerOf(t, "mallory"), nil); r == nil {
+			if r := fl.prove(t, c, fl.public, signerOf(t, "mallory")); r == nil {
 				t.Fatal("mallory's key was not refused")
 			}
 			held = append(held, c)
@@ -322,7 +357,7 @@ func TestForgedHeadersLimits(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the claimed address after 3 refusals: %v; want served", err)
 		}
-		if r := prove(t, c, fl.public, signerOf(t, "alice"), nil); r != nil {
+		if r := fl.prove(t, c, fl.public, signerOf(t, "alice")); r != nil {
 			t.Fatalf("alice's proof, claiming the address mallory claimed: refused %v", r.Err)
 		}
 		if w := hello(t, c); w.Err != nil || w.Principal != "alice" {
@@ -468,7 +503,7 @@ func TestProxyServesOnlyTrusted(t *testing.T) {
 			if served := err == nil; served != tc.ok {
 				t.Errorf("GET /.well-known/aries from 127.0.0.1, trusting %v: served %v (%v), want %v", tc.trusted, served, err, tc.ok)
 			}
-			c, _, err := wsconn.Dial(t.Context(), "ws://"+forger(t, addr, nil, tc.f)+keyproof.ConnectPath, nil, nil, 0)
+			c, _, err := wsconn.Dial(t.Context(), "ws://"+forger(t, addr, nil, tc.f, nil)+keyproof.ConnectPath, nil, nil, 0)
 			if err == nil {
 				defer func() { _ = c.Close() }()
 			}

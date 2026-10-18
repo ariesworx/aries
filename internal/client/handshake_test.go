@@ -151,9 +151,9 @@ func server(lo, hi int) func(*proto.Frame) *proto.Frame {
 }
 
 // TestDialSpeaksOneVersion pins the one version a client of this build
-// speaks, 8, settled for v0.5.0 (decisions 78, 88 and 93): a server whose
+// speaks, 9 since v0.6.0 (decisions 78, 88 and 93): a server whose
 // range holds it welcomes it, a later release among them; any other,
-// a build of 7 alone among them, refuses it with code version, and the
+// v0.5.0's of 8 alone among them, refuses it with code version, and the
 // client takes that refusal as it is, after one hello, rather than say
 // hello again in another version.
 func TestDialSpeaksOneVersion(t *testing.T) {
@@ -163,12 +163,12 @@ func TestDialSpeaksOneVersion(t *testing.T) {
 		lo, hi  int
 		welcome bool
 	}{
-		{"a server of 8", 8, 8, true},
 		{"a server of 8 and 9", 8, 9, true},
-		{"a server of 7 and 8", 7, 8, true},
-		{"a server of 7", 7, 7, false},
-		{"a server of 6 and 7", 6, 7, false},
-		{"a server of 9 and 10", 9, 10, false},
+		{"a server of 9", 9, 9, true},
+		{"a server of 9 and 10", 9, 10, true},
+		{"a server of 8 (v0.5.0)", 8, 8, false},
+		{"a server of 7 and 8", 7, 8, false},
+		{"a server of 10 and 11", 10, 11, false},
 		{"a server of 3 and 4", 3, 4, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,8 +184,8 @@ func TestDialSpeaksOneVersion(t *testing.T) {
 			case err != nil:
 				t.Fatalf("Dial to %s = %v, want it welcomed", tc.name, err)
 			}
-			if !slices.Equal(hellos, []int{8}) || conns != 1 {
-				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want [8] on 1", tc.name, hellos, conns)
+			if !slices.Equal(hellos, []int{9}) || conns != 1 {
+				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want [9] on 1", tc.name, hellos, conns)
 			}
 		})
 	}

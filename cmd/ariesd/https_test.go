@@ -143,11 +143,15 @@ func connectWith(t *testing.T, addr string, pool *x509.CertPool, signer ssh.Sign
 		}
 		return &f
 	}
-	sig, err := keyproof.Sign(signer, url, ch.Nonce)
+	exporter, err := keyproof.Exporter(c.TLS())
+	if err != nil || ch.Bind != keyproof.BindTLSExporter {
+		t.Fatalf("the challenge asks for the binding %q; the session's exporter: %v", ch.Bind, err)
+	}
+	sig, err := keyproof.SignV2(signer, url, ch.Nonce, exporter)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Write(keyproof.NewProof(sig)); err != nil {
+	if err := c.Write(keyproof.NewProofV2(sig)); err != nil {
 		t.Fatal(err)
 	}
 	s := wsconn.Stream(c)
@@ -286,5 +290,34 @@ func TestServeHTTPSAndSSH(t *testing.T) {
 	defer cancel()
 	if _, err := server.Probe(ctx, d.sock, adopted, "test"); err != nil {
 		t.Errorf("the daemon's socket with SSH on: %v", err)
+	}
+}
+
+// https: refuse_key_proof_v1 reaches the listener serve builds, and is
+// off unless set.
+func TestListenHTTPSRefuseKeyProofV1(t *testing.T) {
+	t.Parallel()
+	cert, key, _ := tlsFiles(t)
+	for _, refuse := range []bool{false, true} {
+		body := httpsBlock(cert, key)
+		if refuse {
+			body += "  refuse_key_proof_v1: true\n"
+		}
+		p := filepath.Join(t.TempDir(), "ariesd.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		set, err := server.ResolveSettings(server.Settings{}, p, func(string) string { return "" })
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, err := listenHTTPS(t.Context(), set, slog.New(slog.DiscardHandler), nil)
+		if err != nil {
+			t.Fatalf("listenHTTPS: %v", err)
+		}
+		_ = h.Listener.Close()
+		if h.RefuseKeyProofV1 != refuse {
+			t.Errorf("with refuse_key_proof_v1 %v the listener's RefuseKeyProofV1 = %v", refuse, h.RefuseKeyProofV1)
+		}
 	}
 }

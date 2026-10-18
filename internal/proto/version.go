@@ -22,6 +22,12 @@ import (
 // 10). TestReleasedClients pins which clients are refused, and what each
 // is told.
 //
+// Protocol 9 (v0.6.0) binds the HTTPS key proof to the TLS session where
+// ariesd terminates TLS (internal/keyproof): its client signs the v2
+// transcript alone. Its server still takes protocol 8's v1 proof, and
+// so 8's clients, until ProtoMin moves to 9; https:
+// refuse_key_proof_v1 refuses them sooner.
+//
 // A refused client is told which side to upgrade (CheckProto). A client
 // older than the server prints the message and fix the server sends, as
 // they are, so those words are all a released client can be told; a
@@ -36,9 +42,9 @@ import (
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 8
+	Proto    = 9
 	ProtoMin = 8
-	ProtoMax = 8
+	ProtoMax = 9
 )
 
 // CheckProto returns nil when the client protocol version p is in

@@ -275,6 +275,10 @@ type HTTPSSettings struct {
 	PublicURLs []string `yaml:"public_urls"`
 	// TLS is where the listener's certificate comes from.
 	TLS TLSSettings `yaml:"tls"`
+	// RefuseKeyProofV1 refuses the key proof of protocol 8's aries
+	// (v0.5.0's), which binds nothing of the TLS session: off by
+	// default while ProtoMin is 8, so that those clients keep working.
+	RefuseKeyProofV1 bool `yaml:"refuse_key_proof_v1"`
 }
 
 // TLSSettings are https: tls:. Mode is acme, files or proxy: a

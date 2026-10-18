@@ -139,11 +139,11 @@ func inboxSays(items []proto.InboxItem, kind, issue, what string) bool {
 	return false
 }
 
-// A client speaks protocol 8 alone (decisions 78 and 88): against a
-// server of 7 alone it is refused at the handshake with exit code 3 and
-// a fix, rather than say hello again in 7, and what it queued while the
-// server was away waits, unsent and not refused, until a server of 8
-// takes it.
+// A client speaks one protocol alone (decisions 78 and 88), 9 since
+// v0.6.0: against a server of 7 alone it is refused at the handshake
+// with exit code 3 and a fix, rather than say hello again in 7, and what
+// it queued while the server was away waits, unsent and not refused,
+// until a server of 9 takes it.
 func TestServerOfAnotherProtocol(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})
@@ -157,7 +157,7 @@ func TestServerOfAnotherProtocol(t *testing.T) {
 	w.opts.protoMin, w.opts.protoMax = 7, 7
 	w.start()
 	r := alice.run("v0.2.0", "ready")
-	if r.code != cli.ExitVersion || !strings.Contains(r.stderr, "aries speaks protocol 8; the server (") ||
+	if r.code != cli.ExitVersion || !strings.Contains(r.stderr, "aries speaks protocol 9; the server (") ||
 		!strings.Contains(r.stderr, "is older and accepts protocol 7") || !strings.Contains(r.stderr, "\nfix: ") {
 		t.Errorf("against a server of 7 alone = exit %d, %q; want refused at the handshake with version and a fix", r.code, r.stderr)
 	}

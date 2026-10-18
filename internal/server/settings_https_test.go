@@ -71,8 +71,10 @@ func TestResolveSettingsHTTPS(t *testing.T) {
 		{name: "files", body: files, check: func(s Settings) bool {
 			h := s.HTTPS
 			return h.Listen == ":443" && h.TLS.Mode == "files" && h.TLS.Files.Cert == "/etc/aries/tls/cert.pem" &&
-				slices.Equal(h.PublicURLs, []string{"https://aries.example.com"}) && h.TLS.MinVersion == "1.2"
+				slices.Equal(h.PublicURLs, []string{"https://aries.example.com"}) && h.TLS.MinVersion == "1.2" && !h.RefuseKeyProofV1
 		}},
+		{name: "refusing the v1 key proof", body: files + "  refuse_key_proof_v1: true\n",
+			check: func(s Settings) bool { return s.HTTPS.RefuseKeyProofV1 }},
 		{name: "acme", body: "https:\n  listen: \":443\"\n  public_urls: [https://aries.example.com]\n  tls:\n    mode: acme\n    acme:\n      domains: [aries.example.com]\n      email: ops@example.com\n",
 			check: func(s Settings) bool {
 				return s.HTTPS.TLS.ACME.Cache == DefaultACMECache && slices.Equal(s.HTTPS.TLS.ACME.Domains, []string{"aries.example.com"})

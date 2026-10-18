@@ -163,7 +163,7 @@ func TestMessages(t *testing.T) {
 		t.Fatalf("ParseOffer(NewOffer) = %+v, %v", o, err)
 	}
 	nonce := NewNonce()
-	c, err := ParseChallenge(NewChallenge(0, nonce))
+	c, err := ParseChallenge(NewChallenge(0, nonce, ""))
 	if err != nil || c.Key != 0 || string(c.Nonce) != string(nonce) {
 		t.Fatalf("ParseChallenge(NewChallenge) = %+v, %v", c, err)
 	}
@@ -175,7 +175,7 @@ func TestMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseProof(NewProof) = %v", err)
 	}
-	if err := Verify(s.PublicKey(), serverURL, nonce, p); err != nil {
+	if err := Verify(s.PublicKey(), serverURL, nonce, p.Sig); err != nil {
 		t.Errorf("Verify of a proof through its JSON = %v", err)
 	}
 	for _, bad := range []string{`{"t":"key.proof","sig":"AAAA"}`, `{"t":"key.proof"}`, `{"t":"key.challenge","sig":""}`} {
@@ -254,9 +254,10 @@ func FuzzParseOffer(f *testing.F) {
 func FuzzParseProof(f *testing.F) {
 	f.Add([]byte(`{"t":"key.proof","sig":"AAAAC3NzaC1lZDI1NTE5AAAAQA=="}`))
 	f.Add([]byte(`{"t":"key.proof","sig":""}`))
+	f.Add([]byte(`{"t":"key.proof","v":2,"sig":"AAAAC3NzaC1lZDI1NTE5AAAAQA=="}`))
 	f.Fuzz(func(t *testing.T, b []byte) {
 		p, err := ParseProof(b)
-		if err == nil && (p == nil || p.Format == "" || len(p.Blob) == 0) {
+		if err == nil && (p.Sig == nil || p.Sig.Format == "" || len(p.Sig.Blob) == 0 || (p.V != 1 && p.V != 2)) {
 			t.Fatalf("ParseProof(%q) = %+v and no error, want a whole signature", b, p)
 		}
 	})

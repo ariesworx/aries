@@ -60,7 +60,7 @@ Twenty-one findings, one high:
 | L-4 | medium | The per-address limits count each IPv6 address alone, so a /64 has none | read | fixed, #227 |
 | L-5 | low | Nothing bounds the rate of new connections or TLS handshakes from one address | measured | deferred, `aries-bt467whn` (v0.6.0) |
 | K-1 | medium | Over HTTPS, a hand-kept line's `from=`, `expiry-time`, `cert-authority` and `verify-required` are ignored | demonstrated | fixed, #221 |
-| K-2 | medium | The key proof is not bound to the TLS session, so a holder of a certificate the client trusts can relay a proof | read | accepted for v0.5.0 and documented; deferred, `aries-tl2cc2df` (v0.6.0) |
+| K-2 | medium | The key proof is not bound to the TLS session, so a holder of a certificate the client trusts can relay a proof | read | accepted for v0.5.0 and documented; fixed for v0.6.0 where ariesd terminates TLS (protocol 9), `aries-tl2cc2df` |
 | K-3 | low | An ended key's refusal names its principal and end to anyone holding the public key, before any proof | demonstrated | fixed, #223 |
 | W-1 | medium | Before its proof, a WebSocket could make the server allocate 4 MiB per connection | demonstrated | fixed, #234 |
 | W-2 | low | After its proof, a connection's writes have no deadline | read | deferred, `aries-gl5dhcr5` (v0.6.0) |
@@ -326,6 +326,18 @@ review recommended it before v0.5.0, when it would cost nothing in
 compatibility; after v0.5.0 it is a protocol change under rule 10, and
 old clients need a transition in which the binding is optional.
 
+**Fixed for v0.6.0** (`aries-tl2cc2df`, protocol 9). Where ariesd
+terminates TLS, the challenge asks for the `tls-exporter` and a client
+of 9 signs a v2 transcript bound to its session; `TestHTTPSProofRelayed`
+(`internal/server`) relays a proof between two TLS sessions and holds
+its refusal, whose fix names TLS inspection. A client of 9 never signs
+the v1 transcript, so a relay that strips or changes the binding gains
+nothing from it. The transition: the server still takes v1 from
+v0.5.0's clients, which a relay can still take, until `ProtoMin` moves
+to 9, or until an operator sets `https: refuse_key_proof_v1`. Behind a
+proxy nothing changes. [transport.md, As built 17 Oct 2026](transport.md#as-built-17-oct-2026-the-key-proof-bound-to-the-tls-session)
+has the design.
+
 ### W-2 (low): no write deadline after the proof
 
 After the proof, `prove` clears both deadlines and nothing sets a write
@@ -527,7 +539,7 @@ profiles; loading them in enforce mode on a machine is P5's (below).
 | L-4 | flood F-4 | Fixed: `https_addr_prefix_v6` | #227, `aries-2gpal65n` |
 | L-5 | flood F-5 | Deferred to v0.6.0 | `aries-bt467whn` |
 | K-1 | key proof F-1 | Fixed: a conditioned hand-kept line is no one's over HTTPS | #221, `aries-n2kzuhhn` |
-| K-2 | key proof F-2 | Accepted for v0.5.0, documented in security-model.md (#202); deferred to v0.6.0 | `aries-tl2cc2df` |
+| K-2 | key proof F-2 | Accepted for v0.5.0, documented in security-model.md (#202); fixed for v0.6.0 where ariesd terminates TLS, with v0.5.0's clients served until `ProtoMin` is 9 | `aries-tl2cc2df` |
 | K-3 | key proof F-3 | Fixed: an ended key is told so only once proved | #223, `aries-bfdpgsyh` |
 | W-1 | wsconn WS-1 | Fixed: chunked reads, the proof's 64 KiB bound | #234 |
 | W-2 | wsconn WS-2 | Deferred to v0.6.0 | `aries-gl5dhcr5` |

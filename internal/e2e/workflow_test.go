@@ -58,7 +58,7 @@ func itemsOf(u *user, id string) []string {
 // Slice W0's gate (design §21.11): a member's set is refused forbidden,
 // and so is an admin's from an agent's session, and no MCP tool can try;
 // an admin's set at her terminal applies; an agent's create through MCP,
-// and a CLI's, which speaks protocol 8 and sends nothing new, get the
+// and a CLI's, which sends nothing new, get the
 // profile's items; a later set changes no existing issue; an agent
 // cannot remove an item except by waiving it; and `aries workflow
 // check` tells the file from the server's.

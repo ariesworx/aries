@@ -618,3 +618,31 @@ func TestSetMax(t *testing.T) {
 		t.Fatalf("Read after SetMax(100) = %d bytes, %v; want 100", len(m), err)
 	}
 }
+
+// A WebSocket dialed over TLS has the session's state, which a caller
+// binds a proof to; one over plain HTTP, or read from buffers, has
+// none.
+func TestTLSState(t *testing.T) {
+	t.Parallel()
+	c := dial(t, echo(t))
+	if cs := c.TLS(); cs == nil || !cs.HandshakeComplete {
+		t.Fatalf("TLS() of a wss connection = %+v, want its completed handshake", cs)
+	}
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, err := Accept(w, r, 0); err == nil {
+			_ = c.Close()
+		}
+	}))
+	t.Cleanup(plain.Close)
+	pc, _, err := Dial(t.Context(), "ws"+strings.TrimPrefix(plain.URL, "http")+"/", nil, nil, 0)
+	if err != nil {
+		t.Fatalf("Dial(ws) = %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if cs := pc.TLS(); cs != nil {
+		t.Errorf("TLS() of a ws connection = %+v, want nil", cs)
+	}
+	if cs := (&Conn{}).TLS(); cs != nil {
+		t.Errorf("TLS() of a Conn with no connection = %+v, want nil", cs)
+	}
+}

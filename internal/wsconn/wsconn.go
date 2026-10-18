@@ -277,6 +277,18 @@ func Dial(ctx context.Context, rawURL string, cfg *tls.Config, header http.Heade
 	return newConn(nc, br, nc, false, maxBytes), resp, nil
 }
 
+// TLS is the state of the TLS session c runs over, or nil when it runs
+// over none: a WebSocket a client dialed over ws, or one whose TLS a
+// proxy terminated. A server reads its end's from the request instead.
+func (c *Conn) TLS() *tls.ConnectionState {
+	tc, ok := c.nc.(*tls.Conn)
+	if !ok {
+		return nil
+	}
+	cs := tc.ConnectionState()
+	return &cs
+}
+
 // TLSError is a TLS handshake that failed in Dial: a certificate that
 // does not verify among the causes, which a caller tells apart from a
 // network that failed.

@@ -525,9 +525,10 @@ it:
 - **The key proof** (decision 89), for a connection with no sign-in. The client offers its
   keys; the server challenges the first it knows with 32 random bytes,
   fresh for the connection; the key signs the challenge, the server's
-  URL and the key itself. The signature cannot be replayed on another
-  connection, and cannot be relayed to another server, whose URL it
-  does not name. The server checks the URL against `public_urls`, its
+  URL, the key itself and, where ariesd terminates TLS, the TLS
+  session's channel binding (below). The signature cannot be replayed
+  on another connection, and cannot be relayed to another server, whose
+  URL it does not name. The server checks the URL against `public_urls`, its
   own configuration, never `Host` or `X-Forwarded-*`, which a proxy may
   rewrite. RSA must sign with SHA-256 or SHA-512. A key is taken as
   sshd would take it: the control store's, unless the hand-maintained
@@ -569,15 +570,43 @@ it:
   certificate itself, since every renewal would break a pin. A
   certificate that does not
   verify stops `aries`, with a fix that says something may stand
-  between you and the server. The key proof is bound to the server's
-  URL and the connection's nonce, not to the TLS session, so the
-  certificate check is what stands between a client and a relay:
+  between you and the server. Where the key proof is not bound to the
+  TLS session (behind a proxy, and from a client of protocol 8; below),
+  the certificate check is what stands between a client and a relay:
   whoever holds a certificate the client trusts for the server's name
   (a certificate issued in error, a CA in `server.ca` whose key leaked,
   or a proxy that terminates TLS) can pass a client's proof on to the
   server and act as that client for that connection. Keep `server.ca`
   to the CA that issues the server's certificate. Over SSH, the pinned
   host key ([below](#the-servers-host-key-is-pinned)) does this job.
+- **Where ariesd terminates TLS, the key proof is bound to the TLS
+  session** (v0.6.0, protocol 9; finding K-2 of the
+  [v0.5.0 security review](design/security-review-v1.md)). With
+  `tls: files` or `tls: acme`, the challenge asks for RFC 9266's
+  `tls-exporter`, and `aries` signs it, the 32 bytes its own TLS session
+  exports, into the proof; ariesd checks the proof against its end of
+  the session. Whoever terminates the client's TLS with a certificate it
+  trusts (one issued in error, a leaked CA of `server.ca`, a proxy that
+  inspects TLS) and opens a session of its own to ariesd has two
+  sessions with two exporters, so the proof it relays is refused, with a
+  fix that names TLS inspection. Changing the challenge to ask for no
+  binding gains nothing: `aries` then signs a proof bound to nothing,
+  which a server that terminates TLS refuses, and it signs nothing for
+  a challenge that names no binding at all, which only a server older
+  than protocol 9 sends. A sign-in's token is bound to the machine's
+  key (DPoP), not to the session, and is unchanged.
+  - **Not covered: a client of protocol 8**, v0.5.0's `aries`, signs a
+    proof that binds nothing, and a server of protocol 9 still takes it,
+    so that those clients keep working: a relay can still take theirs.
+    This window stays open until `ProtoMin` moves to 9; an operator
+    whose clients have all upgraded closes it sooner with `https:
+    refuse_key_proof_v1: true` ([Settings](server.md#settings)).
+  - **Not covered: behind a proxy** (`tls: proxy`), ariesd never sees
+    the client's TLS session, and nginx exports no channel binding, so
+    the challenge asks for none and nothing is bound. The proxy's
+    certificate stays the only defense, as above. A proxy that
+    re-encrypts to an ariesd with `tls: files` is, to ariesd, the relay
+    the binding refuses: behind a proxy, run ariesd with `tls: proxy`.
 - **Nothing on the line is secret to ariesd's log.** A refused proof is
   logged with its reason and the address, sampled per address, never
   with the key's text.
