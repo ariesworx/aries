@@ -201,7 +201,7 @@ func TestReleasedClients(t *testing.T) {
 		})
 	}
 	if Proto != 9 || ProtoMin != 8 || ProtoMax != 9 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 9, 8, 9: protocol 9 binds the key proof (v0.6.0) and keeps serving v0.5.0's 8. A bump raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 9, 8, 9: protocol 9, v0.6.0's, added ticked and waived to handoff and bound the key proof to the TLS session, and ProtoMin stays at v0.5.0's 8. One bump per release raises Proto and ProtoMax and keeps ProtoMin at the last released version: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 
@@ -221,9 +221,11 @@ func TestCheckProtoBothDirections(t *testing.T) {
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
 	}
-	const want8 = "aries speaks protocol 9; the server (v0.5.0) is older and accepts protocol 8"
-	if e := CheckProto(Proto, 8, 8, "v0.5.0"); e == nil || e.Code != CodeVersion || e.Message != want8 || e.Fix != fix {
-		t.Errorf("this client against a v0.5.0 server = %+v\nwant %q\nfix %q", e, want8, fix)
+	// A v0.5.0 server accepts 8 alone: this client is refused at the
+	// handshake with code version, whose fix is the server's upgrade.
+	const want5 = "aries speaks protocol 9; the server (v0.5.0) is older and accepts protocol 8"
+	if e := CheckProto(Proto, 8, 8, "v0.5.0"); e == nil || e.Code != CodeVersion || e.Message != want5 || e.Fix != fix {
+		t.Errorf("this client against a v0.5.0 server = %+v\nwant code version, %q\nfix %q", e, want5, fix)
 	}
 	const want7 = "aries speaks protocol 9; the server (dev) is older and accepts protocol 7"
 	if e := CheckProto(Proto, 7, 7, "dev"); e == nil || e.Code != CodeVersion || e.Message != want7 || e.Fix != fix {

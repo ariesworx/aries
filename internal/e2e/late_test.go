@@ -139,11 +139,11 @@ func inboxSays(items []proto.InboxItem, kind, issue, what string) bool {
 	return false
 }
 
-// A client speaks one protocol alone (decisions 78 and 88), 9 since
-// v0.6.0: against a server of 7 alone it is refused at the handshake
-// with exit code 3 and a fix, rather than say hello again in 7, and what
-// it queued while the server was away waits, unsent and not refused,
-// until a server of 9 takes it.
+// A client speaks protocol 9 (v0.6.0; a server serves 8 to 9): against a
+// server of 7 alone it is refused at the handshake with exit code 3 and
+// a fix, rather than say hello again in 7, and what it queued while the
+// server was away waits, unsent and not refused, until a server of 9
+// takes it.
 func TestServerOfAnotherProtocol(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, daemonOpts{})

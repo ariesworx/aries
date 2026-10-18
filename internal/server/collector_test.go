@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/telemetry"
 )
@@ -83,12 +84,7 @@ func round(t *testing.T, c *conn, i int) {
 func TestDeadCollector(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
 	const rounds = 60
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 	// Connections queue in the listener's backlog and are never read.
 	silent, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

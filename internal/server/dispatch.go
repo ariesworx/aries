@@ -601,6 +601,7 @@ func finish(ctx context.Context, pr *served, a store.Actor, in proto.FinishArgs)
 
 func handoff(ctx context.Context, pr *served, a store.Actor, in proto.HandoffArgs) (any, *proto.Error) {
 	h := storeHandoff(in.Note, in.HandoffFields)
+	h.Accept = store.Acceptance{Tick: in.Ticked, Waive: in.Waived}
 	if in.Park {
 		done, err := pr.store.ReplayHandoff(ctx, a, store.IssueID(in.ID), in.Epoch, h, in.Release, in.Idem, in.Paths)
 		if err != nil {

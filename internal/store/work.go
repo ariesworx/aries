@@ -405,6 +405,14 @@ func (s *Store) handoff(ctx context.Context, actor Actor, id IssueID, epoch int6
 	if err := h.HandoffFields.validate(); err != nil {
 		return handedOff{}, err
 	}
+	if !h.Accept.empty() {
+		if h.State != HandoffDone {
+			return handedOff{}, fmt.Errorf("%w: ticking or waiving items in a handoff needs state done", ErrInvalid)
+		}
+		if err := h.Accept.validate(s.opts.Limits.AcceptanceItems); err != nil {
+			return handedOff{}, err
+		}
+	}
 	paths, err := checkPaths(paths, false)
 	if err != nil {
 		return handedOff{}, err
@@ -453,6 +461,14 @@ func (s *Store) handoff(ctx context.Context, actor Actor, id IssueID, epoch int6
 				return err
 			}
 			if err := endClaim(ctx, w, c); err != nil {
+				return err
+			}
+		}
+		if !h.Accept.empty() {
+			if before.Status == StatusClosed {
+				return &StateError{ID: id, Reason: StateClosed}
+			}
+			if _, err := applyAcceptance(ctx, w, before, h.Accept); err != nil {
 				return err
 			}
 		}

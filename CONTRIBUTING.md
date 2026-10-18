@@ -19,6 +19,23 @@ gives you; it then passes on that and every later pull request. To
 contribute on behalf of a company, contact Ariesworx first (section 6.3
 of the agreement).
 
+## The `Aries:` trailer
+
+`main` takes squash merges whose message is your commits' messages, so
+`aries land` finds the issue a pull request closes only through an
+`Aries: ID` trailer in one of them. The `trailer` check
+(`.github/workflows/trailer.yml`, run by `go run ./internal/tools/trailer`)
+fails a pull request unless a commit from its base to its head, merge
+commits left out, ends with one and every trailer names the same issue.
+To fix a failure, amend a commit (`git commit --amend --trailer "Aries:
+ar-a1b2"`) or push an empty one (`git commit --allow-empty -m "Name the
+issue" --trailer "Aries: ar-a1b2"`); the squash keeps it. If there is no
+Aries issue, as for an outside contribution, ask a maintainer to add the
+label `no-issue`, which only someone with write access can add and which
+exempts the pull request on the record. Dependabot's pull requests are
+skipped by the workflow. [docs/ci.md](docs/ci.md#how-a-job-finds-its-issue)
+says how CI finds the issue after a merge.
+
 ## From a clone to a passing gate
 
 The gate is the set of checks CI runs on every pull request.

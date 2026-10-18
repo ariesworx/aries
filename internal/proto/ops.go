@@ -655,7 +655,8 @@ type CloseResult struct {
 	Closeout []string `json:"closeout,omitempty"`
 }
 
-// HandoffArgs records a handoff note and its fields. Release also lets
+// HandoffArgs records a handoff note and its fields, and with state done
+// settles acceptance items. Release also lets
 // the issue go, so another can start it; To also puts it in that
 // principal's inbox. Idem, an idempotency key, makes a retry return the
 // first result.
@@ -666,6 +667,11 @@ type HandoffArgs struct {
 	Note    string `json:"note"`
 	Release bool   `json:"release,omitempty"`
 	Idem    string `json:"idem,omitempty"`
+	// Ticked and Waived settle acceptance items in the handoff's write,
+	// as FinishArgs' do, and need state done (protocol 9; a protocol 8
+	// client sends neither).
+	Ticked []int          `json:"ticked,omitempty"`
+	Waived map[int]string `json:"waived,omitempty"`
 	// Paths are as FinishArgs'.
 	Paths []string `json:"paths,omitempty"`
 	// Park is as FinishArgs'.

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -606,12 +607,7 @@ func grep(text, sub string) string {
 // take is counted.
 func TestDeadCollectorTraces(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 	silent, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -88,9 +88,37 @@ func (in *CommentIn) prepare() error {
 	return nil
 }
 
+// prepare also checks waived's keys, as FinishIn's does.
 func (in *HandoffIn) prepare() error {
+	if err := checkWaived(in.Waived); err != nil {
+		return err
+	}
 	in.idem = proto.NewIdem("mcp")
 	return nil
+}
+
+// checkWaived checks the keys of waived, which the schema leaves as
+// strings, and converts them to item numbers (nil for none).
+func checkWaived(waived map[string]string) error {
+	for k := range waived {
+		if n, err := strconv.Atoi(k); err != nil || n < 1 || strconv.Itoa(n) != k {
+			return proto.Errf(proto.CodeInvalid, "", fmt.Sprintf("waived key %q is not an acceptance item number", k))
+		}
+	}
+	return nil
+}
+
+// waivedItems converts waived, whose keys checkWaived accepted.
+func waivedItems(waived map[string]string) map[int]string {
+	var out map[int]string
+	for k, r := range waived {
+		n, _ := strconv.Atoi(k)
+		if out == nil {
+			out = map[int]string{}
+		}
+		out[n] = r
+	}
+	return out
 }
 
 // The update, dep and label inputs take a key too, so that a call that
@@ -113,10 +141,8 @@ func (in *LabelIn) prepare() error {
 
 // prepare also checks waived's keys, which the schema leaves as strings.
 func (in *FinishIn) prepare() error {
-	for k := range in.Waived {
-		if n, err := strconv.Atoi(k); err != nil || n < 1 || strconv.Itoa(n) != k {
-			return proto.Errf(proto.CodeInvalid, "", fmt.Sprintf("waived key %q is not an acceptance item number", k))
-		}
+	if err := checkWaived(in.Waived); err != nil {
+		return err
 	}
 	in.idem = proto.NewIdem("mcp")
 	return nil
@@ -254,6 +280,9 @@ type HandoffIn struct {
 	ID      string `json:"id"`
 	Note    string `json:"note"`
 	Release bool   `json:"release,omitempty" jsonschema:"let others start it"`
+	// Ticked and Waived settle items, with state done.
+	Ticked []int             `json:"ticked,omitempty"`
+	Waived map[string]string `json:"waived,omitempty" jsonschema:"item: reason"`
 	HandoffFieldsIn
 
 	idem string
@@ -573,14 +602,7 @@ func (s *Server) register() {
 		enums: enums{"discovered.type": issueTypes, "state": states}},
 		func(ctx context.Context, c Conn, in FinishIn) (Finished, error) {
 			args := proto.FinishArgs{ID: in.ID, Epoch: s.claims.epoch(in.ID), Reason: in.Reason, Handoff: in.Handoff,
-				HandoffFields: in.wire(), Ticked: in.Ticked, Idem: in.idem, Paths: s.paths(ctx, in.ID)}
-			for k, r := range in.Waived {
-				n, _ := strconv.Atoi(k) // checked by prepare
-				if args.Waived == nil {
-					args.Waived = map[int]string{}
-				}
-				args.Waived[n] = r
-			}
+				HandoffFields: in.wire(), Ticked: in.Ticked, Waived: waivedItems(in.Waived), Idem: in.idem, Paths: s.paths(ctx, in.ID)}
 			for _, d := range in.Discovered {
 				args.Discovered = append(args.Discovered, proto.Discovered{Title: d.Title, Type: d.Type, Priority: d.Priority})
 			}
@@ -603,7 +625,7 @@ func (s *Server) register() {
 		func(ctx context.Context, c Conn, in HandoffIn) (Handed, error) {
 			var out proto.HandoffResult
 			args := proto.HandoffArgs{ID: in.ID, Note: in.Note, Release: in.Release, HandoffFields: in.wire(), Idem: in.idem,
-				Paths: s.paths(ctx, in.ID)}
+				Ticked: in.Ticked, Waived: waivedItems(in.Waived), Paths: s.paths(ctx, in.ID)}
 			if in.Release {
 				args.Epoch = s.claims.epoch(in.ID)
 			}

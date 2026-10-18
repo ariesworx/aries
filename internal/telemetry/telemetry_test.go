@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/logs"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -992,12 +993,7 @@ func TestExportFailsWhileNewMakesTheInstruments(t *testing.T) {
 // neither a recording nor a stop.
 func TestDeadCollector(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 	silent, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
