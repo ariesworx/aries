@@ -178,13 +178,14 @@ func TestReleasedClients(t *testing.T) {
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocol 8"},
-		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocol 8"},
-		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocol 8"},
-		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocol 8"},
-		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocol 8"},
-		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocol 8"},
-		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v0.5.0) needs protocol 8"},
+		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a v0.5.0 client", 8, ""},
 		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
@@ -198,8 +199,8 @@ func TestReleasedClients(t *testing.T) {
 			}
 		})
 	}
-	if Proto != 8 || ProtoMin != 8 || ProtoMax != 8 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 8, 8, 8, settled for v0.5.0. A bump after it raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
+	if Proto != 9 || ProtoMin != 8 || ProtoMax != 9 {
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 9, 8, 9: protocol 9 added ticked and waived to handoff, and ProtoMin stays at v0.5.0's 8. A bump raises Proto and ProtoMax and keeps ProtoMin at the version before: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 
@@ -211,15 +212,21 @@ func TestCheckProtoBothDirections(t *testing.T) {
 	t.Parallel()
 	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v1.0.0")
 	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `aries upgrade`") ||
-		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocol 8") {
+		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocols 8 to 9") {
 		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
 	}
-	const want = "aries speaks protocol 8; the server (v0.4.0) is older and accepts protocols 2 to 4"
+	const want = "aries speaks protocol 9; the server (v0.4.0) is older and accepts protocols 2 to 4"
 	const fix = "ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server"
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
 	}
-	const want7 = "aries speaks protocol 8; the server (dev) is older and accepts protocol 7"
+	// A v0.5.0 server accepts 8 alone: this client is refused at the
+	// handshake with code version, whose fix is the server's upgrade.
+	const want5 = "aries speaks protocol 9; the server (v0.5.0) is older and accepts protocol 8"
+	if e := CheckProto(Proto, 8, 8, "v0.5.0"); e == nil || e.Code != CodeVersion || e.Message != want5 || e.Fix != fix {
+		t.Errorf("this client against a v0.5.0 server = %+v\nwant code version, %q\nfix %q", e, want5, fix)
+	}
+	const want7 = "aries speaks protocol 9; the server (dev) is older and accepts protocol 7"
 	if e := CheckProto(Proto, 7, 7, "dev"); e == nil || e.Code != CodeVersion || e.Message != want7 || e.Fix != fix {
 		t.Errorf("this client against a server of protocol 7 alone = %+v\nwant %q\nfix %q", e, want7, fix)
 	}

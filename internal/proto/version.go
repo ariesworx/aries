@@ -22,6 +22,10 @@ import (
 // 10). TestReleasedClients pins which clients are refused, and what each
 // is told.
 //
+// Protocol 9 is the first bump since v0.5.0: handoff takes ticked and
+// waived (HandoffArgs), which a protocol 8 server refuses as unknown
+// fields and a protocol 8 client never sends.
+//
 // A refused client is told which side to upgrade (CheckProto). A client
 // older than the server prints the message and fix the server sends, as
 // they are, so those words are all a released client can be told; a
@@ -36,9 +40,9 @@ import (
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 8
+	Proto    = 9
 	ProtoMin = 8
-	ProtoMax = 8
+	ProtoMax = 9
 )
 
 // CheckProto returns nil when the client protocol version p is in

@@ -144,3 +144,30 @@ func TestLandedReplayedFinishRefused(t *testing.T) {
 		t.Errorf("history = %v; want no close", ops)
 	}
 }
+
+// An agent that hands off with state done and its met items in ticked
+// needs nothing else: the landed pass closes its issue, landed, with no
+// finish and no accept after the handoff. Ticks need state done.
+func TestHandoffTicksLand(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{admins: []string{"dana"}})
+	dana, alice, ci := w.newUser("dana", ""), w.newUser("alice", ""), w.newUser("ci-example", "")
+	dana.ok("admin", "workflow", "set", dana.writeWorkflow(t, landedWorkflow))
+	ci.env["CI"] = "true"
+
+	agent := alice.mcp("v0.2.0")
+	id := decode[proto.WriteResult](t, agent.ok("create", map[string]any{"title": "Ticked at handoff"})).ID
+	agent.ok("start", map[string]any{"id": id})
+
+	out, isErr := agent.call("handoff", map[string]any{"id": id, "note": "https://example.com/example/parser/pull/13", "ticked": []any{1}})
+	if !isErr || !strings.Contains(out, "state done") {
+		t.Fatalf("handoff with ticks and no state = %q (error %v); want it refused, naming state done", out, isErr)
+	}
+	agent.ok("handoff", map[string]any{"id": id, "note": "https://example.com/example/parser/pull/13", "state": "done", "ticked": []any{1}})
+	ci.ok("gate", "pass", "--check", "landed", "--issue", id, "--sha", "0a1b2c3")
+
+	shown := decode[proto.ShowResult](t, alice.ok("show", id, "--json"))
+	if shown.Issue.Status != "closed" || shown.Issue.CloseReason != "landed" {
+		t.Errorf("after the pass = %s (%q); want closed, landed", shown.Issue.Status, shown.Issue.CloseReason)
+	}
+}

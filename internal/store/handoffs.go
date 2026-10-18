@@ -40,6 +40,11 @@ type HandoffFields struct {
 type HandoffNote struct {
 	Note string
 	HandoffFields
+	// Accept ticks and waives acceptance items in the write of a
+	// handoff whose state is done, so that an agent hands off with its
+	// met items settled and the closing pass can close the issue
+	// (HandoffIssue only; a finish takes Finish.Accept).
+	Accept Acceptance
 }
 
 // Handoff is a recorded handoff note with its fields.
