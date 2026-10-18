@@ -250,6 +250,36 @@ func TestIsolateGit(t *testing.T) {
 	}
 }
 
+// DeadPort fails every connection and keeps its port to itself until the
+// test ends: what a closed port does not do.
+func TestDeadPort(t *testing.T) {
+	t.Parallel()
+	var addr string
+	t.Run("held", func(t *testing.T) {
+		addr = DeadPort(t)
+		for range 3 {
+			c, err := net.Dial("tcp", addr)
+			if err != nil {
+				continue // refused is a failure too
+			}
+			_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+			if n, err := c.Read(make([]byte, 1)); err == nil || n != 0 {
+				t.Errorf("read %d bytes, err %v: want a failure", n, err)
+			}
+			_ = c.Close()
+		}
+		if l, err := net.Listen("tcp", addr); err == nil {
+			_ = l.Close()
+			t.Errorf("another listener took %s while the test ran", addr)
+		}
+	})
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("the port is still held after the test: %v", err)
+	}
+	_ = l.Close()
+}
+
 // SilentPort accepts and never answers while the test runs, and resets
 // the connections waiting in its backlog when it ends.
 func TestSilentPort(t *testing.T) {

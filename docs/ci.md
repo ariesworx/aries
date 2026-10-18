@@ -101,6 +101,23 @@ holds the trailer: on GitHub, make the default squash message the pull
 request's title and description, and put `Aries: ar-a1b2` in the
 description.
 
+To keep a pull request from merging without the trailer, this
+repository runs `internal/tools/trailer` on every pull request
+(`.github/workflows/trailer.yml`, which a project can copy: it needs the
+tool, which reads the commits with `git log` and the trailer with
+`internal/gitx`, as `aries land` does). It fails unless a commit from the
+pull request's base to its head, merge commits left out, ends with an
+`Aries: ar-a1b2` trailer, and every such trailer names the same issue.
+Its failure says which fix to make: amend a commit with `git commit
+--amend --trailer "Aries: ar-a1b2"`, or push an empty one (`git commit
+--allow-empty -m "Name the issue" --trailer "Aries: ar-a1b2"`); the
+squash keeps either. A pull request with no Aries issue takes the label
+`no-issue`, which only someone with write access can add; the check runs
+again when a label changes, and the exemption is printed. Dependabot's
+pull requests are skipped by the workflow itself. The job is skipped on
+the merge queue's run, so that the check can be required in branch
+protection, which is a repository setting and not part of the workflow.
+
 `--issue ID` and `--branch NAME` name the issue directly, and `aries gate
 pass GATE` reports on a gate by its id.
 

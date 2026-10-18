@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -993,12 +992,7 @@ func TestExportFailsWhileNewMakesTheInstruments(t *testing.T) {
 // neither a recording nor a stop.
 func TestDeadCollector(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 
 	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", ""}} {
 		t.Run(tc.name, func(t *testing.T) {

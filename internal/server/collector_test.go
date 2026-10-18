@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -84,12 +83,7 @@ func round(t *testing.T, c *conn, i int) {
 func TestDeadCollector(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
 	const rounds = 60
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 	// Connections queue in the listener's backlog and are never read.
 
 	// side is one server and a connection to it, with how long its

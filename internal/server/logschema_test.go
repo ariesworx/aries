@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -452,12 +451,7 @@ func TestDeadCollectorLogs(t *testing.T) {
 // subtest makes with clienttest.SilentPort.
 func deadCollectors(t *testing.T) (closed, silent string) {
 	t.Helper()
-	c, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closed = c.Addr().String()
-	_ = c.Close()
+	closed = clienttest.DeadPort(t)
 	// The silent listener is made by the subtest that uses it, empty here,
 	// so that it is closed before the leak check.
 	return closed, ""

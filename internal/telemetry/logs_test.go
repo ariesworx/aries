@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net"
 	"net/http"
 	"path/filepath"
 	"runtime"
@@ -461,12 +460,7 @@ func TestStopCutsShortASlowLogExport(t *testing.T) {
 // warning is itself a line that is exported, and must not feed itself.
 func TestDeadCollectorLogs(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 
 	const lines = 20000
 	for _, tc := range []struct{ name, addr string }{{"closed port", closedAddr}, {"silent listener", ""}} {

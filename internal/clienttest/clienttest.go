@@ -92,6 +92,46 @@ func setenv(set map[string]string) (restore func()) {
 	}
 }
 
+// DeadPort returns the address of a loopback port that no collector,
+// server or other test will answer on while t runs, and that fails every
+// connection at once.
+//
+// A test of a collector that is down used to listen on a port, close the
+// listener and keep the address. Its exporter then retried that port
+// every few milliseconds for the length of the test, and the machine,
+// which runs many test binaries at once, may hand the port to another
+// test's listener in the meantime. The exporter then succeeded, so the
+// test counted a failure too many; and a test that owned the port
+// counted exports it never asked for. Here the listener stays open until
+// t ends, accepts each connection and resets it, so the port is held and
+// the exporter still fails.
+func DeadPort(t testing.TB) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("clienttest: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := c.(*net.TCPConn); ok {
+				_ = tc.SetLinger(0) // closing sends a reset
+			}
+			_ = c.Close()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = l.Close()
+		<-done
+	})
+	return l.Addr().String()
+}
+
 // SilentPort returns the address of a loopback listener that accepts
 // connections into its backlog and never reads or answers, until t ends.
 //
