@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -97,13 +98,26 @@ func TestListenLoopbackOnly(t *testing.T) {
 
 // listenAny is listen for an address with port 0, which CheckAddr
 // refuses in a setting and a test needs.
+//
+// The port is found by binding port 0 on the host's first address and
+// closing that probe, then bound again by name, since listen takes a
+// real port. On a machine that runs other tests, another process may
+// take the port between the two, which is the only way the second bind
+// fails with "address already in use" here; that is retried with a new
+// port.
 func listenAny(t *testing.T, addr string, look func(context.Context, string) ([]net.IPAddr, error)) (net.Listener, error) {
+	t.Helper()
+	return listenAnyWith(t, addr, look, listen)
+}
+
+// listenAnyWith is listenAny with the bind given, for a test of the retry.
+func listenAnyWith(t *testing.T, addr string, look func(context.Context, string) ([]net.IPAddr, error),
+	bind func(context.Context, string, func(context.Context, string) ([]net.IPAddr, error)) (net.Listener, error)) (net.Listener, error) {
 	t.Helper()
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
-	// Find a free port on the host's first address, then bind it by name.
 	ip := host
 	if net.ParseIP(host) == nil {
 		ips, err := look(t.Context(), host)
@@ -112,13 +126,19 @@ func listenAny(t *testing.T, addr string, look func(context.Context, string) ([]
 		}
 		ip = ips[0].IP.String()
 	}
-	probe, err := net.Listen("tcp", net.JoinHostPort(ip, "0"))
-	if err != nil {
-		return nil, err
+	for attempt := 1; ; attempt++ {
+		probe, err := net.Listen("tcp", net.JoinHostPort(ip, "0"))
+		if err != nil {
+			return nil, err
+		}
+		_, port, _ := net.SplitHostPort(probe.Addr().String())
+		_ = probe.Close()
+		l, err := bind(t.Context(), net.JoinHostPort(host, port), look)
+		if err != nil && errors.Is(err, syscall.EADDRINUSE) && attempt < 20 {
+			continue
+		}
+		return l, err
 	}
-	_, port, _ := net.SplitHostPort(probe.Addr().String())
-	_ = probe.Close()
-	return listen(t.Context(), net.JoinHostPort(host, port), look)
 }
 
 // A port that is taken fails the start, with a fix.
@@ -434,5 +454,36 @@ func TestServeCapsConnections(t *testing.T) {
 			t.Fatalf("no connection was accepted after one closed: %v", err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A port taken between the probe and the bind is retried with another.
+func TestListenAnyRetriesATakenPort(t *testing.T) {
+	t.Parallel()
+	var taken []net.Listener
+	t.Cleanup(func() {
+		for _, l := range taken {
+			_ = l.Close()
+		}
+	})
+	calls := 0
+	steal := func(ctx context.Context, addr string, look func(context.Context, string) ([]net.IPAddr, error)) (net.Listener, error) {
+		calls++
+		if calls <= 3 { // another process takes the probe's port first
+			l, err := net.Listen("tcp", addr)
+			if err != nil {
+				t.Fatalf("taking %s: %v", addr, err)
+			}
+			taken = append(taken, l)
+		}
+		return listen(ctx, addr, look)
+	}
+	l, err := listenAnyWith(t, "127.0.0.1:0", lookup(nil), steal)
+	if err != nil {
+		t.Fatalf("listenAny = %v after %d tries", err, calls)
+	}
+	_ = l.Close()
+	if calls != 4 {
+		t.Errorf("bound on try %d, want the 4th", calls)
 	}
 }

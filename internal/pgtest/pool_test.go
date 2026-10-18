@@ -259,7 +259,9 @@ func TestPoolWarm(t *testing.T) {
 	p := newPool(t, 2)
 	p.Warm()
 	if started, idle := servers(p); started != 1 || idle != 1 {
-		t.Fatalf("after Warm: %d servers started, %d idle; want 1 and 1", started, idle)
+		// Warm leaves its failure to the tests; this one says it.
+		_, err := p.take("TestWarmFailure")
+		t.Fatalf("after Warm: %d servers started, %d idle; want 1 and 1 (starting one: %v)", started, idle, err)
 	}
 	take(t, p, "TestA")
 	if started, _ := servers(p); started != 1 {

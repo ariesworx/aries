@@ -4,6 +4,7 @@ package pgtest
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -68,7 +69,8 @@ func TestPoolEndsWithItsParent(t *testing.T) {
 	// The shell stands for go test: it starts the helper and waits.
 	parent := exec.Command("/bin/sh", "-c", `"$1" & wait`, "sh", os.Args[0]) //nolint:gosec // the test binary itself
 	parent.Env = append(os.Environ(), poolEnv+"=1")
-	parent.Stderr = os.Stderr
+	var stderr bytes.Buffer // what the helper says when it cannot start its server
+	parent.Stderr, parent.WaitDelay = &stderr, 10*time.Second
 	parent.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := parent.StdoutPipe()
 	if err != nil {
@@ -83,7 +85,9 @@ func TestPoolEndsWithItsParent(t *testing.T) {
 	var helperPID, pgPID int
 	var dir string
 	if _, err := fmt.Fscan(bufio.NewReader(out), &helperPID, &pgPID, &dir); err != nil {
-		t.Fatalf("the helper printed no process ids: %v", err)
+		_ = syscall.Kill(-parent.Process.Pid, syscall.SIGKILL)
+		_ = parent.Wait() // the helper's stderr is complete once it returns
+		t.Fatalf("the helper printed no process ids: %v\nit said: %s", err, stderr.String())
 	}
 	t.Cleanup(func() { _ = syscall.Kill(-pgPID, syscall.SIGKILL); _ = os.RemoveAll(dir) })
 	if got := mentioning(t, dir); len(got) == 0 {
@@ -150,7 +154,8 @@ func startOrphanHelper(t *testing.T, mode string) (helper *exec.Cmd, dir string,
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	helper = exec.Command(os.Args[0]) //nolint:gosec // the test binary itself
 	helper.Env = append(os.Environ(), orphanEnv+"="+dir+mode)
-	helper.Stderr = os.Stderr
+	var stderr bytes.Buffer // what the helper says when it cannot start its server
+	helper.Stderr, helper.WaitDelay = &stderr, 10*time.Second
 	helper.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := helper.StdoutPipe()
 	if err != nil {
@@ -162,7 +167,9 @@ func startOrphanHelper(t *testing.T, mode string) (helper *exec.Cmd, dir string,
 	t.Cleanup(func() { _ = helper.Process.Kill(); _ = helper.Wait() })
 	line, err := bufio.NewReader(out).ReadString('\n')
 	if err != nil {
-		t.Fatalf("the helper printed no process id: %v", err)
+		_ = helper.Process.Kill()
+		_ = helper.Wait() // the helper's stderr is complete once it returns
+		t.Fatalf("the helper printed no process id: %v\nit said: %s", err, stderr.String())
 	}
 	pgPID, err = strconv.Atoi(strings.TrimSpace(line))
 	if err != nil {

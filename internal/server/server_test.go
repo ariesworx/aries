@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"maps"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -726,12 +728,7 @@ func TestListen(t *testing.T) {
 
 	// A stale socket file (no listener) is replaced.
 	stale := filepath.Join(base, "run", "stale.sock")
-	ul, err := net.ListenUnix("unix", &net.UnixAddr{Name: stale, Net: "unix"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ul.SetUnlinkOnClose(false)
-	_ = ul.Close()
+	staleSocket(t, stale)
 	l2, err := Listen(stale)
 	if err != nil {
 		t.Fatalf("stale socket: %v", err)
@@ -747,6 +744,72 @@ func TestListen(t *testing.T) {
 	}
 	if _, err := Listen(filepath.Join(open, "d.sock")); err == nil || !strings.Contains(err.Error(), "chmod 700") {
 		t.Fatalf("open directory: %v", err)
+	}
+}
+
+// staleSocket leaves a socket file at path that nothing listens on.
+//
+// Closing a listener is not enough, with other tests starting processes
+// beside this one: a child forked while the listener was open holds a
+// copy of its descriptor until it execs, and the socket accepts
+// connections for as long as any copy is open. So it waits until the
+// kernel refuses them.
+func staleSocket(t *testing.T, path string) {
+	t.Helper()
+	ul, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ul.SetUnlinkOnClose(false)
+	_ = ul.Close()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		c, err := net.Dial("unix", path)
+		if err != nil {
+			return
+		}
+		_ = c.Close()
+		if time.Now().After(deadline) {
+			t.Fatalf("%s still accepts connections 10s after its listener was closed", path)
+		}
+	}
+}
+
+// A stale socket is replaced even while processes are being started: the
+// ones forked in the meantime hold the closed listener open for a moment.
+func TestListenStaleSocketBesideForks(t *testing.T) {
+	t.Parallel()
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Skipf("no true to start: %v", err)
+	}
+	base, err := os.MkdirTemp("", "sfl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = exec.Command(truePath).Run() //nolint:gosec // the system's true
+				}
+			}
+		})
+	}
+	defer func() { close(stop); wg.Wait() }()
+	for i := range 100 {
+		stale := filepath.Join(base, fmt.Sprintf("s%d.sock", i))
+		staleSocket(t, stale)
+		l, err := Listen(stale)
+		if err != nil {
+			t.Fatalf("stale socket %d: %v", i, err)
+		}
+		_ = l.Close()
 	}
 }
 
