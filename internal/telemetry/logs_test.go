@@ -18,6 +18,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -460,12 +461,7 @@ func TestStopCutsShortASlowLogExport(t *testing.T) {
 // warning is itself a line that is exported, and must not feed itself.
 func TestDeadCollectorLogs(t *testing.T) {
 	// Serial: counts the process's goroutines (noLeak).
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedAddr := closed.Addr().String()
-	_ = closed.Close()
+	closedAddr := clienttest.DeadPort(t)
 	silent, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/telemetry"
@@ -442,16 +443,11 @@ func TestDeadCollectorLogs(t *testing.T) {
 	}
 }
 
-// deadCollectors returns the address of a port nothing listens on, and
+// deadCollectors returns the address of a port that fails every connection, and
 // of a listener that accepts connections and never answers.
 func deadCollectors(t *testing.T) (closed, silent string) {
 	t.Helper()
-	c, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closed = c.Addr().String()
-	_ = c.Close()
+	closed = clienttest.DeadPort(t)
 	// Connections queue in the listener's backlog and are never read.
 	s, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
