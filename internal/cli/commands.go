@@ -153,6 +153,9 @@ func cmdCreate(ctx context.Context, r *runner, args []string) error {
 	if out.Items > 0 {
 		_, _ = fmt.Fprintf(r.env.Stderr, "the project's workflow added %d acceptance items (`aries show %s`)\n", out.Items, esc(out.ID))
 	}
+	if len(out.Held) > 0 {
+		_, _ = fmt.Fprintf(r.env.Stderr, "held out of ready until gate %s passes (`aries gate pass %s`)\n", esc(out.Held[0]), esc(out.Held[0]))
+	}
 	printSimilar(r.env.Stderr, out.Similar)
 	return nil
 }

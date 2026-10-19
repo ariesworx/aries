@@ -164,7 +164,13 @@ func (m *monitor) record(cl call) {
 	case proto.CreateArgs:
 		m.revLocked(cl.res.(proto.CreateResult).ID, 1, "create "+a.Title)
 	case proto.UpdateArgs:
-		r := cl.res.(proto.WriteResult)
+		var r proto.WriteResult
+		switch v := cl.res.(type) {
+		case proto.UpdateResult: // an update that set a parent also answers what holds the issue
+			r = v.WriteResult
+		default:
+			r = v.(proto.WriteResult)
+		}
 		if r.Rev != a.Rev+1 {
 			m.failLocked(a.ID, "%s: update at rev %d answered rev %d", cl.who, a.Rev, r.Rev)
 		}
