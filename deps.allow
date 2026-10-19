@@ -1,9 +1,11 @@
 # What Aries may depend on: every module go.mod requires directly, every
 # tool the gate runs, and every GitHub Action a workflow uses (AGENTS.md,
 # rule 4; docs/design/supply-chain.md, §7.2). internal/depcheck fails
-# when go.mod, internal/tools/pin/go.mod, the link sets of aries and
-# ariesd or the workflows name something this file does not, or this
-# file names something they do not.
+# when go.mod, internal/tools/pin/go.mod, the link sets of aries,
+# ariesd and sextant or the workflows name something this file does not,
+# or this file names something they do not. sextant has no scope of its
+# own: it runs beside ariesd and links ariesd's telemetry, so it may link
+# what ariesd may (internal/depcheck, linksAs).
 #
 # One line each, fields separated by spaces:
 #

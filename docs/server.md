@@ -2980,7 +2980,7 @@ limits:
 | `https_header_bytes` | 16384 | With HTTPS on: bytes of a request's headers; more is answered 431 |
 | `https_header_timeout` | `10s` | With HTTPS on: how long a request's headers may take to arrive, the slow client's bound; and how long a connection kept alive may wait idle for its next request |
 | `https_body_bytes` | 65536 | With HTTPS on: bytes of a request's body |
-| `https_body_timeout` | `10s` | With HTTPS on: how long a request's body may take to arrive once its headers are in, the bound of a client that names a body and sends none, or sends it a byte at a time. The connection is closed at the end of it. A WebSocket's upgrade is not held to it |
+| `https_body_timeout` | `10s` | With HTTPS on: how long a request's body may take to arrive once its headers are in, the bound of a client that names a body and sends none, or sends it a byte at a time. The connection is closed at the end of it, or at once when ariesd stops. A WebSocket's upgrade is not held to it |
 | `upgrade_timeout` | `10s` | With HTTPS on: how long a WebSocket has from its upgrade to the end of its key proof; the hello then has 10 seconds, as over SSH |
 | `ws_message_bytes` | 4194304 | With HTTPS on: bytes of one WebSocket message, which carries one frame (at most 4 MiB, a frame's own bound). A larger one closes the connection. Until its key is proved, a connection's messages are held to 64 KiB, the key proof's own bound, whatever this says |
 | `auth_failures_per_minute`, `auth_failure_burst` | 30, 60 | With HTTPS on: each client address's token bucket of refused key proofs (a key the server does not know, a proof that does not verify; not a disabled principal's key, proved), refused sign-in tokens at `/v1/connect`, and, with `login:` providers, refused requests to `/oauth/token` (a DPoP proof, a code or a PKCE verifier refused), and sign-ins refused past `signins_pending_per_addr`: refusals a minute, and how many at once. With none left an upgrade, a token request or a sign-in begun from the address is refused `busy`, 429, saying how long to wait. Behind a proxy it does not apply, as `https_conns_per_addr` does not |
@@ -3891,7 +3891,7 @@ number of series cannot grow with what clients send:
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
 | `kind` of a gate | `human`, `ci` |
 | `event` of a gate | `added`, `passed`, `failed`, `waived`, `rearmed` |
-| `kind` of a token | `input`, `output`, `cache_write`, `cache_read` (`cache_write` includes the part written for an hour) |
+| `kind` of a token | `input`, `output`, `cache_write`, `cache_write_1h`, `cache_read` (`cache_write` is the part written for five minutes and `cache_write_1h` the part written for an hour, which are priced apart) |
 | `model` | The name of a model the project's price table has a price for, at most 64 of them; `(other)` for any other model, a client's text |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
 | `signal` | `metrics`, `traces`, `logs` |

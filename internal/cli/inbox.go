@@ -103,6 +103,8 @@ func printItem(w io.Writer, it proto.InboxItem) {
 type watchLine struct {
 	Op   string           `json:"op"`
 	Item *proto.InboxItem `json:"item,omitempty"`
+	// Event is set under --events, for each issue event committed.
+	Event *proto.Event `json:"event,omitempty"`
 }
 
 // watchBuffer is how many pushed events `aries watch` holds while printing.
@@ -141,10 +143,13 @@ func (q *watchQueue) put(p proto.Push) {
 // cmdWatch prints each inbox item the server pushes, as it arrives, until
 // interrupted. With --json each event is one JSON object on its own line:
 // {"op":"inbox","item":{…}}, or {"op":"resync"} when items were missed
-// (`aries inbox` lists them). After a resync it watches again.
+// (`aries inbox` lists them). With --events it also prints every event
+// committed on an issue, the watching principal's own included, as
+// {"op":"event","event":{…}}. After a resync it watches again.
 func cmdWatch(ctx context.Context, r *runner, args []string) error {
 	const usage = "watch"
 	fs := r.newFlags("watch")
+	events := fs.Bool("events", false, "also print every issue event")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
@@ -159,7 +164,7 @@ func cmdWatch(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	var w proto.WatchResult
-	if err := c.Call(ctx, proto.OpWatch, proto.WatchArgs{}, &w); err != nil {
+	if err := c.Call(ctx, proto.OpWatch, proto.WatchArgs{Events: *events}, &w); err != nil {
 		return err
 	}
 	// On standard error, so --json output stays one object per line.
@@ -179,14 +184,16 @@ func cmdWatch(ctx context.Context, r *runner, args []string) error {
 		case p := <-q.c:
 			switch {
 			case r.json:
-				r.emit(watchLine{Op: p.Op, Item: p.Item})
+				r.emit(watchLine{Op: p.Op, Item: p.Item, Event: p.Event})
 			case p.Item != nil:
 				printItem(r.env.Stdout, *p.Item)
+			case p.Event != nil:
+				_, _ = fmt.Fprintf(r.env.Stdout, "event #%d: %s %s by %s\n", p.Event.Seq, esc(p.Event.Op), esc(p.Event.Issue), esc(p.Event.Principal))
 			case p.Op == proto.EvResync:
 				_, _ = fmt.Fprintln(r.env.Stdout, "resync: some items were not shown; `aries inbox` lists them")
 			}
 			if p.Op == proto.EvResync {
-				if err := c.Call(ctx, proto.OpWatch, proto.WatchArgs{}, nil); err != nil && ctx.Err() == nil {
+				if err := c.Call(ctx, proto.OpWatch, proto.WatchArgs{Events: *events}, nil); err != nil && ctx.Err() == nil {
 					return err
 				}
 			}

@@ -392,7 +392,7 @@ func TestSeriesAreBounded(t *testing.T) {
 		"aries.stores.open":               1,
 		"aries.store.open.duration":       3,
 		"aries.claims":                    5 * 5,
-		"aries.usage.tokens":              projects * 5, // kinds and the fallback, models all (other)
+		"aries.usage.tokens":              projects * 6, // kinds and the fallback, models all (other)
 		"aries.control.writes":            ops * res,
 		"aries.keys_file.writes":          3,
 		"aries.keys_file.last_write.time": 1,

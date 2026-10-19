@@ -141,8 +141,9 @@ binary, building from source and verifying a download by hand.
 | You can | With | Read more |
 |---|---|---|
 | See the time and tokens each issue took, by account (tokens from Claude Code so far) | `show`, `digest`, `usage --hook` | [Accounts, time and tokens](docs/concepts.md#accounts-time-and-tokens) |
-| Report token cost at list price, and amortized over subscription plans, by account, issue, epic, person or model | `cost`, `admin price`, `admin plan` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
+| Report token cost at list price, and amortized over subscription plans, by account, issue, epic, person, model or outcome | `cost`, `admin price`, `admin plan` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
 | Log the hours people spend on an issue | `hours` | [Human hours](docs/concepts.md#human-hours) |
+| Export each project's cost over time, by model, to Prometheus or an OTLP backend | `sextant` | [Running Sextant](docs/sextant.md) |
 
 **Set up and run**
 
@@ -201,6 +202,7 @@ development.
 | [Using `aries`](docs/cli.md) | Connecting a repository, signing in, every command, working offline, exit codes |
 | [Agents](docs/agents.md) | Setting agents up, session-start and usage hooks, MCP tools, sessions |
 | [CI gates](docs/ci.md) | Holding work until CI reports a check, landing, `aries land`, the `Aries:` trailer check, and workflows for GitHub Actions and GitLab CI, with what they cost |
+| [Running Sextant](docs/sextant.md) | The exporter of agents' cost beside one `ariesd`: building it, its principal, its config and limits, and the metrics it exports over OTLP and to Prometheus |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 
 **Running a server**
@@ -274,6 +276,13 @@ v1.0.0, which is held as long as possible
   Desktop extension; and stage 6's G3 to G5
   ([Coming in 1.x](docs/releases/v0.5.0.md#coming-in-1x)).
 
+**Sextant**, cost and flow of the agents' work as series a dashboard
+draws and an alert watches, starts before v1.0.0
+([decision 100](docs/design/aries.md#14-decisions)): its exporter
+(X0) is built; cost by account, tokens and hours (X1), flow (X2), a
+dashboard and alert rules (X3) and a release of its own (X5) are
+planned in [sextant.md](docs/design/sextant.md#5-slices).
+
 **Bearings**, an orchestrator that runs and supervises many agents on
 top of Aries, is a design only; its stages B0 to B5 are planned in the
 [Bearings plan](docs/design/bearings.md#6-plan).
@@ -290,11 +299,12 @@ model, to fix where their work stands and chart the next step.
 - **Aries** is the coordination server and its client, `ariesd` and
   `aries`.
 - **Bearings** is the orchestrator planned on top of it, a design only.
-- **Sextant** is reserved for future observability: metrics,
-  monitoring, tracing, and cost and usage reporting. It is planned as a
-  binary of its own in this repository
-  ([decision 98](docs/design/aries.md#14-decisions)), and is a design
-  only.
+- **Sextant** is observability of the agents' work: metrics,
+  monitoring, tracing, and cost and usage reporting, a binary of its own
+  in this repository ([decision 98](docs/design/aries.md#14-decisions)).
+  Its first slice, an exporter of each project's cost beside one
+  `ariesd`, is built ([Running Sextant](docs/sextant.md)); the rest is a
+  design ([sextant.md](docs/design/sextant.md)).
 
 ## Contributing
 

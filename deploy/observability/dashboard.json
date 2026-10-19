@@ -680,7 +680,7 @@
     {
       "id": 13,
       "type": "timeseries",
-      "title": "Tokens a second, by model",
+      "title": "Tokens a second, by model and kind",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -700,15 +700,15 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (model) (rate(aries_usage_tokens_total[5m]))",
-          "legendFormat": "{{model}}"
+          "expr": "sum by (model, kind) (rate(aries_usage_tokens_total[5m]))",
+          "legendFormat": "{{model}} {{kind}}"
         }
       ]
     },
     {
       "id": 14,
       "type": "timeseries",
-      "title": "Tokens in the last day, by model",
+      "title": "Tokens in the last day, by model and kind",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -728,8 +728,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (model) (increase(aries_usage_tokens_total[1d]))",
-          "legendFormat": "{{model}}"
+          "expr": "sum by (model, kind) (increase(aries_usage_tokens_total[1d]))",
+          "legendFormat": "{{model}} {{kind}}"
         }
       ]
     }

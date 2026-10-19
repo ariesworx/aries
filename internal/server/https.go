@@ -104,7 +104,8 @@ const DefaultPing = 25 * time.Second
 const maxProofMessage = 64 << 10
 
 // shutdownWait bounds how long the plain requests in flight have when
-// the listener stops.
+// the listener stops. A request still reading its headers or its body
+// does not have it (web.stop).
 const shutdownWait = 5 * time.Second
 
 // check refuses a listener New could not serve safely, and normalizes
@@ -145,16 +146,27 @@ type web struct {
 	closing bool
 	conns   map[*wsconn.Conn]struct{}
 	wg      sync.WaitGroup
+
+	// plain is every connection net/http still serves that is not idle:
+	// new (its TLS handshake or its first request's headers) or active
+	// (a request in flight), and whether it speaks HTTP/2. streams is
+	// every HTTP/2 request whose handler runs. stopping is set when the
+	// listener stops.
+	plain    map[net.Conn]bool
+	streams  map[*http.ResponseController]struct{}
+	stopping bool
 }
 
 // serveHTTPS serves the HTTPS listener until ctx is done, then stops
-// taking connections, gives the plain requests in flight shutdownWait,
+// taking connections, ends every read of a request's headers or body
+// (web.stop), gives the plain requests in flight shutdownWait to answer,
 // closes every WebSocket and waits for its handler. It returns an error
 // only when the listener failed.
 func (s *Server) serveHTTPS(ctx context.Context) error {
 	h := s.cfg.HTTPS
 	lim := s.cfg.Limits
-	w := &web{s: s, h: h, ctx: ctx, conns: map[*wsconn.Conn]struct{}{}}
+	w := &web{s: s, h: h, ctx: ctx, conns: map[*wsconn.Conn]struct{}{},
+		plain: map[net.Conn]bool{}, streams: map[*http.ResponseController]struct{}{}}
 	l := &limitedListener{Listener: h.Listener, total: lim.HTTPSConns, perAddr: lim.HTTPSConnsPerAddr, prefixV6: lim.HTTPSAddrPrefixV6, trusted: h.Trusted, tel: s.cfg.Telemetry,
 		refused: func(addr netip.Addr, reason string) { w.refused(ctx, addr, reason) }}
 	srv := &http.Server{
@@ -171,7 +183,10 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 		// peer's, so none of it reaches the log.
 		ErrorLog:    log.New(io.Discard, "", 0),
 		BaseContext: func(net.Listener) context.Context { return ctx },
-		ConnState:   func(c net.Conn, st http.ConnState) { countTLSFailure(s.cfg.Telemetry, c, st) },
+		ConnState: func(c net.Conn, st http.ConnState) {
+			countTLSFailure(s.cfg.Telemetry, c, st)
+			w.connState(c, st)
+		},
 	}
 	errc := make(chan error, 1)
 	go func() {
@@ -186,6 +201,7 @@ func (s *Server) serveHTTPS(ctx context.Context) error {
 	var failed error
 	select {
 	case <-ctx.Done():
+		w.stop()
 		sctx, cancel := context.WithTimeout(context.Background(), shutdownWait)
 		_ = srv.Shutdown(sctx)
 		cancel()
@@ -242,7 +258,9 @@ func (w *web) handler() http.Handler {
 		// A WebSocket's upgrade clears the deadline (wsconn.Accept).
 		// A transport that cannot set one (not the case for net/http's
 		// own) is left to the idle and header bounds.
-		_ = http.NewResponseController(rw).SetReadDeadline(time.Now().Add(bodyTimeout))
+		rc := http.NewResponseController(rw)
+		w.bodyDeadline(rc, r.ProtoMajor == 2, bodyTimeout)
+		defer w.handled(rc)
 		mux.ServeHTTP(rw, r)
 	})
 }
@@ -682,6 +700,83 @@ func (w *web) untrack(c *wsconn.Conn) {
 	delete(w.conns, c)
 	w.mu.Unlock()
 	w.wg.Done()
+}
+
+// connState keeps plain: the connections stop must reach. One that
+// speaks HTTP/2 is known once it is active, its handshake done.
+func (w *web) connState(c net.Conn, st http.ConnState) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch st {
+	case http.StateNew:
+		w.plain[c] = false
+	case http.StateActive:
+		tc, ok := c.(*tls.Conn)
+		h2 := ok && tc.ConnectionState().NegotiatedProtocol == "h2"
+		w.plain[c] = h2
+		if w.stopping && !h2 {
+			_ = c.SetReadDeadline(time.Now())
+		}
+		return
+	default:
+		delete(w.plain, c)
+		return
+	}
+	if w.stopping {
+		_ = c.SetReadDeadline(time.Now())
+	}
+}
+
+// bodyDeadline gives a request's body timeout from now, or none once
+// the listener stops, under the lock stop holds, so that the deadline
+// set last is the right one. An HTTP/2 request is kept in streams until
+// handled.
+func (w *web) bodyDeadline(rc *http.ResponseController, h2 bool, timeout time.Duration) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	d := time.Now()
+	if !w.stopping {
+		d = d.Add(timeout)
+	}
+	_ = rc.SetReadDeadline(d)
+	if h2 {
+		w.streams[rc] = struct{}{}
+	}
+}
+
+// handled forgets a request whose handler returns: its controller may
+// not be used after.
+func (w *web) handled(rc *http.ResponseController) {
+	w.mu.Lock()
+	delete(w.streams, rc)
+	w.mu.Unlock()
+}
+
+// stop ends, at once, every read of a request's headers or body on the
+// listener, and of any that begins later. Such a request has proved
+// nothing, and one held open (headers in, the body slow or never sent)
+// would hold every stop or restart of ariesd for shutdownWait. A
+// handler whose request is in still runs and answers under
+// shutdownWait: a read deadline does not touch its writes, and what it
+// would lose, the context net/http cancels when the peer is gone, is
+// ctx, already done. An HTTP/1.1 connection carries one request at a
+// time, and is reached as a whole; an HTTP/2 one carries many, so each
+// of its requests is reached alone (net/http answers an HTTP/2 request
+// without its body once its handler returns), and its other streams
+// keep their answers.
+func (w *web) stop() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stopping = true
+	now := time.Now()
+	for c, h2 := range w.plain {
+		if !h2 {
+			_ = c.SetReadDeadline(now)
+		}
+	}
+	for rc := range w.streams {
+		_ = rc.SetReadDeadline(now)
+	}
 }
 
 // closeAll closes every WebSocket and waits for their handlers. track

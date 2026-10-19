@@ -52,7 +52,7 @@ const (
 	// gate's title and its check's name are text, and no attribute.
 	Gates
 	// UsageTokens counts the tokens of usage records the store took:
-	// project, kind (input, output, cache_write, cache_read) and model.
+	// project, kind (input, output, cache_write, cache_write_1h, cache_read) and model.
 	// Only tokens: what they cost is computed on read, from prices that
 	// change (`aries cost`). The model is the name of a model with a
 	// price in the server's price table, so a client cannot mint
@@ -212,11 +212,12 @@ const (
 	// The kinds of token UsageTokens counts, and the model of any token
 	// whose model has no price. ModelOther starts with a parenthesis, as
 	// no model a harness reports can.
-	TokenInput      = "input"
-	TokenOutput     = "output"
-	TokenCacheWrite = "cache_write"
-	TokenCacheRead  = "cache_read"
-	ModelOther      = "(other)"
+	TokenInput        = "input"
+	TokenOutput       = "output"
+	TokenCacheWrite   = "cache_write" // five minutes
+	TokenCacheRead    = "cache_read"
+	TokenCacheWrite1h = "cache_write_1h" //nolint:gosec // a kind of token, not a credential
+	ModelOther        = "(other)"
 
 	// Which way the clock stepped.
 	StepForward  = "forward"
@@ -362,7 +363,7 @@ var (
 	attrLockEvt  = attr{key: KeyEvent, values: []string{LockAcquire, LockWait, LockGrant, LockRenew, LockRelease, LockExpire, LockLeave}, fallback: Other}
 	attrGateKind = attr{key: KeyKind, values: []string{GateHuman, GateCI}, fallback: Other}
 	attrGateEvt  = attr{key: KeyEvent, values: []string{GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed}, fallback: Other}
-	attrTokenKnd = attr{key: KeyKind, values: []string{TokenInput, TokenOutput, TokenCacheWrite, TokenCacheRead}, fallback: Other}
+	attrTokenKnd = attr{key: KeyKind, values: []string{TokenInput, TokenOutput, TokenCacheWrite, TokenCacheRead, TokenCacheWrite1h}, fallback: Other}
 	attrModel    = attr{key: KeyModel, fallback: ModelOther}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}

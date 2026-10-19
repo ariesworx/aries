@@ -104,7 +104,28 @@ gate command by command.
 | `scripts/gate.sh` | The gate. Stops at the first failure, prints one line for each command, and ends with what the run did not cover |
 | `scripts/gate.sh --keep-going` | The same, running every command whatever fails |
 | `scripts/gate.sh --smoke` | The gate, then the [Docker smoke test](#try-your-change-against-a-real-server) |
+| `scripts/gate.sh --pgtest-lock` | Any of the above, holding the Aries lock `pgtest/HOST` around each whole-suite test command ([below](#agents-testing-in-parallel-on-one-machine)) |
 | `scripts/gate.sh --quick` | Not the gate; for the loop between edits. Format, vet, lint, shellcheck and the tests without the race detector, so unchanged packages come from Go's test cache. It skips `go mod verify`, `go mod tidy -diff`, govulncheck and the builds for other systems |
+
+### Agents testing in parallel on one machine
+
+Each test binary's Postgres pool takes four System V shared memory
+segments, and a Mac allows 32 in all (`kern.sysv.shmmni`), so a few whole
+suites at once run it out, and the tests then fail on a machine that is
+fine. Agents that run in parallel on one machine (the dispatcher's runs,
+[docs/design/dispatcher.md](docs/design/dispatcher.md), §5) therefore run
+the gate as `scripts/gate.sh --quick --pgtest-lock`, or with
+`ARIES_GATE_PGTEST_LOCK=1` in the environment. The script then runs each
+whole-suite test command (`go test` over `./...`, and the end-to-end suite
+over HTTPS) under `aries lock run pgtest/HOST --capacity 2 --wait`, HOST
+being the machine's name from `hostname`: at most two such runs hold the
+lock, a third waits in its queue rather than failing, and the hold is
+released when the tests end, fail, or the script is interrupted or
+terminated. The lock lives on the Aries server, so the machine needs
+`aries` on `PATH` and a `.aries.yaml`; the lock's lease is renewed while
+the tests run, and lapses a few minutes after a killed script. Tests of
+one package (`go test ./internal/store/`) take no lock, and a run without
+the flag or variable is unchanged.
 
 **On Windows,** build and test `aries` natively with Go (`go build
 ./cmd/aries`, `go test ./...`). The scripts are for a POSIX shell, and
@@ -200,6 +221,7 @@ up in a Linux VM you can throw away.
 | A setup step in docs/server.md, or the Docker test server | [docs/deploy/docker.md](docs/deploy/docker.md), `deploy/docker`, and `smoke.sh` with its count of checks; and `install-server.sh` with the table of [With the installer](docs/server.md#with-the-installer), which `scripts/installserver_test.go` holds to the guide's steps and files |
 | An `aries` or `ariesd` command or flag, a step or a heading of the guides, or a change to what operators run | The operations skill, `plugins/aries-ops` ([Operate a server with Claude Code](docs/server.md#operate-a-server-with-claude-code)): `scripts/opsskill_test.go` fails until every command, flag and section it names exists. Its steps follow the guides, so a changed step changes its reference file too; anything specific to the database belongs in `references/database.md` alone, which holds no steps until the move to Postgres lands |
 | A file `ariesd` reads or writes, a socket or address it connects to, or a program it runs | `deploy/apparmor`, and a run on a machine with AppArmor ([deploy/apparmor/README.md](deploy/apparmor/README.md)) |
+| Sextant's config, limits, command, or a metric it exports | [docs/sextant.md](docs/sextant.md), and the design's [As built note for X0](docs/design/sextant.md#5-slices); its instruments are in `internal/telemetry/sextant.go`, apart from ariesd's |
 | What a deployment needs or costs | The example under [docs/deploy](docs/deploy/README.md) |
 | How `aries` or `ariesd` is installed or upgraded, or `install.sh` | [docs/install.md](docs/install.md) |
 | bd import or export | [docs/migrate-from-bd.md](docs/migrate-from-bd.md) |

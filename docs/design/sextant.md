@@ -1,10 +1,12 @@
 # Sextant v0: the work agents do, measured
 
-**Design, 16 October 2026, proposed.** It decides nothing and nothing in
-it is built. Sextant is the name decision 80 reserved for observability:
-metrics, monitoring, tracing, cost and usage reporting. This is its
-first slice, to start after v1.0.0 (decision 90). The maintainer answered §7 on 19 October
-2026 (decision 98).
+**Design, 16 October 2026; X0 built, 19 October 2026.** Sextant is the
+name decision 80 reserved for observability: metrics, monitoring,
+tracing, cost and usage reporting. This is its first slice. The
+maintainer answered §7 on 19 October 2026 (decision 98), and decided
+the same day that it starts before v1.0.0 (decision 100), not after it
+as decision 90 had it. X0 is built (§5, As built); X1 to X5 are not.
+[docs/sextant.md](../sextant.md) is the guide to running it.
 
 ## 1. Why
 
@@ -45,8 +47,8 @@ Docker test server's `observe` profile shows them.
 Why this shape (recommendations 1 and 2, §6):
 
 - **No change to `ariesd`, the store or the protocol for v0.** It works
-  against a v1.0.0 server as shipped, so it can start the day 1.0 is
-  tagged and cannot destabilize it.
+  against a released server as shipped (v0.5.0 on), so it cannot
+  destabilize it, and it need not wait for v1.0.0 (decision 100).
 - **Access is Aries's own.** It reads with a principal's rights, in the
   projects it is a member of, through the same checks as a person. It
   never touches the database (rule 5 keeps one writer; reading the
@@ -112,7 +114,7 @@ point: a stand-in, never a name, unless the operator chooses otherwise.
 
 | Slice | Delivers | Needs |
 |---|---|---|
-| X0 | `cmd/sextant`: config, sign-in as a service principal (N5) or by key, the poll loop, OTLP and Prometheus out, `sextant.scrape.errors`, limits | v1.0.0 |
+| X0 | `cmd/sextant`: config, sign-in as a service principal (N5) or by key, the poll loop, OTLP and Prometheus out, `sextant.scrape.errors`, limits | Nothing: it starts before v1.0.0 (decision 100). Built |
 | X1 | Cost, tokens, hours, unpriced tokens, by account and model | X0 |
 | X2 | Flow: issues by status, ready, closed, gates waiting, sessions, cycle time | X0 |
 | X3 | A dashboard and alert rules (spend over a budget per account, unpriced tokens, a gate older than a day, nothing closed in a week, the exporter failing), tested as §16.7's are, in the `observe` profile | X1, X2 |
@@ -120,6 +122,53 @@ point: a stand-in, never a name, unless the operator chooses otherwise.
 | X5 | Packaging: a release of its own, an installer line, a systemd unit and AppArmor profile, as `ariesd` has | X0 |
 
 About three weeks of one engineer for X0 to X3.
+
+**As built (X0, 19 Oct 2026).** `cmd/sextant` and `internal/sextant`
+(the config, the poller and the run loop), with its exporters in
+`internal/telemetry` (`sextant.go`). Where the build fills in or
+departs from §2 and §3:
+
+- **Its exporters are `internal/telemetry`'s**, not an SDK of its own:
+  a meter provider of Sextant's, apart from ariesd's and holding none of
+  its instruments, built from the same OTLP and Prometheus code, the
+  same `OTEL_*` variables (with `service.name` `sextant`) and the same
+  loopback listener. So the package stays the only one that imports
+  the SDK (decision 28), and Sextant links a subset of what `ariesd`
+  links, with no module of its own: `internal/depcheck` records its
+  link set (`links-sextant.golden`), holds it to `ariesd`'s scope in
+  `deps.allow`, and fails if `aries` links any package of Sextant's or
+  `internal/telemetry`.
+- **No new op.** A poll sends `prices` and `cost`, by model, for the
+  window, with `limit` at the model cap: the ops `aries` sends, with a
+  member's rights. A sign-in as a service principal is `aries login
+  --workload`'s, kept in Sextant's `data_dir` and renewed two minutes
+  before it ends; a key is the only one Sextant offers, never
+  ssh-agent's or a home's.
+- **X0 exports one figure of cost**, `sextant.cost.usd` by `project`
+  and `model`, so that a poll is tested end to end against a real
+  daemon (`internal/e2e`, `sextant_test.go`), with
+  `sextant.scrape.errors` by `project`, `op` (`connect`, `prices`,
+  `cost`) and `code` (the protocol's codes, or `other`). §3's
+  `account` label on it is X1's: `cost` groups by one key, so cost by
+  account and model needs either two series or a grouping by both,
+  which X1 decides.
+- **A model is a label only if the server has a price for it** (the
+  `prices` op), among the `limits.models` largest; any other is
+  `(other)`, as decision 92 has it for `aries.usage.tokens`. The label
+  values are checked again where they are recorded: a project's id
+  must have a UUID's shape and a model `proto.UsageModel`'s, and every
+  value past a cap is `other` or `(other)`.
+- **A project that cannot be read has no cost series** until it is
+  read again, rather than its last figure: a failed poll clears it.
+- **Limits** are the config's (`docs/sextant.md` has the table):
+  projects (50, at most 500), models (20, at most 500), the request
+  timeout (30s, 1s to 2m), the interval (60s, at least 10s) and the
+  window (24h, 1m to 31 days). Nothing a client adds grows Sextant: it
+  holds one connection per configured project and one set of series
+  per project and model.
+- **Not built:** a release, an installer line, a systemd unit and an
+  AppArmor profile (X5); `deploy/observability`'s dashboard and rules
+  (X3); and the Docker test server's `observe` profile does not run it.
 
 ## 6. Recommendations
 
@@ -139,7 +188,8 @@ About three weeks of one engineer for X0 to X3.
    sampling it.
 5. **Start after v1.0.0 ships**, as decision 90 orders, and develop it
    against the dogfood server, whose `observe` profile already runs the
-   backend.
+   backend. *Superseded 19 Oct 2026 by decision 100:* it starts before
+   v1.0.0, against a released server.
 
 ## 7. Questions for the maintainer
 

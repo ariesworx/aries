@@ -203,8 +203,10 @@ const UsageOther = "(other)"
 // UsageTokens are the tokens of a usage write's new rows for one model,
 // as an [Observer] is told of them. A count that a record did not
 // report adds nothing. CacheWrite includes the part written for an
-// hour.
+// hour, which CacheWrite1h counts alone.
 type UsageTokens struct {
 	Model                                string
 	Input, Output, CacheWrite, CacheRead int64
+	// CacheWrite1h is the part of CacheWrite written for an hour.
+	CacheWrite1h int64
 }

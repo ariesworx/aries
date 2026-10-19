@@ -152,12 +152,15 @@ const (
 	CostByEpic    CostBy = "epic"
 	CostByPerson  CostBy = "person"
 	CostByModel   CostBy = "model"
+	// CostByOutcome groups issues by how they stood at the window's end
+	// (cost_outcome.go), dividing records as issue does.
+	CostByOutcome CostBy = "outcome"
 )
 
 // Valid reports whether b is a grouping.
 func (b CostBy) Valid() bool {
 	switch b {
-	case CostByAccount, CostByIssue, CostByEpic, CostByPerson, CostByModel:
+	case CostByAccount, CostByIssue, CostByEpic, CostByPerson, CostByModel, CostByOutcome:
 		return true
 	}
 	return false
@@ -206,6 +209,14 @@ type CostGroup struct {
 	Split     bool
 	Logged    time.Duration
 	Amortized *big.Int
+	// Issues, Rework, PerIssue and Types are set in a report by outcome:
+	// the issues with usage in the group; the part of the group's usage
+	// after those issues' first close; for landed, the cost of one issue
+	// and the issues by type.
+	Issues   int
+	Rework   *CostRework
+	PerIssue *Cost
+	Types    []CostType
 }
 
 // CostReport is the list-price equivalent of a window's tokens. Groups
@@ -222,6 +233,9 @@ type CostReport struct {
 	Total        CostGroup
 	Unpriced     []string
 	Capped       bool
+	// Landed lists the landed issues of a report by outcome, dearest
+	// first, at most the limit of them.
+	Landed []LandedIssue
 }
 
 // costAcc accumulates one group.
@@ -230,6 +244,12 @@ type costAcc struct {
 	cost   costSum
 	split  bool
 	logged time.Duration
+	// issues, rework, reworkTokens and types are a report by outcome's
+	// (cost_outcome.go); types are the landed issues' accumulators.
+	issues       int
+	rework       costSum
+	reworkTokens modelSum
+	types        map[IssueType]*costAcc
 	// planTokens are the group's tokens in each plan month, by index
 	// into the amortizer's months, and amortized its part of their
 	// totals, nil until split.
@@ -247,6 +267,9 @@ func (a *costAcc) merge(b *costAcc) {
 	a.cost.merge(b.cost)
 	a.split = a.split || b.split
 	a.logged += b.logged
+	a.issues += b.issues
+	a.rework.merge(b.rework)
+	a.reworkTokens.add(b.reworkTokens.tokens())
 	if b.amortized != nil {
 		a.addAmortized(b.amortized)
 	}
@@ -264,6 +287,15 @@ func (a *costAcc) group(key, title string) CostGroup {
 	g := CostGroup{Key: key, Title: title, Tokens: a.tokens.tokens(), Cost: a.cost.cost(), Split: a.split, Logged: a.logged}
 	if a.amortized != nil {
 		g.Amortized = new(big.Int).Set(a.amortized)
+	}
+	g.Issues = a.issues
+	if a.reworkTokens.known != [5]bool{} {
+		g.Rework = &CostRework{Tokens: a.reworkTokens.tokens(), Cost: a.rework.cost()}
+	}
+	if key == OutcomeLanded && a.issues > 0 {
+		p := perIssue(g.Cost, a.issues)
+		g.PerIssue = &p
+		g.Types = a.typeList()
 	}
 	return g
 }
@@ -285,7 +317,7 @@ func (s *Store) CostReport(ctx context.Context, f CostFilter) (CostReport, error
 	}
 	switch {
 	case !f.By.Valid():
-		return CostReport{}, fmt.Errorf("%w: by %q must be account, issue, epic, person or model", ErrInvalid, f.By)
+		return CostReport{}, fmt.Errorf("%w: by %q must be account, issue, epic, person, model or outcome", ErrInvalid, f.By)
 	case f.Since.IsZero() && f.Window <= 0:
 		return CostReport{}, fmt.Errorf("%w: a cost report needs since, or a positive window", ErrInvalid)
 	case until.Before(since):
@@ -332,13 +364,20 @@ func (s *Store) CostReport(ctx context.Context, f CostFilter) (CostReport, error
 	out.Total = total.group("", "")
 	out.Unpriced = slices.Sorted(maps.Keys(total.cost.unpriced))
 
-	groups, titles, err := costGroups(ctx, q, f, ur.rows, hours, book, z, now)
+	groups, titles, landed, err := costGroups(ctx, q, f, ur.rows, hours, book, z, now, until, limit)
 	if err != nil {
 		return CostReport{}, err
 	}
+	out.Landed = landed
 	out.Total.Amortized = z.total(groups)
 	for k, a := range groups {
 		out.Groups = append(out.Groups, a.group(k, titles[k]))
+	}
+	if f.By == CostByOutcome { // at most four groups, in the order they are read
+		slices.SortFunc(out.Groups, func(a, b CostGroup) int {
+			return cmp.Compare(slices.Index(outcomeOrder, a.Key), slices.Index(outcomeOrder, b.Key))
+		})
+		return out, nil
 	}
 	slices.SortFunc(out.Groups, func(a, b CostGroup) int {
 		return cmp.Or(b.Cost.Picodollars.Cmp(a.Cost.Picodollars), cmpPicos(b.Amortized, a.Amortized),
@@ -357,7 +396,7 @@ func (s *Store) CostReport(ctx context.Context, f CostFilter) (CostReport, error
 // costGroups accumulates rows and hours by f.By, with the titles of
 // issue and epic groups, and splits z's plan months across the groups.
 func costGroups(ctx context.Context, q querier, f CostFilter, rows []usageRow, hours []hoursSum, book priceBook,
-	z *amortizer, now time.Time) (map[string]*costAcc, map[string]string, error) {
+	z *amortizer, now, until time.Time, limit int) (map[string]*costAcc, map[string]string, []LandedIssue, error) {
 	groups := map[string]*costAcc{}
 	acc := func(key string) *costAcc {
 		a := groups[key]
@@ -385,18 +424,18 @@ func costGroups(ctx context.Context, q querier, f CostFilter, rows []usageRow, h
 			acc(key).logged += h.d
 		}
 		z.split(groups, acc)
-		return groups, nil, nil
+		return groups, nil, nil, nil
 	}
 	holds, err := sessionHolds(ctx, q, rows, now)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	divs := make([]division, len(rows))
 	seen := map[IssueID]bool{}
 	for i, r := range rows {
 		if i%ctxEvery == 0 {
 			if err := ctx.Err(); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
 		divs[i] = divide(r, holds[r.key])
@@ -411,14 +450,26 @@ func costGroups(ctx context.Context, q querier, f CostFilter, rows []usageRow, h
 	}
 	chains, err := loadChains(ctx, q, slices.Sorted(maps.Keys(seen)))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	titles := map[string]string{}
+	var oc *outcomes
+	if f.By == CostByOutcome {
+		states, err := loadOutcomes(ctx, q, slices.Sorted(maps.Keys(seen)), until)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		oc = newOutcomes(states)
+	}
 	keys := map[IssueID]string{}
 	keyOf := func(id IssueID) string {
 		k, ok := keys[id]
 		if !ok {
-			k = groupKey(f, chains, id, titles)
+			if oc != nil {
+				k = oc.states[id].kind
+			} else {
+				k = groupKey(f, chains, id, titles)
+			}
 			keys[id] = k
 		}
 		return k
@@ -442,13 +493,35 @@ func costGroups(ctx context.Context, q querier, f CostFilter, rows []usageRow, h
 			a.add(book, r.model, r.to, part)
 			z.note(a, r, part)
 			a.split = a.split || len(buckets) > 1
+			if oc != nil {
+				for _, j := range b {
+					if j < len(d.issues) {
+						oc.note(book, d.issues[j], r, d.share(r.Tokens, j), len(buckets) > 1 || d.split())
+					}
+				}
+			}
 		}
 	}
 	for _, h := range hours {
 		acc(keyOf(h.issue)).logged += h.d
 	}
+	var landed []LandedIssue
+	if oc != nil {
+		for _, k := range outcomeOrder[:3] {
+			acc(k) // so an issue's group exists
+		}
+		var err error
+		if landed, err = oc.finish(ctx, q, groups, now, limit); err != nil {
+			return nil, nil, nil, err
+		}
+		for k, a := range groups { // a group no one is in is not listed
+			if a.issues == 0 && a.tokens == (modelSum{}) && a.logged == 0 {
+				delete(groups, k)
+			}
+		}
+	}
 	z.split(groups, acc)
-	return groups, titles, nil
+	return groups, titles, landed, nil
 }
 
 // groupKey is the key of issue id's group in a report by f.By, noting

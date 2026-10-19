@@ -79,7 +79,9 @@ type PricesResult struct {
 }
 
 // CostArgs selects a cost report: the records whose time is in [Since,
-// Until), grouped By account, issue, epic, person or model. Since is as
+// Until), grouped By account, issue, epic, person, model or outcome (how
+// the issue the tokens went to stood at Until: landed, closed or open;
+// tokens nobody held are CostUnattributed). Since is as
 // DigestArgs' (a time, a date or a duration back from now); Until is a
 // time or a date, empty for now. Limit groups are listed (0 takes the
 // server's default, 50; at most 500), and the rest summed into one
@@ -109,6 +111,54 @@ type CostGroup struct {
 	Split         bool   `json:"split,omitempty"`
 	LoggedSeconds int64  `json:"logged_seconds,omitempty"`
 	AmortizedUSD  string `json:"amortized_usd,omitempty"`
+	// The rest is set by a report by outcome. Issues counts the issues
+	// with tokens in the group. Rework is the part of the group's tokens
+	// that came after the first close of the issue they went to.
+	// PerIssueUSD, for landed alone, is its cost over Issues, and Types
+	// the same by issue type.
+	Issues      int          `json:"issues,omitempty"`
+	Rework      *CostRework  `json:"rework,omitempty"`
+	PerIssueUSD string       `json:"per_issue_usd,omitempty"`
+	Types       []CostByType `json:"types,omitempty"`
+}
+
+// CostRework is tokens that came after an issue's first close, and
+// their list-price equivalent.
+type CostRework struct {
+	Tokens
+	CostUSD  string `json:"cost_usd"`
+	Unpriced bool   `json:"unpriced,omitempty"`
+}
+
+// CostByType is the landed issues of one type: how many, their tokens
+// and cost, and the cost of one.
+type CostByType struct {
+	Type string `json:"type"`
+	Tokens
+	Issues      int    `json:"issues"`
+	CostUSD     string `json:"cost_usd"`
+	PerIssueUSD string `json:"per_issue_usd"`
+	Unpriced    bool   `json:"unpriced,omitempty"`
+}
+
+// CostLanded is a landed issue of a report by outcome: the tokens and
+// cost attributed to it in the window, the Rework part of them that
+// came after its first close, the seconds it was held and the seconds
+// from its creation to its last close (the held time over the cycle
+// time is the flow efficiency), and the acceptance items and gates
+// waived on it.
+type CostLanded struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Type  string `json:"type"`
+	Tokens
+	CostUSD      string      `json:"cost_usd"`
+	Unpriced     bool        `json:"unpriced,omitempty"`
+	Rework       *CostRework `json:"rework,omitempty"`
+	HeldSeconds  int64       `json:"held_seconds"`
+	CycleSeconds int64       `json:"cycle_seconds"`
+	Waivers      int         `json:"waivers"`
+	Split        bool        `json:"split,omitempty"`
 }
 
 // CostResult is a cost report. Groups are by cost, largest first; Total
@@ -125,6 +175,9 @@ type CostResult struct {
 	Unpriced     []string    `json:"unpriced,omitempty"`
 	UnpricedMore int         `json:"unpriced_more,omitempty"`
 	Truncated    bool        `json:"truncated,omitempty"`
+	// Landed lists the landed issues of a report by outcome, dearest
+	// first, at most Limit.
+	Landed []CostLanded `json:"landed,omitempty"`
 }
 
 // picoPerUSD is picodollars in a dollar.

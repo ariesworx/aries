@@ -311,6 +311,82 @@ protected branches, and merge request pipelines of other branches then
 cannot report; leaving it unprotected is the cost the next section
 names.
 
+## The deps check
+
+`deps` is a check like `build`: a job that runs the repository's
+dependency policy on a pull request's branch and fails it when the
+branch breaks the policy. It matters most for work agents do, since an
+agent can add a dependency in a line of `go.mod` and nobody reads it. The
+policy and the job are the repository's, not the server's: the server
+never sees a repository, so Aries only holds the issue behind the gate
+you add, and an agent cannot pass it (rule 12: a `ci` gate is passed by
+the CI principal, or waived by an admin with a reason).
+
+What the job holds, and where each part is kept:
+
+- **An allowlist.** Every dependency the manifests name directly has a
+  line in a file of the repository that says its scope, license, date and
+  reason, and a person adds the line; an agent may propose a dependency
+  and never adds one. Aries's is `deps.allow`.
+- **The manifests against the allowlist, both ways.** A dependency the
+  manifests name that the file does not list fails, and so does a line
+  for something no manifest names. Aries's tests also hold what each
+  binary links, every workflow's Actions (pinned by commit, with a
+  version comment) and the tools the gate runs.
+- **A cooldown.** A version the branch takes was published at least 14
+  days before (30 for a new major version), unless the pull request is
+  labeled `security-fix`, which skips the wait and not the review.
+- **A timeout on every job**, so a hang ends there.
+
+Aries runs this on its own pull requests: [`deps.yml`](../.github/workflows/deps.yml)
+runs `go test ./internal/depcheck/` with `ARIES_DEPS_BASE` set to the
+pull request's base, and the job `deps` fails the pull request if any
+part is broken. `ci.yml` runs the same tests in the `test` job as well,
+so the dependency tests cannot be skipped, but `deps` names what failed
+and is the check to require in branch protection (a setting of the
+repository, the maintainer's). The cooldown is the part that needs the
+base and the module proxy, so only `deps` runs it.
+
+To report the result to Aries as a gate, add a job that runs your
+policy, and report it the way `build` is reported, with the check
+`deps`:
+
+```yaml
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make deps # your policy: allowlist, cooldown, pins
+```
+
+then in the `report` job, `needs: [build, deps]`, and one more step
+beside `Report the build`:
+
+```yaml
+      - name: Report the dependency check
+        if: github.event_name == 'pull_request'
+        env:
+          RESULT: ${{ needs.deps.result }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          verb=fail
+          if [ "$RESULT" = success ]; then verb=pass; fi
+          aries gate "$verb" --check deps --from-branch --optional --sha "$SHA" --url "$RUN" --reason "deps: $RESULT"
+```
+
+On GitLab, a `deps` job in the `test` stage and two report jobs like
+`build passed` and `build failed` with `--check deps`. The gate that
+holds the issue is added like the others:
+
+```sh
+aries gate add --kind ci --check deps --issue ar-a1b2 --approver ci-example
+```
+
+The gate does not yet appear by itself when a branch changes a manifest:
+someone adds it, as for `build`. Having `start` add it is planned for
+1.x ([supply-chain design](design/supply-chain.md), slice SC9).
+
 ## A server CI cannot reach
 
 A server on a laptop, or behind a VPN or an IAP a hosted runner cannot

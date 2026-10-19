@@ -193,3 +193,41 @@ func TestInboxMentionAndWatch(t *testing.T) {
 		t.Fatalf("alice mentioned no one: %q", got)
 	}
 }
+
+// `aries watch --events --json` prints every issue event, the watching
+// principal's own among them, which an inbox-only watch never shows.
+func TestWatchEvents(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, daemonOpts{})
+	alice := w.newUser("alice", "")
+	alice.ok("ready")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out, errb, plainOut, plainErr lines
+	code, plainCode := make(chan int, 1), make(chan int, 1)
+	go func() { code <- alice.runTo(ctx, &out, &errb, "v0.2.0", "watch", "--events", "--json") }()
+	go func() { plainCode <- alice.runTo(ctx, &plainOut, &plainErr, "v0.2.0", "watch", "--json") }()
+	waitFor(t, "both watches to start", func() bool {
+		return strings.Contains(errb.String(), "watching") && strings.Contains(plainErr.String(), "watching")
+	})
+
+	id := decode[proto.WriteResult](t, alice.ok("create", "Tidy", "the", "logs", "--json")).ID
+	waitFor(t, "the pushed event", func() bool { return strings.Contains(out.String(), "\n") })
+	cancel()
+	if c := <-code; c != 0 {
+		t.Fatalf("watch exit %d\n%s", c, errb.String())
+	}
+	<-plainCode
+	first, _, _ := strings.Cut(out.String(), "\n")
+	ev := decode[struct {
+		Op    string      `json:"op"`
+		Event proto.Event `json:"event"`
+	}](t, first)
+	if ev.Op != proto.EvEvent || ev.Event.Issue != id || ev.Event.Principal != "alice" {
+		t.Fatalf("watch line: %s", first)
+	}
+	if plainOut.String() != "" {
+		t.Fatalf("an inbox-only watch printed %q", plainOut.String())
+	}
+}
