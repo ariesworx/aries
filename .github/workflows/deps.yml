@@ -1,0 +1,55 @@
+# The deps check: a pull request that breaks the dependency policy fails
+# here, by name (AGENTS.md, rule 4; docs/ci.md, "The deps check").
+#
+# internal/depcheck holds go.mod, the tools module, each binary's linked
+# modules and every workflow's Actions to deps.allow, and every job to a
+# timeout; ci.yml's test job runs those tests with the rest. This job runs
+# them alone, so a dependency change is told apart from a failing test,
+# and adds the cooldown (TestCooldown): every module version the pull
+# request takes must have been published 14 days before, 30 for a new
+# major version, unless the pull request carries the label security-fix,
+# which only someone with write access can add. Making the check
+# required is a setting of the "Protect main" ruleset, the maintainer's.
+#
+# A required check must report in the merge queue too, so the workflow
+# also runs on merge_group, where the job is skipped (the pull request
+# passed it before it could be queued) and GitHub counts a skipped
+# required check as passing. Dependabot's pull requests are held to it
+# like any other.
+#
+# It runs on pull_request with a read-only token and the pull request's
+# own checkout, so a pull request that changes the tests is reviewed like
+# any other change; never switch it to pull_request_target.
+name: deps
+on:
+  merge_group:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+permissions:
+  contents: read
+concurrency:
+  group: deps-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  deps:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base's commit, which TestCooldown reads go.mod at.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go at go.mod's toolchain line
+        uses: ./.github/actions/go-toolchain
+      - name: Check the dependency policy
+        env:
+          GOFLAGS: -mod=readonly
+          ARIES_DEPS_BASE: ${{ github.event.pull_request.base.sha }}
+          ARIES_DEPS_SECURITY_FIX: ${{ contains(github.event.pull_request.labels.*.name, 'security-fix') && '1' || '0' }}
+        run: go test -count=1 -v ./internal/depcheck/

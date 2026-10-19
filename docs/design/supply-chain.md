@@ -365,6 +365,8 @@ Each slice leaves `main` working and changes nothing for a deployment unless it 
 
 **Estimate.** 1 day for the docs/ci.md part; 5 days for the setting and the automatic gate, after the Postgres port's P1 and P2 and stage 6's G2.
 
+**As built (19 Oct 2026).** The maintainer answered question 9: the docs/ci.md part ships now (`aries-nczj3oiu`) and the automatic gate stays in 1.x (`aries-jaiy3zpf`). docs/ci.md's "The deps check" describes the check and how to report it as the `ci` gate `deps`; the repository runs it as `.github/workflows/deps.yml`, a job `deps` that runs `internal/depcheck` with `ARIES_DEPS_BASE` set to the pull request's base. SC1's tests already held `go.mod`, the tools module, the link sets, the workflows' Actions and the tools to `deps.allow`; this adds `TestCooldown` (§7.3's 14 days, 30 for a new major version, skipped for a pull request labeled `security-fix`, over the direct and indirect requirements the branch changed, read from the module proxy) and `TestJobsHaveTimeouts` (every job has a `timeout-minutes`; `release.yml`'s `sign-and-publish` has none, is named as the one exception in the test because the signing job is the maintainer's, and wants a person to add one). The cooldown does not cover an Action's pin or a tool's version outside a `go.mod`. Making `deps` a required check is a setting of the "Protect main" ruleset, the maintainer's.
+
 ### Order and total
 
 SC1 (3 days), SC5 (2), SC2 (2), SC3 (4), SC4 (3), SC6 (2), SC8 (1), SC7 (3 + 2), SC9 (1 + 5): about 28 days, with SC1, SC5 and SC6 (one week) removing the gaps an attacker would try first, and SC3 and SC4 producing what an assessor asks for first. SC1 before SC2 (the tools module); SC3 before SC4 only for the shared build script; everything else independent.
