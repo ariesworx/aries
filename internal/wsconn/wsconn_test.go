@@ -646,3 +646,35 @@ func TestTLSState(t *testing.T) {
 		t.Errorf("TLS() of a Conn with no connection = %+v, want nil", cs)
 	}
 }
+
+// SetMax runs on Read's goroutine while Write and Close run on others,
+// as the server's key proof does when ariesd stops: the race detector
+// fails a bound that both sides touch. SetMax bounds reads alone, so a
+// write keeps the bound the connection was made with.
+func TestSetMaxBesideWriteAndClose(t *testing.T) {
+	t.Parallel()
+	c := newConn(nil, bufio.NewReader(bytes.NewReader(nil)), io.Discard, true, 64)
+	start := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		<-start
+		for range 100 {
+			c.SetMax(16)
+			c.SetMax(0)
+		}
+	}()
+	go func() { <-start; _ = c.Write(make([]byte, 32)) }()
+	go func() { <-start; _ = c.Close() }()
+	close(start)
+	<-done
+
+	d := newConn(nil, nil, io.Discard, true, 64)
+	d.SetMax(16)
+	if err := d.Write(make([]byte, 32)); err != nil {
+		t.Errorf("Write of 32 bytes after SetMax(16) on a 64-byte connection = %v, want nil", err)
+	}
+	if err := d.Write(make([]byte, 65)); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("Write of 65 bytes on a 64-byte connection = %v, want ErrTooLarge", err)
+	}
+}
