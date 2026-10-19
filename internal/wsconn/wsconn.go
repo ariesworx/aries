@@ -92,7 +92,11 @@ type Conn struct {
 	r      *bufio.Reader
 	w      io.Writer
 	server bool // a server reads masked frames and writes unmasked ones
-	max    int
+	// max bounds the messages Read returns: Read's goroutine alone reads
+	// and changes it (SetMax). wmax bounds the messages written and is
+	// never changed, so that a write or a Close on another goroutine
+	// reads it without a race.
+	max, wmax int
 	// maskKey makes the key of each frame a client writes.
 	maskKey func() [4]byte
 
@@ -110,7 +114,7 @@ func newConn(nc net.Conn, r *bufio.Reader, w io.Writer, server bool, maxBytes in
 	if maxBytes <= 0 {
 		maxBytes = DefaultMax
 	}
-	return &Conn{nc: nc, r: r, w: w, server: server, max: maxBytes, maskKey: randomKey}
+	return &Conn{nc: nc, r: r, w: w, server: server, max: maxBytes, wmax: maxBytes, maskKey: randomKey}
 }
 
 // randomKey is a client's masking key: random, as RFC 6455 §5.3 asks,
@@ -525,7 +529,7 @@ func (c *Conn) writeLocked(op byte, payload []byte) error {
 		return net.ErrClosed
 	}
 	n := len(payload)
-	if n > c.max {
+	if n > c.wmax {
 		return ErrTooLarge
 	}
 	// The header, at most 14 bytes, is built in an array of its own, so
@@ -594,7 +598,7 @@ func (c *Conn) Close() error {
 // SetMax bounds the messages Read returns from now on; zero takes
 // DefaultMax. It is for Read's goroutine alone, between reads: a server
 // holds a peer that has proved nothing to a smaller bound than one it
-// knows.
+// knows. The bound of what is written stays the one c was made with.
 func (c *Conn) SetMax(maxBytes int) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMax
