@@ -644,14 +644,20 @@ is measured", and kept from then on (rule 2).
    This research follows the first for bounded, project-level series
    (F1, F2, F4) and keeps per-issue values in reports (F3). Is that the
    line? *Recommended:* yes; Sextant then adds accounts and people.
+   *Answered 19 Oct 2026:* yes, as recommended.
 2. **Close reasons as values.** F1 maps a close's free-text reason to
    `landed`, `forced` or `other`. Should a reason of a fixed list become
    part of `close` (as `landed` and `check failed` already are), so that
-   `other` can be split later? *Recommended:* not now.
+   `other` can be split later? *Recommended:* not now. *Answered 19 Oct
+   2026:* not now.
 3. **Human interventions.** Should capture count user turns and
    interruptions from transcripts (F5), counts only, under the same
    privacy line as tool calls? *Recommended:* yes, in the same design and
-   protocol change.
+   protocol change. *Answered 19 Oct 2026:* yes, in that design and
+   protocol change, counted per issue and per session only. Counting them
+   per person measures people, which Sextant's answer on people
+   (sextant.md §7, question 2) and pseudonyms (enterprise review,
+   question 10; aries-k723g26u) keep out until pseudonyms exist.
 
 ## References
 

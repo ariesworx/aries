@@ -3,7 +3,8 @@
 **Design, 16 October 2026, proposed.** It decides nothing and nothing in
 it is built. Sextant is the name decision 80 reserved for observability:
 metrics, monitoring, tracing, cost and usage reporting. This is its
-first slice, to start after v1.0.0 (decision 90).
+first slice, to start after v1.0.0 (decision 90). The maintainer answered §7 on 19 October
+2026 (decision 98).
 
 ## 1. Why
 
@@ -148,14 +149,23 @@ About three weeks of one engineer for X0 to X3.
    another license, or (c) in a repository of its own, licensed
    commercially? *Recommended:* (c), if Sextant is what is sold, so that
    Aries stays a complete open tool and the boundary between them is
-   the public API, which is what v0 already uses.
+   the public API, which is what v0 already uses. *Answered 19 Oct
+   2026:* (a), in this repository under the AGPL. The CLA still lets
+   Ariesworx LLC license it otherwise. Sextant is a binary of its own,
+   and `aries` links none of it (rule 4).
 2. **People.** Should per-person spend exist at all in v0, by name,
-   before pseudonyms (X4)? *Recommended:* no.
+   before pseudonyms (X4)? *Recommended:* no. *Answered 19 Oct 2026:*
+   no.
 3. **Hosted or self-hosted.** Is the product a binary a customer runs
    beside `ariesd`, a hosted service that reads many customers' servers,
    or both? v0 is the binary either way; a hosted service changes what
-   leaves a customer's network, and needs its own design.
+   leaves a customer's network, and needs its own design. *Answered 19
+   Oct 2026:* the binary, against one `ariesd`, proved out before it
+   reads several servers or becomes a hosted service.
 4. **Budgets.** Should a budget per account be data in Aries (so an
    agent can see it, and `start` could warn), or only an alert rule in
    Sextant? *Recommended:* an alert rule in v0; budgets in Aries are a
-   separate 1.x design.
+   separate 1.x design. *Answered 19 Oct 2026:* as recommended. Hard
+   stops on spend are set at each model provider (enterprise review,
+   question 5), and later managed in one place by Bearings' gateway
+   (bearings.md §8, question 16).

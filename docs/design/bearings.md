@@ -1515,6 +1515,12 @@ Added 16 Oct 2026, each with the recommendation and what it costs.
 Those marked **first** are what the rest of the design waits on; those
 marked "(review, round 1)" came from the architecture review.
 
+**Answered provisionally, 19 Oct 2026:** the maintainer accepted the
+recommendations "for now" (enterprise review, question 3, puts Bearings
+in 1.x). A provisional answer guides the design and changes no rule or
+decision until Bearings is next on the roadmap and its design is
+accepted. Question 20 had no recommendation and stays open.
+
 1. *Answered (decision 31).* One organization per server, with
    Bearings in a schema of its own, and replicas or more than one
    primary when needed (Q25).
@@ -1524,24 +1530,24 @@ marked "(review, round 1)" came from the architecture review.
    tier-2 tools on the leads' surfaces too? Recommended: CLI only.
    *(Review, round 1, Q14 merged:)* **who may create reviewer, merger,
    wingman and gateway principals and their trust rules?** Recommended:
-   server admins only (§3.16).
+   server admins only (§3.16). *Provisional, 19 Oct 2026:* CLI only, and server admins alone create reviewer, merger, wingman and gateway principals.
 5. *Answered (decision 34).* Split custody, least privilege.
 6. *Answered (decisions 35 and 37).* A merge to `main` is not a deploy,
    and the eight hard limits stand as §3.16 has them. **Still open:**
    whether aries.md decision 8's autonomy window folds into an envelope
-   plus an expiry that pauses the scope, as §7's table proposes.
+   plus an expiry that pauses the scope, as §7's table proposes. *Provisional, 19 Oct 2026:* yes, the autonomy window becomes an envelope plus an expiry that pauses the scope.
 7. *Answered (decision 36).* Yes, in one separate pull request once
    the design is accepted.
 8. **Do the Bearings prerequisites go into v1.0.0 (protocol 8, delaying
    it) or into 1.x with protocol bumps?** (review, round 1) Recommended:
-   1.x, as §6 has it. Cost: none to 1.0.
+   1.x, as §6 has it. Cost: none to 1.0. *Provisional, 19 Oct 2026:* 1.x, with protocol bumps (enterprise review, question 3).
 9. **Must Bearings' separation of duties work on SSH-only and air-gapped
    servers,** where no token carries a scope? (review, round 1)
    Recommended: levels A and B over SSH; C and D need HTTPS. Cost: an
-   SSH-only site gets no dark factory, which §3.16 says.
+   SSH-only site gets no dark factory, which §3.16 says. *Provisional, 19 Oct 2026:* levels A and B over SSH; C and D need HTTPS.
 10. **One principal per agent pool, or one per worker?** (review, round 1)
     Recommended: one per worker, as a session-bound grant (§3.16, §3.23).
-    Cost: a grant per launch, and the control index grows with them.
+    Cost: a grant per launch, and the control index grows with them. *Provisional, 19 Oct 2026:* one per worker as a session-bound grant, under a principal per agent role (enterprise review, question 4), so that principals do not pile up.
 11. **Should the host's merge queue and required reviews by separate
     GitHub Apps replace the custom train for merges to `main`?** (review,
     round 1) Recommended: yes for `main` (the train orders and gates; the
@@ -1549,49 +1555,49 @@ marked "(review, round 1)" came from the architecture review.
     train's own merging kept for `epic/*`. Cost: a host feature per
     platform. **And does decision 6 still hold** with the `web` build tag
     and nested modules for the cloud adapters? Recommended: yes, with
-    those two.
+    those two. *Provisional, 19 Oct 2026:* yes for `main`, the train kept for `epic/*`; and decision 6 holds.
 12. **What is the required time to stop the factory when ariesd is down,
     and is a local break-glass halt wanted?** (review, round 1)
     Recommended: 30 seconds (the gateway's fail-closed timeout) and yes
-    (`bearings halt`, §3.16).
+    (`bearings halt`, §3.16). *Provisional, 19 Oct 2026:* 30 seconds, and yes, `bearings halt`.
 13. **May issue and comment text go to third-party model providers in
     wingman and judgment prompts, and does it need the secrets lint
     first?** (review, round 1) Recommended: yes within the scope's
-    provider allowlist, and yes, the lint first (§3.17).
+    provider allowlist, and yes, the lint first (§3.17). *Provisional, 19 Oct 2026:* yes within the scope's provider allowlist, and the lint first. It is weighed again against FedRAMP (supply-chain.md §11, question 7) and pseudonyms before it is built.
 14. **Policy: the split of §3.18** against everything direct or
     everything by pull request? Recommended: the split. **And the
     repository against the control store** for structural policy?
-    Recommended: the repository.
+    Recommended: the repository. *Provisional, 19 Oct 2026:* the split, and the repository.
 15. **Separation of duties among people:** a policy rule at the
-    organization only, advisory below? Recommended: yes (§3.18).
+    organization only, advisory below? Recommended: yes (§3.18). *Provisional, 19 Oct 2026:* yes.
 16. **Model credentials and the gateway (§3.24):** build it, as a process
     of its own, with the built-in gateway the default and an adapter for
     an organization's own; file and Vault adapters first; may policy
-    forbid subscription logins? Recommended: yes to each.
+    forbid subscription logins? Recommended: yes to each. *Provisional, 19 Oct 2026:* yes to each. Further (the maintainer, 19 Oct 2026): the gateway holds every provider's API keys and spend limits in one place (Claude, OpenAI and others), with one dashboard and an API for real-time reporting, and is where hard stops on spend live (enterprise review, question 5). Where it ends and Sextant's reporting begins is for its design.
 17. **Scope `web` and `lead` and human gates:** may an approver pass a
     gate, or decide a non-sensitive escalation, from the UI or the leads'
     MCP (decision 68)? Recommended: at tier 2 on both. Cost: decision
-    68's "only from `cli`" widens.
+    68's "only from `cli`" widens. *Provisional, 19 Oct 2026:* at tier 2 on both. This widens decision 68 and AGENTS.md rule 12, and changes neither until Bearings' design is accepted and a decision records it.
 18. **Which level C classes first,** and the promotion thresholds?
     Recommended: `dependency` where both issues name each other and
     `overlap` notices, at 90% acceptance over 50 proposals; `conflict`
-    last.
+    last. *Provisional, 19 Oct 2026:* as recommended.
 19. **The UI's token: BFF, or in the browser with ariesd open to a
-    browser origin?** Recommended: BFF (§3.20).
+    browser origin?** Recommended: BFF (§3.20). *Provisional, 19 Oct 2026:* BFF.
 20. **The leads' first tool list and budgets** (§3.19): is about 5,500
     schema tokens right for chat clients, and which tools go in M0?
 21. **Direct budget edits in the UI** beyond a `budget_owner`'s tier-2
-    adjustments within the parent's? Recommended: no.
+    adjustments within the parent's? Recommended: no. *Provisional, 19 Oct 2026:* no.
 22. **Are budgets optional?** Recommended: envelopes optional, the
     accounting not, an envelope at every level a condition of
-    dark-factory mode (§3.22).
+    dark-factory mode (§3.22). *Provisional, 19 Oct 2026:* as recommended. With hard stops at the providers (question 16), an envelope pauses and alerts rather than being the only stop.
 23. **Tamper evidence:** a hash chain with signed checkpoints an external
     verifier pulls (§3.21), or Postgres's own means? Recommended: the
-    chain.
+    chain. *Provisional, 19 Oct 2026:* the chain. It covers tamper evidence for the enterprise review's question 9, which is otherwise left open.
 24. **The wingman as Go with structured judgments** (§3.17), not a
     harness session with tools? Recommended: Go; a harness session would
     give the most privileged host a shell and the largest injection
-    surface. Cost: judgments are bounded to fixed questions.
+    surface. Cost: judgments are bounded to fixed questions. *Provisional, 19 Oct 2026:* Go.
 25. **Replicas and more than one primary** (decision 31). Which store
     reads move to a replica, and how a reader there knows its lag;
     whether `store.DB` becomes one pool per Postgres primary, with the
@@ -1602,4 +1608,4 @@ marked "(review, round 1)" came from the architecture review.
     wingman's reads, since aries.md §14's standby (decision 79) already
     replicates; more than one primary only once one is measured to be
     the limit. Cost: an ariesd change, so it is an Aries design and a
-    1.x release, not Bearings'.
+    1.x release, not Bearings'. *Provisional, 19 Oct 2026:* yes; an Aries 1.x design.
