@@ -138,6 +138,7 @@ Each a `server.Limits` field with a default, a `limits:` key, a table-driven tes
 | `https_body` | 64 KiB | The body of an OAuth request; `/mcp` takes `proto.MaxFrame` (4 MiB) |
 | `upgrade_timeout` | 10 s | From the upgrade to the hello |
 | `ws_message` | 4 MiB | One message: one frame, `proto.MaxFrame` |
+| `ws_write_timeout` | 30 s | One frame the server writes once the key is proved; a client that stops reading is closed when a write waits this long (added 19 Oct 2026, wsconn review finding WS-2) |
 | `auth_failures_per_addr` | 30 a minute, burst 60 | 401s per address before `busy`; refusals counted, never logged with the token |
 | `signin_pending` | 10,000 | Sign-ins started and not finished, 10 minutes each |
 | `signins_pending_per_addr` | 16 | Of those, from one client address; added after T2's review (§15, As built for T2) |

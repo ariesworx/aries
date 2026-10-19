@@ -678,3 +678,28 @@ func TestSetMaxBesideWriteAndClose(t *testing.T) {
 		t.Errorf("Write of 65 bytes on a 64-byte connection = %v, want ErrTooLarge", err)
 	}
 }
+
+// With a write timeout, a pong to a peer that reads nothing fails, and
+// the connection is closed, instead of Read's goroutine waiting on it
+// for ever.
+func TestWriteTimeoutEndsStalledPong(t *testing.T) {
+	t.Parallel()
+	a, b := net.Pipe() // unbuffered: a write waits for a read
+	defer func() { _ = a.Close(); _ = b.Close() }()
+	c := newConn(a, bufio.NewReader(a), a, true, 0)
+	c.SetWriteTimeout(100 * time.Millisecond)
+	go func() { _, _ = b.Write(frame(true, opPing, true, nil)) }() // then reads nothing
+	done := make(chan error, 1)
+	go func() { _, err := c.Read(); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Read = nil after a pong that could not be written")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Read still waits on a pong to a peer that reads nothing")
+	}
+	if err := c.Write([]byte("x")); err == nil {
+		t.Error("Write after the stalled pong = nil, want an error: the connection is closed")
+	}
+}

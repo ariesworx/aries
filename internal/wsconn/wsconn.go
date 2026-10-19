@@ -103,9 +103,12 @@ type Conn struct {
 	// readErr is why Read failed; every later Read returns it.
 	readErr error
 
-	wmu    sync.Mutex // serializes frames on the wire
-	closed atomic.Bool
-	once   sync.Once // closes nc once
+	wmu sync.Mutex // serializes frames on the wire
+	// wtimeout is how long one frame may take to write, in nanoseconds;
+	// zero is no bound (SetWriteTimeout).
+	wtimeout atomic.Int64
+	closed   atomic.Bool
+	once     sync.Once // closes nc once
 }
 
 // newConn is a Conn over r and w, the stream of nc, whose messages are
@@ -520,8 +523,29 @@ func (c *Conn) Ping() error { return c.writeFrame(opPing, nil) }
 func (c *Conn) writeFrame(op byte, payload []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	return c.writeLocked(op, payload)
+	d := time.Duration(c.wtimeout.Load())
+	if d <= 0 || c.nc == nil {
+		return c.writeLocked(op, payload)
+	}
+	_ = c.nc.SetWriteDeadline(time.Now().Add(d))
+	err := c.writeLocked(op, payload)
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		// A frame partly written leaves the stream unframed, and the
+		// peer is not reading: end the connection, which also ends
+		// the Read that is waiting on it.
+		c.closed.Store(true)
+		c.once.Do(func() { _ = c.nc.Close() })
+	}
+	return err
 }
+
+// SetWriteTimeout bounds each frame this end writes from now on, pongs
+// and pings among them: a write that takes longer fails and closes the
+// connection, so that a peer that stops reading cannot hold a write, and
+// the lock behind it, for ever. Zero, the default, is no bound. It is
+// safe to call from any goroutine.
+func (c *Conn) SetWriteTimeout(d time.Duration) { c.wtimeout.Store(int64(d)) }
 
 // writeLocked is writeFrame with c.wmu held.
 func (c *Conn) writeLocked(op byte, payload []byte) error {
