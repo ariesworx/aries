@@ -282,6 +282,21 @@ edits to `.claude/`, `.mcp.json` and `internal/release/keys.go`; branch
 protection is the backstop. Distinct agent identities are Bearings'
 (§3.23), not this design's.
 
+**As built (19 October 2026).** The store is `internal/credential`
+(aries-rf37kpcm), for an API key, as Q1 recommends. macOS keeps it in
+the keychain through `security -i`, given the command on stdin with
+the secret in hexadecimal; Linux in the Secret Service through
+`secret-tool store`, which reads it from stdin, where one answers within
+five seconds, and otherwise in `credentials/aries.NAME` under aries's
+data directory, 0600 in a 0700 directory, both refused unless the
+user's own and closed to others. Windows Credential Manager is the same
+interface and refuses with a fix until Bearings needs it (advapi32's
+`Cred*` through `syscall`). Commands rather than system calls, because
+releases are built without cgo and a Secret Service client on the
+standard library would speak D-Bus by hand. It has no command yet: the
+key is kept by `aries dispatch`, the loop's command, read from stdin or
+a prompt.
+
 ## 12. A command, a script, or Bearings
 
 | | Pros | Cons |
