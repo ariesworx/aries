@@ -1,8 +1,12 @@
 # Lessons: a field on handoff and finish, and a query
 
-**Design, 19 October 2026, proposed (aries-l436tgkj, L2 of the learning
-loop, epic aries-dmqqolg4).** Nothing in it is built. No code is written
-until the maintainer answers §13.
+**Design, 19 October 2026; answered the same day (decision 101)
+(aries-l436tgkj, L2 of the learning loop, epic aries-dmqqolg4).**
+Nothing in it is built. The maintainer answered §13: nine questions as
+recommended, and three otherwise. The MCP read is built in L2b (Q4).
+The MCP write takes a structured lesson, with the schema budget raised
+to 3,200 (Q5). The export names each lesson's principal (Q9). The
+sections below are revised to match.
 
 The learning loop has four slices: L1 (aries-wf6da6vg) captures a lesson
 on every issue now, as a `lesson:` comment at handoff, in the template of
@@ -61,8 +65,8 @@ to its stage and to `factory` or `project`. Three things follow:
 - **The template is right, and agents write it well.** Every seed lesson
   filled every field, and each `failed` named its evidence: a pull
   request, a CI job id, an error line, a time. The field keeps the
-  template's fields and their order, and the MCP tool takes the same
-  text (§5), so nothing an agent learned in L1 is thrown away.
+  template's fields and their order, and the MCP tools take the same
+  fields (§5), so nothing an agent learned in L1 is thrown away.
 - **Evidence is links buried in prose.** `failed` held "PR 257, job
   118131675020" as text. The distillation needs them as links it can
   count and follow, so the field adds `evidence`, a short list of typed
@@ -116,7 +120,7 @@ handoff or finish left.
 - **No person's name.** The memory says "the maintainer" or "a
   session"; the store cannot enforce it, and the guide and the tool
   description say it. Who wrote a lesson is the principal recorded with
-  it, which the export leaves out (§6).
+  it, which the export names (§6) and no count is made by.
 
 ## 4. Where it is stored, and the event log
 
@@ -164,20 +168,22 @@ issue, since the issue is what joins it to an outcome.
 
 **MCP.** The tool budget (rule 12) is 3,000 estimated tokens for every
 tool's schema, and the tools cost about 2,823 today (measured by
-`TestTools`, 19 Oct 2026): 177 to spare. A structured lesson schema on
-both `handoff` and `finish` would cost about 250 alone. So the MCP
-tools take each lesson as **the template's text**, an array of strings:
+`TestTools`, 19 Oct 2026): 177 to spare. `handoff` and `finish` take
+`lessons` as **a structured list**, each item an object with the fields
+of §3, `stage` and `scope` as enums, so that a harness validates the
+shape before the call and an agent never writes a template by hand.
+That costs about 250 tokens, and the read (below) about 90, so the
+budget rises to **3,200**, as decision 76 raised it to 3,000 for stage
+6's tools (Q5, answered: structured, budget raised). `TestTools` holds
+it, and its comment says why. Descriptions stay terse: the template's
+guidance (what counts, no person's name) lives in the memory `lessons`
+and the brief, not in the schema.
 
-```
-lessons: ["lesson: …\nstage: run\nworked: …\nfailed: …\nfix: …\nrecommend: …\ntags: permissions, brief\nscope: factory\nevidence: pr:263, issue:aries-o5jxfa7h"]
-```
-
-`aries mcp` parses each into the structured object before it sends the
-call, and refuses one it cannot parse with a fix naming the line, before
-anything reaches the server. The schema then costs a short description
-on each tool (about 30 tokens each), and agents write exactly what L1
-taught them to. The CLI takes the same text with `--lesson FILE` (or
-`-` for stdin), repeatable, on `aries handoff` and `aries finish`.
+The CLI takes the same fields from L1's template text with `--lesson
+FILE` (or `-` for stdin), repeatable, on `aries handoff` and `aries
+finish`, and refuses one it cannot parse with a fix naming the line,
+before anything reaches the server: a person writes the text a session
+learned in L1.
 
 ### Reading: `aries lessons`
 
@@ -196,12 +202,12 @@ first.
 `scope`, returning at most 20 lessons, each cut to `lesson`,
 `recommend`, its issue and stage, within the 2,000-token result cap,
 marked `untrusted` as every result is. It costs about 90 tokens of
-schema, which with the write's 60 leaves about 25 of the 3,000. What it
-is for: a session about to plan a wave, or a dispatcher writing a brief,
-can read what the last week's sessions said about that stage. Prime does
-not show lessons: its 1,500 tokens are for the work at hand, and a
-lesson there would read like an instruction (§7). Q4 asks whether the
-MCP read is wanted at all before L3 shows a use for it.
+schema, inside the 3,200 above, and is built in L2b (Q4, answered:
+build it). What it is for: a session about to plan a wave, or a
+dispatcher writing a brief, can read what the last week's sessions said
+about that stage. Prime does not show lessons: its 1,500 tokens are for
+the work at hand, and a lesson there would read like an instruction
+(§7).
 
 The read is refused offline, as `list` and `ready` are: a stale answer
 about the factory's recent lessons is worse than none, and the cache is
@@ -209,8 +215,8 @@ for the work a session holds (design §18.6).
 
 ## 6. The export for the distillation
 
-L3 reads a window of lessons with their outcomes. It needs everything a
-lesson holds and nothing that names a person:
+L3 reads a window of lessons with their outcomes, and everything a
+lesson holds:
 
 ```
 aries lessons --since 2026-10-12 --until 2026-10-19 --export > lessons.json
@@ -219,13 +225,19 @@ aries lessons --since 2026-10-12 --until 2026-10-19 --export > lessons.json
 One JSON document: the window, then each lesson with every field, its
 issue's id, type, labels, epic and outcome in the window (landed,
 closed or open; rework tokens; list-price cost; held time over cycle
-time; waived items and gates; reopen count), and the session id. The
+time; waived items and gates; reopen count), the principal who wrote
+it, its kind (agent, person, service), and the session id. The
 session id is what joins a lesson to its brief, model and effort once
 aries-2qx4mlm2 records them, and to the session's own usage.
 
-- **No principal, no person.** Counts are per session, never per
-  person (decision 97, Sextant's §4). The export names the principal's
-  kind (agent, person, service) and nothing else of them.
+- **The principal is named, and counts stay per session** (Q9,
+  answered: include the principal). The export is the project's
+  own data, read by its members and a scheduled run they start, who see
+  the author in the issue's history anyway; naming it lets the
+  distillation tell one agent's habit from a pattern across agents. What
+  the distillation reports is counted per session, never per person
+  (decision 97, Sextant's §4), and its proposals cite lessons by issue
+  and session, not by author.
 - **Paged, not unbounded.** At most 2,000 lessons a call; a longer window
   gives `next`, which `--after` takes. A week of this project's issues
   is far below one page.
@@ -291,7 +303,8 @@ been tagged (its notes are a draft, and no `v0.6.*` tag exists on 19 Oct
 `ticked` and `waived` and the key proof's binding (the memory
 `release-versioning`, rule 3): `Proto = ProtoMax = 9`, `ProtoMin = 8`,
 with the test messages combined. If v0.6.0 is tagged before this is
-built, it takes 10, which is then the next release's.
+built, it takes 10, which is then the next release's. The maintainer
+answered that v0.6.0 waits for L2a and L2b (Q6), so this joins 9.
 
 A protocol 8 client sends no lessons and never calls `lessons`; a
 protocol 9 server works without either. A protocol 9 client against an
@@ -361,8 +374,8 @@ lesson, which is L1's measure of success, and report it with the run.
 
 | Slice | What | Done when |
 |---|---|---|
-| L2a | The migration, `lessons` on `handoff` and `finish`, the limits, the lint, `lesson.create`; protocol 9 | A handoff with lessons records them once; `show` returns them; a lesson the lint flags is refused with a fix |
-| L2b | `aries lessons` and the `lessons` op; `aries mcp`'s parsing of the template; the MCP read (if Q4 keeps it) | The query filters by window, stage, tag, scope and issue; the tool budget test passes |
+| L2a | The migration, `lessons` on `handoff` and `finish`, the limits, the lint, `lesson.create`, the kept counter of lessons by stage and scope (Q12); protocol 9 | A handoff with lessons records them once; `show` returns them; a lesson the lint flags is refused with a fix |
+| L2b | `aries lessons` and the `lessons` op; the structured `lessons` on the MCP `handoff` and `finish`, and the MCP `lessons` read; the CLI's parsing of the template; the schema budget at 3,200 | The query filters by window, stage, tag, scope and issue; the tool budget test passes at 3,200 |
 | L2c | The export, with outcomes joined | The export of a window matches `aries cost --group-by outcome` for its issues |
 | L2d | `from-comments` and the import; redaction | L1's comments are imported once, idempotently |
 | L2e | docs/agents.md, docs/cli.md, docs/server.md's limits; the memories `lessons` and `workflow` step 12 moved to the field; dispatcher.md §7 | docs/agents.md says what to record and who can read it |
@@ -372,46 +385,59 @@ wait for the week of L1's comments to end.
 
 ## 13. Questions for the maintainer
 
+Answered by the maintainer, 19 Oct 2026 (decision 101).
+
 1. **A document of its own.** This design is `docs/design/lessons.md`,
    with a row in docs/design/README.md, rather than a section of
-   `aries.md`; L3 and L4 would add sections here. *Recommended:* yes.
+   `aries.md`; L3 and L4 would add sections here. *Recommended:* yes. *Answered 19 Oct 2026:* as recommended.
 2. **The fields.** The template's eight fields plus `evidence`, with
    `lesson`, `stage`, `scope` and `recommend` required, and the
-   issue's `kind` dropped (§2, §3). *Recommended:* as proposed.
+   issue's `kind` dropped (§2, §3). *Recommended:* as proposed. *Answered 19 Oct 2026:* as
+   recommended.
 3. **Evidence required?** The epic says a lesson without evidence does
    not count. Either the store refuses a lesson with `failed` and no
    evidence link, or it keeps it and L3 weighs it at zero.
    *Recommended:* keep it, and weigh it at zero: a refusal at handoff
    costs the whole handoff for a missing link, and some lessons (a
-   permission prompt, a time lost) have no link to give.
+   permission prompt, a time lost) have no link to give. *Answered 19 Oct 2026:* as
+   recommended.
 4. **The MCP read.** A `lessons` tool spends most of the 177 tokens left
    of the schema budget for a use no session has yet. Either build it in
    L2b, or leave agents the CLI's `--json` until L3 or the dispatcher
    asks for it. *Recommended:* leave it out of L2, and keep the budget
-   for the write.
+   for the write. *Answered 19 Oct 2026:* build it in L2b (§5), within the
+   budget Q5 raises.
 5. **The MCP write as the template's text.** `aries mcp` parses the
    template text into the structured lesson, instead of a structured
    schema on two tools that would break the budget. *Recommended:* yes;
    the alternative is raising the budget to 3,200 (decision 76's
-   precedent), which the next feature will want too.
+   precedent), which the next feature will want too. *Answered 19 Oct 2026:* a
+   structured lesson on `handoff` and `finish`, with the budget raised
+   to 3,200 (§5). The CLI keeps the template text.
 6. **Join protocol 9.** v0.6.0 is not tagged, so this joins 9; if it
    ships first, this takes 10. *Recommended:* join 9, and build L2a
-   before v0.6.0 is cut if the release can wait for it.
+   before v0.6.0 is cut if the release can wait for it. *Answered 19 Oct 2026:* as
+   recommended: v0.6.0 waits for L2a and L2b, which join 9 (§8).
 7. **L1's comments.** Import once, through a file a person checks, and
    leave the comments as they are (§9). *Recommended:* as proposed.
+   *Answered 19 Oct 2026:* as recommended.
 8. **Stages a closed list, tags free.** The store refuses an unknown
    stage and accepts any tag of the right shape (§3). *Recommended:* as
-   proposed; L3 proposes new stages like any other change.
+   proposed; L3 proposes new stages like any other change. *Answered 19 Oct 2026:* as
+   recommended.
 9. **No principal in the export.** The export names a principal's kind
    and the session, never the principal (decision 97). *Recommended:*
    yes; `aries lessons` without `--export` shows who wrote each one to
-   the project's members, who can see it in the issue's history anyway.
+   the project's members, who can see it in the issue's history anyway. *Answered 19 Oct 2026:* include the principal in the export; counts stay per
+   session (§6).
 10. **Organization memory only through approval.** Raw lessons never
     reach organization memory; only what L3 proposes and the maintainer
-    approves does (§10). *Recommended:* yes.
+    approves does (§10). *Recommended:* yes. *Answered 19 Oct 2026:* as
+    recommended.
 11. **Redaction by a project admin.** The one change a lesson can have
-    (§7). *Recommended:* yes, CLI only.
+    (§7). *Recommended:* yes, CLI only. *Answered 19 Oct 2026:* as recommended.
 12. **A metric.** A counter of lessons recorded, by stage and scope,
     added to the kept names (rule 2), so that Sextant can show the share
     of issues with a lesson. *Recommended:* yes, in L2a, since names are
-    kept from v0.5.0 and adding one later costs the same.
+    kept from v0.5.0 and adding one later costs the same. *Answered 19 Oct 2026:* as
+    recommended.
