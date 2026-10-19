@@ -236,6 +236,7 @@ func toolchain(v string) string {
 // arguments.
 type gateTree struct {
 	root, bin string
+	env       []string // added to the environment gate.sh runs in
 }
 
 // newGateTree builds the checkout. Each fake appends "NAME ARGS" to
@@ -266,7 +267,11 @@ case "$*" in
 "env GOOS") cat "$root/goos" ;;
 "env GOARCH") echo amd64 ;;
 *govulncheck*) cat "$root/vuln"; [ ! -s "$root/vuln" ] || exit 3 ;;
-"test "*) [ ! -s "$root/leak" ] || mkdir "$TMPDIR/$(cat "$root/leak")" ;;
+"test "*) [ ! -s "$root/leak" ] || mkdir "$TMPDIR/$(cat "$root/leak")"
+	if [ -e "$root/block" ]; then
+		touch "$root/started.$$"
+		while [ -e "$root/block" ]; do sleep 0.1; done
+	fi ;;
 esac
 ` + failing,
 		"fakebin/gofmt":         record + `cat "$root/unformatted"` + "\n",
@@ -316,6 +321,7 @@ func (g gateTree) run(t *testing.T, args ...string) (out string, status int, cal
 		"HOME=" + g.root,
 		"TMPDIR=" + tmp,
 	}
+	cmd.Env = append(cmd.Env, g.env...)
 	b, err := cmd.CombinedOutput()
 	// The logs a failed gate keeps are under the TMPDIR it was given, so
 	// they go with the test's directory: mktemp with no template ignores

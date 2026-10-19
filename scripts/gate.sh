@@ -12,7 +12,7 @@ set -eu
 
 usage() {
 	cat <<'EOF'
-usage: gate.sh [--quick] [--keep-going] [--smoke]
+usage: gate.sh [--quick] [--keep-going] [--smoke] [--pgtest-lock]
 
 Runs the gate: every command in AGENTS.md's Commands block, in order,
 with one line for each and a summary. The tests run against Postgres
@@ -28,6 +28,12 @@ built into the per-user cache.
                 tests without -race or -shuffle, so unchanged packages
                 come from Go's test cache. Skips go mod verify, go mod
                 tidy -diff, govulncheck and the builds for other systems
+  --pgtest-lock hold the Aries lock pgtest/HOST (HOST is this machine's
+                name; capacity 2) around each whole-suite test command,
+                through aries lock run --wait, so that agents testing in
+                parallel on one machine do not run out of System V shared
+                memory. The same as ARIES_GATE_PGTEST_LOCK=1. Needs aries
+                on PATH and a .aries.yaml; without it nothing changes
   -h, --help    show this help
 
 The exit status is 1 when a command failed and 2 when the gate could not
@@ -49,11 +55,14 @@ have() { _have=$(command -v "$1" 2>&1) && [ -n "$_have" ]; }
 quick=0
 keep_going=0
 smoke=0
+pgtest_lock=0
+[ "${ARIES_GATE_PGTEST_LOCK:-}" != 1 ] || pgtest_lock=1
 while [ $# -gt 0 ]; do
 	case $1 in
 	--quick) quick=1 ;;
 	--keep-going | -k) keep_going=1 ;;
 	--smoke) smoke=1 ;;
+	--pgtest-lock) pgtest_lock=1 ;;
 	-h | --help) usage; exit 0 ;;
 	*) usage >&2; die "unknown option $1" "run with -h for the options" ;;
 	esac
@@ -74,6 +83,12 @@ for tool in go gofmt golangci-lint shellcheck git awk; do
 	have "$tool" || die "$tool is not installed, or not on PATH" \
 		"install it at the version in CONTRIBUTING.md (\"What you need\"); with mise, run: mise install"
 done
+if [ "$pgtest_lock" = 1 ]; then
+	have aries || die "aries is not installed, or not on PATH, and --pgtest-lock needs it" \
+		"install aries (docs/install.md), or run the gate without --pgtest-lock"
+	pgtest_host=$(hostname 2>/dev/null) && [ -n "$pgtest_host" ] ||
+		die "cannot read this machine's name for the lock pgtest/HOST" "run the gate without --pgtest-lock"
+fi
 goversion=$(go env GOVERSION) ||
 	die "go does not run in $root" "install Go at the go line in go.mod; with mise, run: mise install"
 goos=$(go env GOOS)
@@ -162,7 +177,24 @@ run() {
 	printf '%s ... ' "$cmd"
 	t0=$(date +%s)
 	rc=0
-	(eval "$cmd") >"$log" 2>&1 || rc=$?
+	case $cmd in
+	*"go test"*)
+		if [ "$pgtest_lock" = 1 ]; then
+			# The whole-suite tests, under the lock pgtest/HOST: at most
+			# two such runs on a machine (docs/design/dispatcher.md, §5).
+			# aries lock run is the background job, so that a signal
+			# reaches it, and it releases the lock as it stops the tests.
+			(exec aries lock run "pgtest/$pgtest_host" --capacity 2 --wait -- sh -c "$cmd") >"$log" 2>&1 &
+			lockpid=$!
+			trap 'kill -TERM "$lockpid" 2>/dev/null; wait "$lockpid" 2>/dev/null; exit 1' HUP INT TERM
+			wait "$lockpid" || rc=$?
+			trap 'exit 1' HUP INT TERM
+		else
+			(eval "$cmd") >"$log" 2>&1 || rc=$?
+		fi
+		;;
+	*) (eval "$cmd") >"$log" 2>&1 || rc=$? ;;
+	esac
 	secs=$(($(date +%s) - t0))
 	if [ "$rc" = 0 ] && [ "$kind" = empty ] && [ -s "$log" ]; then rc=1; fi
 	if [ "$rc" = 0 ]; then
