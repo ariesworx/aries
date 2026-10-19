@@ -262,7 +262,8 @@ func (o storeObserver) UsageAdded(_ context.Context, _ store.Actor, u []store.Us
 			n    int64
 		}{
 			{telemetry.TokenInput, t.Input}, {telemetry.TokenOutput, t.Output},
-			{telemetry.TokenCacheWrite, t.CacheWrite}, {telemetry.TokenCacheRead, t.CacheRead},
+			{telemetry.TokenCacheWrite, t.CacheWrite - t.CacheWrite1h}, {telemetry.TokenCacheRead, t.CacheRead},
+			{telemetry.TokenCacheWrite1h, t.CacheWrite1h},
 		} {
 			if k.n > 0 {
 				o.tel.Record(telemetry.UsageTokens, float64(k.n), o.project, k.kind, t.Model)
