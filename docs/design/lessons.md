@@ -31,7 +31,7 @@ departs from it, this document gets the **As built** notes (rule 17), and
 
 A lesson is about **how the agentic dark factory works**, never what the
 repository's code does (the maintainer, 19 Oct 2026; the memory
-`lessons`, rev 2). How work is picked, briefed, claimed, run, tested,
+`lessons`, rev 3). How work is picked, briefed, claimed, run, tested,
 reviewed, merged, landed and cleaned up; how sessions run in parallel
 and hand off; what needed a person and why; permissions, tools and
 harnesses; CI and its failures as events to handle; cost, tokens and
@@ -40,12 +40,26 @@ issue, the pull request or the docs. Not "wsconn's max raced with
 Close", but "a docs-only PR failed tests on a flake; triage the failing
 test before suspecting the PR, file it, rerun".
 
+The maintainer added, the same day: "The lessons learned stored in the
+repo should be general enough to be baked into the aries and ariesd
+tools." A lesson the playbook keeps is one the product can carry for
+every project, not advice for this repository's sessions to remember.
+
 Each lesson has a **scope**:
 
-- `factory`: it would change the workflow of any project. These feed the
-  playbook (L4), through the distillation (L3).
+- `factory`: general enough to be built into `aries` or `ariesd` for
+  every project: a default, a check or a refusal with a Fix, text that
+  `aries setup` installs, a step of the dispatcher. It is stated
+  without this repository's names, paths or machine. These feed the
+  playbook (L4), through the distillation (L3), and through it the
+  tools.
 - `project`: it holds for this repository or this machine only (its
-  tools, limits, quirks). Kept, queryable, and left out of the playbook.
+  tools, limits, quirks). It may change this repository's memories,
+  never the product. Kept, queryable, and left out of the playbook.
+
+`recommend` says where in the tools the change would live, so that the
+distillation can turn a `factory` lesson into a change to `aries` or
+`ariesd` rather than into a line someone has to remember.
 
 Aries cannot tell a lesson about the factory from one about the code;
 the line is held by what agents are told (the memory, the brief, the
@@ -90,11 +104,11 @@ together.
 |---|---|---|
 | `lesson` | yes | One line about the workflow, at most 200 bytes |
 | `stage` | yes | One of `pick`, `brief`, `claim`, `run`, `test`, `review`, `merge`, `land`, `cleanup`, `parallel`, `escalate`, `cost`, `tooling` |
-| `scope` | yes | `factory` or `project` |
+| `scope` | yes | `factory` (general enough to build into `aries` or `ariesd` for every project, stated without this repository's names, paths or machine) or `project` (this repository or machine only; may change its memories, never the product) |
 | `worked` | no | What in the workflow went right |
 | `failed` | no | What in the workflow went wrong, with evidence: a PR, a CI run, an error line, time lost or tokens spent |
 | `fix` | no | What was done |
-| `recommend` | yes | The change to the workflow: a rule, a brief line, a check, a tool, a default |
+| `recommend` | yes | The change to the workflow, and where in the tools it would live: a default, a check or a refusal with a Fix, text `aries setup` installs, a dispatcher step, a brief line |
 | `tags` | no | Up to 8, each lowercase kebab-case (`ci-flake`, `permissions`, `human-needed`) |
 | `evidence` | no (see Q3) | Up to 8 links, each `pr:N`, `run:ID`, `job:ID`, `issue:ID`, `commit:SHA` or an `https` URL |
 
