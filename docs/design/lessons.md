@@ -6,7 +6,10 @@ Nothing in it is built. The maintainer answered §13: nine questions as
 recommended, and three otherwise. The MCP read is built in L2b (Q4).
 The MCP write takes a structured lesson, with the schema budget raised
 to 3,200 (Q5). The export names each lesson's principal (Q9). The
-sections below are revised to match.
+sections below are revised to match. The maintainer then asked for
+lessons learned across the server's projects, for new teams and
+projects to start from: §10, with Q13 to Q15 answered and Q16 and Q17
+open.
 
 The learning loop has four slices: L1 (aries-wf6da6vg) captures a lesson
 on every issue now, as a `lesson:` comment at handoff, in the template of
@@ -205,9 +208,10 @@ marked `untrusted` as every result is. It costs about 90 tokens of
 schema, inside the 3,200 above, and is built in L2b (Q4, answered:
 build it). What it is for: a session about to plan a wave, or a
 dispatcher writing a brief, can read what the last week's sessions said
-about that stage. Prime does not show lessons: its 1,500 tokens are for
-the work at hand, and a lesson there would read like an instruction
-(§7).
+about that stage. Prime does not show a project's own lessons: its 1,500
+tokens are for the work at hand, and a lesson there would read like an
+instruction (§7). Organization lessons, which a person approved, are
+the exception (§10).
 
 The read is refused offline, as `list` and `ready` are: a stale answer
 about the factory's recent lessons is worse than none, and the cache is
@@ -335,27 +339,97 @@ comments stay as they are, and the workflow's step 12 moves to the
 field. A query that read both would parse free text on every call, for
 a week of data.
 
-## 10. Organization memory
+## 10. Lessons across the organization
 
-Organization memory (aries-iakie56e) is guidance a lead writes once for
-many projects; it is not designed yet. Lessons reach it **only through
-the distillation and a person's approval**, never by copying:
+Asked by the maintainer, 19 Oct 2026, after §13 was answered: the
+server (`ariesd`) should give a team or an organization the lessons
+learned across its projects, so that a new team or project starts from
+them rather than relearning them. The maintainer settled its shape the
+same day (Q13 to Q15): only curated lessons cross projects, an
+organization role reads the raw ones across projects, and a new project
+gets the curated ones in prime and the playbook as its seed.
 
-- A lesson stays in its project's schema. Its scope says whether L3 may
-  weigh it for the playbook, not where it is stored.
-- L3 reads `factory` lessons (from one project now, from every project
-  on the server once organization memory exists, through an admin's
-  export that spans them) and proposes changes, each with its evidence.
-- What the maintainer approves becomes the playbook in the repository
-  (L4), and, once organization memory is built, organization memories
-  and the server's default workflow (design §21.9), written by the
-  role that writes organization memory, at the organization's scope
-  key.
+There are three tiers, and each lesson stays in the tier it was written
+in until a person moves what it taught to the next:
 
-So organization memory needs nothing from this design but a reader, and
-this design needs nothing from it. The one shared choice is that a
-cross-project export of lessons is the organization's, with the same
-scope key and the same role.
+| Tier | Where | Who reads it |
+|---|---|---|
+| A project's lessons, `project` scope | The project's schema | The project's members |
+| A project's lessons, `factory` scope | The project's schema | The project's members; across projects, the organization role (Q14) |
+| Organization lessons: curated, approved | The control store, at the organization's scope | Every project's sessions and members |
+
+**Raw lessons never cross projects** (Q13, answered: curated only;
+Q10). A member of one project does not read another project's lessons,
+whatever their scope: they hold that project's issue ids, PR numbers and
+evidence, which are its members' alone. `project` lessons never leave
+their project at all.
+
+**Reading across projects is the organization's.** `aries admin lessons
+--all-projects` (with §5's filters and `--export`) is served by `ariesd`
+from every project's schema, each lesson labeled with its project,
+`factory` scope only. It is CLI only (rule 12), and refused unless the
+caller is a server admin or holds the role that writes organization
+memory (enterprise review E6; aries-iakie56e), which the distillation's
+service principal is given (Q14, answered: the organization role). This
+is what the distillation (L3) reads when a server holds several
+projects: patterns that recur across teams are the strongest evidence it
+can bring.
+
+**Organization lessons.** What the distillation proposes and a person
+with the organization role approves becomes an organization lesson: a
+record at the organization's scope key in the control store, beside
+organization memory and the server's default workflow (design §21.9),
+holding `lesson`, `stage`, `recommend` and tags, the approver and time,
+and its provenance: how many lessons, from how many projects and
+sessions, over which window, cited by project and lesson id. Its
+provenance is readable by the organization role alone; projects see the
+lesson, the count of projects behind it, and the date. It is written
+by `aries admin lessons approve`, never over MCP, and is the
+organization's playbook in Aries. L4's playbook in a repository is the
+same text, exported (below).
+
+Organization lessons are built on organization memory (aries-iakie56e):
+its scope key, its role and its reach into prime. Whether an organization
+lesson is an organization memory of a kind `lesson`, or a table of its
+own beside it, is that design's to settle (Q16).
+
+**A new project starts from them** (Q15, answered: prime and a playbook
+seed):
+
+- **Prime and start.** A project's sessions see organization lessons as
+  they see pinned memories: prime shows up to 3, those whose tags match
+  the labels of the caller's issues first, then the newest, each cut to
+  `lesson` and `recommend`, dropped before the inbox and ready lists to
+  fit its 1,500 tokens; `start` shows up to 2 matching its issue. They
+  are marked as approved guidance with their date and the number of
+  projects behind them, and carry the `untrusted` marker every result
+  does. Unlike a raw lesson (§7), an organization lesson was approved by
+  a person, which is why it may appear in prime.
+- **The playbook as a seed.** A project created on the server already
+  takes the server's default workflow, a floor it may add to (design
+  §21.9, W5), and organization memory. `aries admin playbook export`
+  writes the organization's lessons and its default workflow as files a
+  new repository commits (the playbook's form in L4: a workflow file and
+  the guidance an agent file points to), and `aries admin projects
+  create --playbook DIR` writes them for the new project in one step.
+  The repository's copy is the one its agents read before Aries is
+  reached, and the one a person reviews in a pull request when the
+  organization's playbook moves.
+
+**Not a channel for instructions.** An organization lesson is approved
+guidance, not a rule anything applies: the workflow setting is what the
+server enforces, and a lesson that should be enforced is proposed as a
+change to it. Organization lessons pass the same secrets lint, safetext
+and limits as lessons (`org_lessons` 500, `org_lessons_in_prime` 3,
+`org_lesson_sources` 200), and approval is recorded as an event in the
+control store (`org_lesson.approve`, `org_lesson.retire`), as its other
+writes are.
+
+**The protocol.** `admin.lessons`, `admin.lessons.approve` and the
+playbook ops are new admin ops, and prime's and start's organization
+lessons are result fields. The ops join the protocol of the release
+they ship in: they wait for organization memory, so most likely 10,
+after v0.6.0 (rule 10, the memory `release-versioning`).
 
 ## 11. Briefs
 
@@ -379,9 +453,11 @@ lesson, which is L1's measure of success, and report it with the run.
 | L2c | The export, with outcomes joined | The export of a window matches `aries cost --group-by outcome` for its issues |
 | L2d | `from-comments` and the import; redaction | L1's comments are imported once, idempotently |
 | L2e | docs/agents.md, docs/cli.md, docs/server.md's limits; the memories `lessons` and `workflow` step 12 moved to the field; dispatcher.md §7 | docs/agents.md says what to record and who can read it |
+| L2f | Lessons across the organization (§10): `aries admin lessons --all-projects`, organization lessons and their approval, prime and start, the playbook export and seed; after organization memory (aries-iakie56e) | A lesson in two projects is read by the organization role and by no member of either; an approved organization lesson appears in a third project's prime; a new project created with `--playbook` gets its files |
 
 L2a and L2b are the issue's test; L2c is what L3 needs first; L2d can
-wait for the week of L1's comments to end.
+wait for the week of L1's comments to end. L2f waits for organization
+memory, and is an issue of its own under the epic.
 
 ## 13. Questions for the maintainer
 
@@ -441,3 +517,31 @@ Answered by the maintainer, 19 Oct 2026 (decision 101).
     of issues with a lesson. *Recommended:* yes, in L2a, since names are
     kept from v0.5.0 and adding one later costs the same. *Answered 19 Oct 2026:* as
     recommended.
+
+### Asked after §13 was answered (19 Oct 2026)
+
+13. **What crosses projects.** Curated organization lessons for every
+    project, raw `factory` lessons queryable by an organization role,
+    or every project's members reading every project's `factory`
+    lessons. *Recommended:* the first two together. *Answered 19 Oct
+    2026:* curated only: raw lessons never cross to another project's
+    members (§10).
+14. **Who reads raw lessons across projects.** *Recommended:* server
+    admins and the role that writes organization memory, which the
+    distillation's service principal holds. *Answered 19 Oct 2026:* as
+    recommended.
+15. **How a new project starts from them.** *Recommended:* organization
+    lessons in prime and start within their caps, and the playbook as a
+    seed when the project is created. *Answered 19 Oct 2026:* as
+    recommended.
+16. **An organization lesson's storage.** An organization memory of a
+    kind `lesson`, or a table of its own beside organization memory.
+    *Recommended:* an organization memory of a kind `lesson`, with
+    provenance as a field, so that prime has one ranked list of
+    organization guidance and one cap; settled in aries-iakie56e's
+    design. Open.
+17. **The organization role across projects.** Reading every project's
+    `factory` lessons gives the role every project's issue ids and
+    evidence. *Recommended:* accept it for the role, since it already
+    writes what every project reads, and record each cross-project read
+    as an event in the control store. Open.
