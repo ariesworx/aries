@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,5 +78,31 @@ func TestWatchQueue(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+// Under --events a full queue drops event pushes the same way, and the
+// resync that takes their place prints as {"op":"resync"}, an event as
+// {"op":"event","event":{…}}.
+func TestWatchEventsLines(t *testing.T) {
+	t.Parallel()
+	q := newWatchQueue(2)
+	q.put(proto.Push{Op: proto.EvEvent, Event: &proto.Event{Seq: 1, Op: "issue.create", Issue: "x-1", Principal: "alice"}})
+	q.put(proto.Push{Op: proto.EvEvent, Event: &proto.Event{Seq: 2}})
+	var got []string
+	for len(q.c) > 0 {
+		p := <-q.c
+		b, err := json.Marshal(watchLine{Op: p.Op, Item: p.Item, Event: p.Event})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, string(b))
+	}
+	want := []string{
+		`{"op":"event","event":{"seq":1,"at":"0001-01-01T00:00:00Z","principal":"alice","op":"issue.create","issue":"x-1"}}`,
+		`{"op":"resync"}`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("lines %q, want %q", got, want)
 	}
 }
