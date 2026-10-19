@@ -86,7 +86,8 @@ done
 if [ "$pgtest_lock" = 1 ]; then
 	have aries || die "aries is not installed, or not on PATH, and --pgtest-lock needs it" \
 		"install aries (docs/install.md), or run the gate without --pgtest-lock"
-	pgtest_host=$(hostname 2>/dev/null) && [ -n "$pgtest_host" ] ||
+	pgtest_host=$(hostname 2>/dev/null) || pgtest_host=
+	[ -n "$pgtest_host" ] ||
 		die "cannot read this machine's name for the lock pgtest/HOST" "run the gate without --pgtest-lock"
 fi
 goversion=$(go env GOVERSION) ||
