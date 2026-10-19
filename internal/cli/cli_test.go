@@ -55,7 +55,7 @@ func TestRunWithoutServer(t *testing.T) {
 		{name: "help for log, an alias of hours", args: []string{"help", "log"}, code: ExitOK, stdout: "usage: aries hours DURATION ID"},
 		{name: "log is hours", args: []string{"-C", empty, "log", "1h"}, code: ExitUsage, stderr: "hours needs a time and an issue id"},
 		{name: "cost groups with --group-by", args: []string{"-C", empty, "cost", "--since", "7d", "--group-by", "team"}, code: ExitUsage,
-			stderr: "--group-by must be account, issue, epic, person or model"},
+			stderr: "--group-by must be account, issue, epic, person, model or outcome"},
 		{name: "cost has no --by", args: []string{"-C", empty, "cost", "--since", "7d", "--by", "issue"}, code: ExitUsage,
 			stderr: "flag provided but not defined: -by"},
 		{name: "admin price needs an action", args: []string{"-C", empty, "admin", "price"}, code: ExitUsage, stderr: "admin price needs list or set"},
