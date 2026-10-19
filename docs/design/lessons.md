@@ -84,14 +84,17 @@ re-derives it from the lesson's text.
 
 **The primary signal is a per-run outcome record**, captured after the
 outcome is known rather than written by the agent at handoff. It is
-filed separately, as aries-4x4vo7cq under epic aries-dmqqolg4. For each run it records:
+filed separately, as aries-4x4vo7cq under epic aries-dmqqolg4, and
+designed in [outcome-record.md](outcome-record.md). For each run it
+records:
 
 - the brief, the model and the duration;
 - CI attempts and the cause of each failure;
 - merge conflicts, reopens, and waived items and gates;
 - held time and cycle time;
 - tokens, and pre-merge rework: the tokens spent after the first
-  handoff with state `done`, or after the first CI failure.
+  handoff with state `done`, or after the first CI failure, whichever
+  came first (outcome-record.md §4).
 
 Those facts are measured, not remembered. They are what L3 counts and
 what §12's rules are judged by.
