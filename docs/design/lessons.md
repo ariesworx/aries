@@ -8,8 +8,7 @@ The MCP write takes a structured lesson, with the schema budget raised
 to 3,200 (Q5). The export names each lesson's principal (Q9). The
 sections below are revised to match. The maintainer then asked for
 lessons learned across the server's projects, for new teams and
-projects to start from: §10, with Q13 to Q15 answered and Q16 and Q17
-open.
+projects to start from: §10, with Q13 to Q17 answered.
 
 The learning loop has four slices: L1 (aries-wf6da6vg) captures a lesson
 on every issue now, as a `lesson:` comment at handoff, in the template of
@@ -372,8 +371,10 @@ caller is a server admin or holds the role that writes organization
 memory (enterprise review E6; aries-iakie56e), which the distillation's
 service principal is given (Q14, answered: the organization role). This
 is what the distillation (L3) reads when a server holds several
-projects: patterns that recur across teams are the strongest evidence it
-can bring.
+projects: patterns that recur across teams are the strongest evidence
+it can bring. Each cross-project read is recorded as an event in the
+control store (`lessons.read_all`), with who read and which projects,
+since it shows the role every project's issue ids and evidence (Q17).
 
 **Organization lessons.** What the distillation proposes and a person
 with the organization role approves becomes an organization lesson: a
@@ -391,7 +392,10 @@ same text, exported (below).
 Organization lessons are built on organization memory (aries-iakie56e):
 its scope key, its role and its reach into prime. Whether an organization
 lesson is an organization memory of a kind `lesson`, or a table of its
-own beside it, is that design's to settle (Q16).
+own beside it, was Q16: an organization memory of a kind `lesson`,
+with its provenance as a field, so that prime has one ranked list of
+organization guidance and one cap; aries-iakie56e's design builds it
+so.
 
 **A new project starts from them** (Q15, answered: prime and a playbook
 seed):
@@ -539,9 +543,11 @@ Answered by the maintainer, 19 Oct 2026 (decision 101).
     *Recommended:* an organization memory of a kind `lesson`, with
     provenance as a field, so that prime has one ranked list of
     organization guidance and one cap; settled in aries-iakie56e's
-    design. Open.
+    design. *Answered 19 Oct 2026:* as recommended; aries-iakie56e's
+    design builds it so.
 17. **The organization role across projects.** Reading every project's
     `factory` lessons gives the role every project's issue ids and
     evidence. *Recommended:* accept it for the role, since it already
     writes what every project reads, and record each cross-project read
-    as an event in the control store. Open.
+    as an event in the control store. *Answered 19 Oct 2026:* as
+    recommended.
