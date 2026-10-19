@@ -223,7 +223,10 @@ window's in `digest`.
   to replace a memory, so a concurrent edit is refused rather than lost;
   a replace keeps the tags and issue it omits, and `[]` or `""` clears
   them.
-  `recall` searches by text, key, tag and scope; `forget` deletes. `prime`
+  `recall` searches by text, key, tag and scope, cutting each body to
+  about 1,000 bytes (`"truncated": true`); with `key` it gives the body
+  whole (up to the 4,096-byte cap), which is how to read a memory before
+  replacing it, since a replace takes the whole body. `forget` deletes. `prime`
   shows the pinned and relevant memories and `start` those relevant to
   its issue. Pinning is left to people (`aries pin`). A memory that looks
   like it holds a secret is refused, and the fix tells the agent to name

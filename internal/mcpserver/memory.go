@@ -82,6 +82,9 @@ func (r *Memories) mark() { r.set(len(r.Memories) > 0) }
 const (
 	maxMemoryText   = 1000
 	startMemoryText = 300
+	// wholeMemoryText is the store's cap on a body (store.Limits.MemoryBody):
+	// recall by key gives a body up to it uncut.
+	wholeMemoryText = 4096
 )
 
 // compactMemories converts ms, each body cut to n bytes, and reports
@@ -113,7 +116,7 @@ func (s *Server) registerMemory() {
 			}
 			return out, c.Call(ctx, proto.OpRemember, a, &out)
 		})
-	add(s, tool{name: "recall", desc: "Search memories.", ann: readOnly, retry: true,
+	add(s, tool{name: "recall", desc: "Search memories; key gives one whole.", ann: readOnly, retry: true,
 		enums: enums{"scope": scopes}},
 		func(ctx context.Context, c Conn, in RecallIn) (Memories, error) { return recall(ctx, c, in) })
 	add(s, tool{name: "forget", desc: "Delete a memory.", ann: write, retry: true, enums: enums{"scope": scopes}},
@@ -124,16 +127,28 @@ func (s *Server) registerMemory() {
 }
 
 // recall is the recall tool: bodies are cut to maxMemoryText, then the
-// last memories dropped to fit MaxResultTokens.
+// last memories dropped to fit MaxResultTokens. With a key, bodies are
+// given whole (wholeMemoryText), so an agent can read a memory in full
+// before replacing it; a body that JSON escaping swells past the budget
+// is still cut to fit.
 func recall(ctx context.Context, c Conn, in RecallIn) (Memories, error) {
 	var r proto.RecallResult
 	if err := c.Call(ctx, proto.OpRecall, proto.RecallArgs{Text: in.Text, Tag: in.Tag, Key: in.Key, Scope: in.Scope}, &r); err != nil {
 		return Memories{}, err
 	}
-	ms, cutAny := compactMemories(r.Memories, maxMemoryText)
-	out := Memories{Memories: ms, More: r.More, Truncated: cutAny}
-	out.fit()
-	return out, nil
+	n := maxMemoryText
+	if in.Key != "" {
+		n = wholeMemoryText
+	}
+	for {
+		ms, cutAny := compactMemories(r.Memories, n)
+		out := Memories{Memories: ms, More: r.More, Truncated: cutAny}
+		out.fit()
+		if size(out) <= MaxResultTokens || n <= maxMemoryText {
+			return out, nil
+		}
+		n = max(n*3/4, maxMemoryText)
+	}
 }
 
 // fit drops the last memories, leaving at least one, until r is under
