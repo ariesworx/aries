@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/clienttest"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/server"
 	"github.com/ariesworx/aries/internal/store"
@@ -155,14 +156,18 @@ func newSoakTel(t *testing.T, mode string, logger *slog.Logger) *soakTel {
 	// accepts and holds every connection without a word.
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	dead, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	collector := dead.Addr().String()
+	var collector string
+	var dead net.Listener
 	if mode == telRefused {
-		_ = dead.Close()
+		// Held open until the test ends, resetting every connection:
+		// a port closed here could be taken by another test binary.
+		collector = clienttest.DeadPort(t)
 	} else {
+		var err error
+		if dead, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+			t.Fatal(err)
+		}
+		collector = dead.Addr().String()
 		wg.Go(func() {
 			var held []net.Conn
 			defer func() {
@@ -219,7 +224,9 @@ func newSoakTel(t *testing.T, mode string, logger *slog.Logger) *soakTel {
 			t.Errorf("soak: stopping telemetry with a dead collector (%s) took %s, want at most the 5s its last exports are given", mode, took.Round(time.Millisecond))
 		}
 		cancel()
-		_ = dead.Close()
+		if dead != nil {
+			_ = dead.Close()
+		}
 		wg.Wait()
 	})
 	return st
