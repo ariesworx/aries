@@ -662,7 +662,8 @@ prices at all shows no cost.
 
 `show` gives an issue's running cost, `digest` a window's, and `aries cost
 --since 7d --group-by account` a report by account, issue, epic (the nearest
-epic up the parent chain), person (who reported the tokens) or model.
+epic up the parent chain), person (who reported the tokens), model or
+[outcome](#cost-per-outcome).
 Tokens no issue was held for are `(unattributed)`, issues under no epic
 are `(no epic)`, and a group is marked `split` when part of it came from
 a record shared with another group. Invoicing stays outside Aries.
@@ -685,6 +686,51 @@ way, and a window that reaches past now charges nothing for the months
 to come. A principal on no plan adds nothing. Reports show amortized cost beside the list-price
 equivalent, never instead of it, and only `aries cost` shows it, since
 `show` and `digest` would have to read whole months.
+
+### Cost per outcome
+
+Tokens alone say how busy agents were; what a team pays for is a change
+that landed. `aries cost --since 30d --group-by outcome` sorts the
+window's tokens by how the issue they were attributed to stood **at the
+end of the window**, read from the issue's close and reopen events:
+
+| Group | Holds |
+|---|---|
+| `landed` | issues whose last close gave the reason `landed` (what the closing pass of a required check writes, or a person who closes with that reason) |
+| `closed` | issues closed for any other reason: by hand, forced, abandoned. The reason is free text, so Aries does not split them |
+| `open` | issues never closed, or reopened since, in progress or not |
+| `(unattributed)` | tokens nobody held an issue for |
+
+Each group gives its tokens, list price, the issues counted (those with
+tokens in the window) and the **rework**: the part of its tokens that
+came after the first close of the issue they went to. A landed issue
+that CI reopened and that took 30k tokens more before it landed again
+shows those 30k as rework, while it stays one landed issue. `landed`
+also gives the **cost per landed issue**, the same by issue type, and
+then each landed issue, dearest first (at most `-n`): its cost, rework,
+**held time over cycle time** (how long a session held it, against the
+time from its creation to its last close; a small ratio means it waited
+more than it was worked on) and the acceptance items and gates **waived**
+on it.
+
+How to read it:
+
+- Cost per landed issue is the sum of the landed group's list price over
+  its issues. It counts only tokens inside the window, so an issue that
+  was worked before the window and landed in it looks cheaper than it
+  was; use a window longer than your issues take, or `show` for one.
+- A group's `open` cost is spent and not yet landed: work in progress,
+  or work abandoned without a close. A large `closed` share is work that
+  landed by hand or was dropped.
+- The unattributed share (`(unattributed)` over the total) is spend that
+  no issue explains: sessions that worked without `start`.
+- A model without a price is shown as `unpriced`, never as $0: the cost
+  of a group with unpriced tokens is a lower bound.
+- Figures are computed when asked, from the prices in effect at each
+  record's time. They are not measured, so there is no metric to alert
+  on; the per-issue values live in this report on purpose.
+- Held time counts every hold of the issue, wherever in time, and a
+  waiver counts items and gates waived now.
 
 ### Human hours
 

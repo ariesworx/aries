@@ -139,7 +139,7 @@ func TestCostUsage(t *testing.T) {
 	}{
 		{"cost needs since", []string{"-C", empty, "cost", "--group-by", "issue"}, "cost needs --since"},
 		{"cost takes no arguments", []string{"-C", empty, "cost", "--since", "7d", "x"}, "cost takes no arguments"},
-		{"cost bad group", []string{"-C", empty, "cost", "--since", "7d", "--group-by", "team"}, "--group-by must be account, issue, epic, person or model"},
+		{"cost bad group", []string{"-C", empty, "cost", "--since", "7d", "--group-by", "team"}, "--group-by must be account, issue, epic, person, model or outcome"},
 		{"admin needs price", []string{"-C", empty, "admin"}, "admin needs price"},
 		{"admin unknown", []string{"-C", empty, "admin", "keys"}, `unknown admin command "keys"`},
 		{"admin flags alone", []string{"-C", empty, "admin", "--from", "2026-01-01"}, "admin needs price, plan, project, principal, member, key, invite, identity, signin, trust, workflow or status"},
@@ -181,5 +181,43 @@ func TestAdminJSONBeforeSubcommand(t *testing.T) {
 		if code != ExitFailure || errb != "" || !strings.Contains(out, `".aries.yaml not found here or in any parent directory"`) {
 			t.Errorf("admin --json %s list outside a repository: exit %d, stdout %q, stderr %q; want exit %d and a JSON error", sub, code, out, errb, ExitFailure)
 		}
+	}
+}
+
+// A report by outcome prints the groups, then the issues counted, what
+// a landed one cost, the rework and the landed issues one by one.
+func TestPrintCostByOutcome(t *testing.T) {
+	t.Parallel()
+	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	res := proto.CostResult{By: "outcome", Since: since, Until: since.Add(24 * time.Hour),
+		Groups: []proto.CostGroup{
+			{Key: "landed", Issues: 2, Tokens: proto.Tokens{Input: n(150)}, CostUSD: "0.17", PerIssueUSD: "0.085",
+				Rework: &proto.CostRework{Tokens: proto.Tokens{Input: n(30)}, CostUSD: "0.03"},
+				Types:  []proto.CostByType{{Type: "bug", Issues: 1, CostUSD: "0.05", PerIssueUSD: "0.05"}, {Type: "task", Issues: 1, CostUSD: "0.12", PerIssueUSD: "0.12"}}},
+			{Key: "open", Issues: 1, Tokens: proto.Tokens{Input: n(7)}, CostUSD: "0.007"},
+			{Key: "(unattributed)", Tokens: proto.Tokens{Input: n(1_000)}, CostUSD: "1"},
+		},
+		Total: proto.CostGroup{Tokens: proto.Tokens{Input: n(1_157)}, CostUSD: "1.177"},
+		Landed: []proto.CostLanded{
+			{ID: "t-1", Title: "one", Type: "task", CostUSD: "0.12", HeldSeconds: 300, CycleSeconds: 300, Waivers: 1},
+			{ID: "t-2", Title: "two", Type: "bug", CostUSD: "0.05", HeldSeconds: 420, CycleSeconds: 1500,
+				Rework: &proto.CostRework{Tokens: proto.Tokens{Input: n(30)}, CostUSD: "0.03"}},
+		}}
+	var b bytes.Buffer
+	printCost(&b, res)
+	want := "cost by outcome, 2026-10-01 00:00 UTC to 2026-10-02 00:00 UTC (1d), list price\n" +
+		"  landed          $0.17  150 tokens\n" +
+		"  open            $0.01  7 tokens\n" +
+		"  (unattributed)  $1.00  1k tokens\n" +
+		"total $1.18, 1.1k tokens\n" +
+		"landed: 2 issues, $0.09 per issue, rework $0.03 (30 tokens)\n" +
+		"  bug: 1 issue, $0.05 per issue\n" +
+		"  task: 1 issue, $0.12 per issue\n" +
+		"open: 1 issue\n" +
+		"landed issues, dearest first (held is time held, cycle is creation to last close):\n" +
+		"  t-1  task  one  $0.12  held 5m of 5m   1 waiver\n" +
+		"  t-2  bug   two  $0.05  held 7m of 25m  rework $0.03\n"
+	if b.String() != want {
+		t.Errorf("printCost(by outcome) =\n%s\nwant\n%s", b.String(), want)
 	}
 }

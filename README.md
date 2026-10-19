@@ -138,7 +138,7 @@ binary, building from source and verifying a download by hand.
 | You can | With | Read more |
 |---|---|---|
 | See the time and tokens each issue took, by account (tokens from Claude Code so far) | `show`, `digest`, `usage --hook` | [Accounts, time and tokens](docs/concepts.md#accounts-time-and-tokens) |
-| Report token cost at list price, and amortized over subscription plans, by account, issue, epic, person or model | `cost`, `admin price`, `admin plan` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
+| Report token cost at list price, and amortized over subscription plans, by account, issue, epic, person, model or outcome | `cost`, `admin price`, `admin plan` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
 | Log the hours people spend on an issue | `hours` | [Human hours](docs/concepts.md#human-hours) |
 | Export each project's cost over time, by model, to Prometheus or an OTLP backend | `sextant` | [Running Sextant](docs/sextant.md) |
 

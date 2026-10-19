@@ -157,7 +157,7 @@ func init() {
 		{"whoami", "whoami", "say which principal the server takes you for, and which sign-in or key let you in", cmdWhoami},
 		{"login", loginUsage, "sign in at the server's identity provider, for the day; --url when no browser opens here", cmdLogin},
 		{"logout", "logout", "end your sign-in at the server, and remove it from this machine", cmdLogout},
-		{"cost", costUsage, "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person or model", cmdCost},
+		{"cost", costUsage, "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person, model or outcome", cmdCost},
 		{"hours", hoursUsage, "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdHours},
 		{"remember", "remember KEY TEXT...|- [--scope S] [--tag T]... [--issue ID] [--rev N] [--pin]", "keep a memory for later sessions; --rev replaces one", cmdRemember},
 		{"recall", "recall [TEXT...] [--key K] [--tag T] [--scope S] [-n N]", "search memories by text, key or tag, pinned then newest first", cmdRecall},

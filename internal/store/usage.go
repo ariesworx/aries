@@ -222,7 +222,7 @@ func (s *Store) AddUsage(ctx context.Context, actor Actor, recs []UsageRecord, i
 		// RETURNING tells which rows are new: a record the store had is
 		// not counted, here or by the observer.
 		added, err := w.insertUsage(ctx, `INSERT INTO token_usage (`+usageCols+`) VALUES `+strings.Join(rows, ", ")+
-			` ON CONFLICT DO NOTHING RETURNING model, input, output, cache_write, cache_read`, p.args...)
+			` ON CONFLICT DO NOTHING RETURNING model, input, output, cache_write, cache_write_1h, cache_read`, p.args...)
 		if err != nil {
 			return fmt.Errorf("insert usage: %w", err)
 		}
@@ -263,11 +263,11 @@ func (w *wtx) insertUsage(ctx context.Context, q string, args ...any) ([]UsageRe
 	var out []UsageRecord
 	for rs.Next() {
 		var r UsageRecord
-		var in, o, cw, cr sql.NullInt64
-		if err := rs.Scan(&r.Model, &in, &o, &cw, &cr); err != nil {
+		var in, o, cw, cw1, cr sql.NullInt64
+		if err := rs.Scan(&r.Model, &in, &o, &cw, &cw1, &cr); err != nil {
 			return nil, err
 		}
-		r.Input, r.Output, r.CacheWrite, r.CacheRead = nullInt(in), nullInt(o), nullInt(cw), nullInt(cr)
+		r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead = nullInt(in), nullInt(o), nullInt(cw), nullInt(cw1), nullInt(cr)
 		out = append(out, r)
 	}
 	return out, rs.Err()
@@ -326,6 +326,7 @@ func (w *wtx) countUsage(ctx context.Context, added []UsageRecord) error {
 		u.Output += val(r.Output)
 		u.CacheWrite += val(r.CacheWrite)
 		u.CacheRead += val(r.CacheRead)
+		u.CacheWrite1h += val(r.CacheWrite1h)
 	}
 	for _, m := range slices.Sorted(maps.Keys(byModel)) {
 		w.usage = append(w.usage, *byModel[m])

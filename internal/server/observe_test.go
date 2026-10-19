@@ -962,6 +962,9 @@ func TestMetricsOfUsageTokens(t *testing.T) {
 		r := usageRec(id, now, in)
 		r.Model = model
 		r.Output, r.CacheWrite, r.CacheRead = i64(in*2), i64(in*3), i64(in*4)
+		if in == 10 {
+			r.CacheWrite1h = i64(10) // of the 30 written: 20 for five minutes, once however often sent
+		}
 		return r
 	}
 	batch := []proto.UsageRecord{rec("r1", "example-large", 10), rec("r2", "example-large", 1), rec("r3", "invented-1", 5), rec("r4", "invented-2", 7)}
@@ -976,7 +979,8 @@ func TestMetricsOfUsageTokens(t *testing.T) {
 	wants := []want{
 		{"aries.usage.tokens", []string{"project", project, "kind", "input", "model", "example-large"}, 111},
 		{"aries.usage.tokens", []string{"project", project, "kind", "output", "model", "example-large"}, 222},
-		{"aries.usage.tokens", []string{"project", project, "kind", "cache_write", "model", "example-large"}, 333},
+		{"aries.usage.tokens", []string{"project", project, "kind", "cache_write", "model", "example-large"}, 323},
+		{"aries.usage.tokens", []string{"project", project, "kind", "cache_write_1h", "model", "example-large"}, 10},
 		{"aries.usage.tokens", []string{"project", project, "kind", "cache_read", "model", "example-large"}, 444},
 		{"aries.usage.tokens", []string{"project", project, "kind", "input", "model", "(other)"}, 12},
 		{"aries.usage.tokens", []string{"project", project, "kind", "output", "model", "(other)"}, 24},
