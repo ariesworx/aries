@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"regexp"
@@ -41,6 +42,8 @@ type signInWorld struct {
 	pool *x509.CertPool
 	iss  *oidctest.Issuer
 	clk  *clock
+	// stop stops the server's Serve, and says how long it took.
+	stop func() time.Duration
 	// browser trusts the server and the provider, and stops at the
 	// loopback redirect.
 	browser *http.Client
@@ -97,7 +100,7 @@ func newSignInWorldWith(t *testing.T, lim Limits, edit func(*oidctest.Issuer, *o
 		cfg.Login = &login
 		cfg.Telemetry = tel
 	}, append([]string{dana.Principal}, admins...)...)
-	serving(t, w.Server)
+	w.stop = serving(t, w.Server)
 	w.project(t, projA, "alice")
 	if _, _, err := w.ctl.Invite(t.Context(), dana, "alice", store.Invitation{Provider: "corp", Address: "alice@example.com"}); err != nil {
 		t.Fatal(err)
@@ -1096,5 +1099,52 @@ func TestStatusSignIn(t *testing.T) {
 	if si == nil || si.Live != 1 || !si.Providers[0].Discovered || si.Providers[0].Keys != "fetch" || len(si.Providers[0].KeyIDs) != 1 ||
 		si.Providers[0].KeysReadAt == nil || si.Providers[0].Error != "" {
 		t.Errorf("status after a sign-in = %+v, want one live, corp discovered and its key read", si)
+	}
+}
+
+// An HTTP/2 request to the token endpoint whose body is held has proved
+// nothing either: when Serve stops it is cut off at once (its stream,
+// not its connection), and does not hold the stop for shutdownWait.
+func TestTokenEndpointStopsWithBodyHeld(t *testing.T) {
+	t.Parallel()
+	w := newSignInWorldWith(t, Limits{HTTPSBodyTimeout: Duration(time.Minute)}, nil, nil, nil)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: w.pool, MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: true}}
+	body, held := io.Pipe()
+	defer func() { _ = held.Close() }()
+	sent := make(chan struct{})
+	ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{WroteHeaders: func() { close(sent) }})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, w.url+pathToken, body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.ContentLength = 1000
+	type answer struct {
+		proto int
+		err   error
+	}
+	answered := make(chan answer, 1)
+	go func() {
+		resp, err := client.Do(req)
+		if err != nil {
+			answered <- answer{err: err}
+			return
+		}
+		_ = resp.Body.Close()
+		answered <- answer{proto: resp.ProtoMajor}
+	}()
+	// The request is in flight: its handler reads the body.
+	if _, err := held.Write([]byte("grant_type=")); err != nil {
+		t.Fatal(err)
+	}
+	<-sent
+	time.Sleep(200 * time.Millisecond)
+	if d := w.stop(); d > time.Second {
+		t.Errorf("Serve returned %v after its context ended, with an HTTP/2 request's body held; want within a second", d)
+	}
+	select {
+	case a := <-answered:
+		if a.err == nil && a.proto != 2 {
+			t.Errorf("the request was answered over HTTP/%d; want HTTP/2", a.proto)
+		}
+	case <-time.After(patience):
+		t.Error("the request held was neither answered nor cut off")
 	}
 }

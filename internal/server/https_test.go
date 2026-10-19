@@ -88,23 +88,34 @@ func listenHTTPS(t *testing.T, cfg *Config, edit func(*HTTPS)) (string, *x509.Ce
 	return u, pool
 }
 
-// serving runs s.Serve, with a socket no one dials, until the test ends.
-func serving(t *testing.T, s *Server) {
+// serving runs s.Serve, with a socket no one dials, until the test ends
+// or until stop, which it returns, is called; stop says how long Serve
+// took to return after its context ended.
+func serving(t *testing.T, s *Server) (stop func() time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(ctx, newFakeListener()) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Serve = %v", err)
+	var once sync.Once
+	var took time.Duration
+	stop = func() time.Duration {
+		once.Do(func() {
+			cancel()
+			start := time.Now()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("Serve = %v", err)
+				}
+			case <-time.After(patience):
+				t.Error("Serve did not return after its context ended")
 			}
-		case <-time.After(patience):
-			t.Error("Serve did not return after its context ended")
-		}
-	})
+			took = time.Since(start)
+		})
+		return took
+	}
+	t.Cleanup(func() { stop() })
+	return stop
 }
 
 // handFile writes an authorized_keys file kept by hand in a directory of
@@ -942,5 +953,85 @@ func TestNewRefusesHTTPS(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("New with %s = %v, want an error naming %s", tc.name, err, tc.want)
 		}
+	}
+}
+
+// A request whose headers are in and whose body is held, never sent or
+// sent a byte at a time, or whose headers are held, has proved nothing:
+// when Serve stops it is cut off at once, and does not hold the stop for
+// shutdownWait.
+func TestHTTPSStopsWithBodyHeld(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		path string
+		drip bool
+		head bool // the headers are not all in
+	}{
+		{name: "no body", path: "/nothing"},
+		{name: "a byte at a time", path: "/nothing", drip: true},
+		{name: "no body to the upgrade's path", path: keyproof.ConnectPath},
+		{name: "headers held", path: "/nothing", head: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// The body's timeout is past shutdownWait, so only the stop
+			// can end the request in time.
+			cfg := Config{Limits: Limits{HTTPSBodyTimeout: Duration(time.Minute)}, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}
+			u, pool := listenHTTPS(t, &cfg, nil)
+			s, _ := newServerConfig(t, cfg, nil)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- s.Serve(ctx, newFakeListener()) }()
+			nc, err := tls.Dial("tcp", strings.TrimPrefix(u, "https://"), &tls.Config{RootCAs: pool, ServerName: "localhost", NextProtos: []string{"http/1.1"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = nc.Close() }()
+			method := "POST"
+			if tc.path == keyproof.ConnectPath {
+				method = "GET"
+			}
+			req := method + " " + tc.path + " HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000\r\n"
+			if !tc.head {
+				req += "\r\n"
+			}
+			if _, err := io.WriteString(nc, req); err != nil {
+				t.Fatal(err)
+			}
+			stop := make(chan struct{})
+			defer close(stop)
+			if tc.drip {
+				go func() {
+					for {
+						select {
+						case <-stop:
+							return
+						case <-time.After(50 * time.Millisecond):
+							if _, err := nc.Write([]byte("x")); err != nil {
+								return
+							}
+						}
+					}
+				}()
+			}
+			// The request is in flight: its handler has run, or net/http
+			// waits for the rest of its headers.
+			time.Sleep(200 * time.Millisecond)
+			cancel()
+			start := time.Now()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("Serve = %v", err)
+				}
+			case <-time.After(patience):
+				t.Fatal("Serve did not return with a request's body held")
+			}
+			if d := time.Since(start); d > time.Second {
+				t.Errorf("Serve returned %v after its context ended, with a request's body held; want within a second", d)
+			}
+		})
 	}
 }
