@@ -1,8 +1,10 @@
 # The client-side dispatcher
 
-Status: **design, 17 October 2026, proposed** (aries-w5aa37nf). Nothing
-in it is built, and no code is written until the maintainer answers §14
-and the answers are recorded as a decision. It draws on the five
+Status: **design, 17 October 2026, accepted 19 October 2026**
+(aries-w5aa37nf; decision 96 in [aries.md §14](aries.md#14-decisions)).
+Nothing in it is built. The maintainer answered §14 on 19 October 2026,
+and the answers are recorded there, with what they changed in the
+sections they name. It draws on the five
 research issues of the epic aries-hzuyf4mt: idle time (aries-5llpbo64),
 the budget signal (aries-hkwmq25r), concurrent test runs
 (aries-payigku6), the merge rule (aries-ssgn3lve) and headless runs
@@ -24,6 +26,15 @@ person.
 The dispatcher is that process: deterministic, no model in its loop
 (Bearings decision 11), on one developer's machine, and small enough to
 be replaced by Bearings (§12) without anyone relearning the workflow.
+
+**A throwaway loop over parts that stay** (the maintainer, 19 October
+2026). The loop of §2 is internal and experimental, and is removed when
+Bearings' B0 takes it over. What it calls is built as permanent, tested
+parts of Aries that Bearings reuses: `aries watch --events` (§3), the
+locks `dispatch/runs`, `dispatch/pause` and `pgtest/HOST` (§5, §11),
+claim before launch (§4), the credential store (§11), agent principals
+by role with grants bound to a session (§11), and the notices on a
+standing issue (§12). Nothing that matters is written twice.
 
 ## 2. What it does, in one loop
 
@@ -70,10 +81,10 @@ rule of the memory `dispatch`:
   whose last handoff is `done` (it waits on the maintainer or on
   landing); and anything touching release signing, judged by its text
   naming `internal/release`, `keys.go` or the release workflow, which
-  holds it for a person rather than guesses. A design waiting on the
-  maintainer's answers is usually already held by its handoff; for one
-  that is not, a label `waiting:maintainer` would make the rule
-  mechanical (Q5).
+  holds it for a person rather than guesses; and the label
+  `waiting:maintainer`, which a design waiting on the maintainer's
+  answers carries, so the rule is mechanical rather than read from
+  handoffs (Q5).
 - **Claim before launch.** The dispatcher starts the issue itself,
   under the session id it will give the run (`ARIES_SESSION` equal to
   the harness's `--session-id`), before launching. A second dispatcher
@@ -101,9 +112,12 @@ not CPU: `kern.sysv.shmmni` is 32, and each test binary's `pgtest` pool
 takes 4 segments, so 8 test binaries at once is the ceiling
 (aries-payigku6), and one `go test ./...` runs several. The brief
 therefore tells each run to test one package at a time, or with
-`go test -p 2 ./...`; four runs each running the whole suite at once
-could still fail. A second lock, `pgtest/HOST` with capacity 2 around
-each run's whole-suite test, would make this mechanical (Q6).
+`go test -p 2 ./...`. That alone is not enough: the memory `workflow`
+has every code change run `scripts/gate.sh --quick`, which runs the
+whole suite, so four runs at once would exhaust the segments. A second
+lock, `pgtest/HOST` with capacity 2, is taken around each run's
+whole-suite test, and is built in the first slice, not after a drill
+fails (Q6).
 
 ## 6. Budget
 
@@ -166,9 +180,13 @@ memory `workflow`'s step 8 from the coordinating session.
   - **A live session holds the issue's claim** (one a person started,
     perhaps with Auto-fix on): leave it, and name the PR in the report
     if it is still conflicted at the next sweep.
-  - **No one holds it:** claim it and start a run in a new worktree on
-    the PR's branch, under the lock. From then on that run is the
-    dispatcher's, cleanup included.
+  - **No one holds it:** if the PR is one its own runs opened, or
+    carries the label `dispatch:rework`, which a person adds to hand it
+    over, claim it and start a run in a new worktree on the PR's
+    branch, under the lock. From then on that run is the dispatcher's,
+    cleanup included. Any other PR is named in the report and left: a
+    desktop session's claim lapses minutes after the app closes, and
+    that is no sign its person is done with it (Q10).
 
   Each of these records a comment beginning `rework:` on the issue,
   naming the merge that caused it, for the productivity metrics
@@ -270,17 +288,28 @@ chooses (Q1):
 | Unattended | Bearings decision 14 rules subscription logins out of unattended runs; the provider's terms on parallel, unattended use apply | The usual fit, and what decision 14 asks |
 | `--bare` | Not usable | Usable, but skips hooks, so never for attributed runs |
 
-Either is a secret (rule 2): in the child's environment only
-(`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`), read at start from
-the macOS keychain or a file the dispatcher refuses unless it is 0600
-and the user's own; never in argv, the brief, the state file, the log,
-Aries or the repository. The runs push and open PRs with the
-maintainer's existing `git` and `gh` credentials, and act in Aries as
-the maintainer's principal, in sessions of their own. Their tool lists
-deny `gh pr merge`, `gh api`, force pushes and pushes to `main`, and
-edits to `.claude/`, `.mcp.json` and `internal/release/keys.go`; branch
-protection is the backstop. Distinct agent identities are Bearings'
-(§3.23), not this design's.
+**Chosen: an API key** (Q1). It is a secret (rule 2): in the child's
+environment only (`ANTHROPIC_API_KEY`), never in argv, the brief, the
+state file, the log, Aries or the repository. It is read at start from
+the system's credential store, a permanent part of `aries` that Bearings
+reuses: the keychain on macOS; the Secret Service on Linux where one
+runs, and otherwise a file in aries's data directory that is refused
+unless it is 0600 and the user's own; Windows' Credential Manager when
+Bearings needs it, since the loop itself does not run there (§12). The
+dispatcher says which store it read. The hard stop on spend is the
+provider's: a spend limit set on the key in the provider's console,
+with `--max-budget-usd` per run; the cap of §6 is Aries's alert before
+it (enterprise review, question 5).
+
+The runs push and open PRs with the maintainer's existing `git` and `gh`
+credentials, in sessions of their own. In Aries they act as the
+maintainer's principal until agent principals exist; then as a principal
+of the role (`dispatch`, owned by the maintainer), with a grant bound to
+each run's session, so each run is told apart by its session and no
+principal is made per run (decision 97). Their tool lists deny
+`gh pr merge`, `gh api`, force pushes and pushes to `main`, and edits to
+`.claude/`, `.mcp.json` and `internal/release/keys.go`; branch protection
+is the backstop.
 
 ## 12. A command, a script, or Bearings
 
@@ -290,9 +319,14 @@ protection is the backstop. Distinct agent identities are Bearings'
 | B. A POSIX script in `scripts/` | What aries-uyip3scn suggested; nothing ships | JSON from five commands without `jq` (a new tool, rule 4); the drills are hard to make reliable; `scripts/` is for contributors, not users |
 | C. `cmd/bearings`, as B0's first slice | No throwaway; Bearings decision 6's place | A new binary in the release, its signing and the installers; Bearings is 1.x work, after v1.0.0 |
 
-A as `aries dispatch run|status|stop`, CLI only (rule 12), marked
+**Chosen: A** (Q2, and the maintainer's choice of 19 October 2026 among
+an internal tool, a product feature and Bearings now): `aries dispatch
+run|status|stop`, CLI only (rule 12), on macOS and Linux, marked
 experimental in its help so the v1.0.0 surface freeze does not keep it,
-and replaced by Bearings when B0 and B2 ship (Q2).
+and removed when Bearings' B0 takes over the loop. A product feature
+would have had to run on Windows, been frozen at v1.0.0 and overlapped
+Bearings; Bearings now would have left nothing running unattended for
+months. What the loop calls is permanent (§1).
 
 - **Logs:** one JSON line per decision, in the data directory beside its
   state: each wake and its source, each pick and each skip with the rule
@@ -304,7 +338,10 @@ and replaced by Bearings when B0 and B2 ship (Q2).
   failure count, the last sweep's held PRs and merged-but-open issues.
   A stop, a held batch and a merged-but-open issue are also posted as a
   comment on a standing issue that mentions the maintainer, so the
-  inbox and `prime` carry them to any machine (Q7).
+  inbox and `prime` carry them to any machine (Q7). That reaches a
+  person only when they open a session; reaching one away from every
+  machine is the notifications design (aries-teizxh5h), whose first
+  sender is this.
 - **How a person stops it:** `aries dispatch stop` starts nothing more
   and lets runs end; `--now` interrupts them (SIGINT, then SIGTERM). A
   pause any machine can set: while the lock `dispatch/pause` is held,
@@ -351,34 +388,42 @@ stands in for `gcloud`. Each result is a comment on aries-hzuyf4mt.
 
 ## 14. Questions for the maintainer
 
+*Answered 19 Oct 2026* by the maintainer, each in place, and recorded as
+decision 96.
+
 1. **The credential:** setup-token or an API key, and kept in the
-   keychain or a 0600 file? Bearings decision 14 says API keys for
-   unattended runs; does it bind this dispatcher overnight on a laptop?
-   Recommended: an API key, in the keychain.
+   keychain or a 0600 file? *Answered:* an API key, in the system's
+   credential store, which must work on Linux, macOS and Windows; on a
+   Linux machine without the Secret Service, a 0600 file in the data
+   directory (§11).
 2. **Where it lives:** `aries dispatch`, experimental (A), a script (B),
-   or `cmd/bearings` now (C)? Recommended: A.
+   or `cmd/bearings` now (C)? *Answered:* A, an internal experimental
+   loop over permanent, reusable parts, removed when Bearings' B0 takes
+   over (§1, §12).
 3. **The kill switch:** is `stop` on the machine enough, or the
-   server-side pause lock as well? Recommended: both.
+   server-side pause lock as well? *Answered:* both.
 4. **`aries watch --events`,** a client-only flag over the existing
-   `WatchArgs.Events`, in the dispatcher's first slice? Recommended:
-   yes; cleanup and reconcile then follow events, not the timer.
+   `WatchArgs.Events`, in the dispatcher's first slice? *Answered:* yes.
 5. **Designs waiting on you:** a label (`waiting:maintainer`) that the
-   dispatcher skips, or rely on handoffs? Recommended: the label.
+   dispatcher skips, or rely on handoffs? *Answered:* the label (§4).
 6. **Test load:** brief each run to test one package at a time, or add
-   the `pgtest/HOST` lock, or raise `kern.sysv.shmmni`? Recommended: the
-   brief first, the lock if a drill fails.
+   the `pgtest/HOST` lock, or raise `kern.sysv.shmmni`? *Answered:* the
+   brief, and the lock in the first slice, since the workflow's
+   `gate.sh --quick` runs the whole suite (§5).
 7. **Reports:** where should stops, held merges and merged-but-open
-   issues go: a standing issue that mentions you, the log alone, or
-   something else?
-8. **Other harnesses:** Claude Code alone at first, with Codex and
-   Gemini when the dispatcher can report their usage? That needs a
-   client path to report usage outside a hook. Recommended: yes, Claude
-   Code first.
+   issues go? *Answered:* somewhere the maintainer sees them from any
+   machine: a standing issue that mentions them, for now (§12). Reaching
+   a person away from every machine, as a dark factory alerts its
+   owners, needs a notification mechanism that likely involves a
+   component outside Aries: aries-teizxh5h.
+8. **Other harnesses:** Claude Code alone at first? *Answered:* yes; the
+   maintainer tries Codex the week of 19 October 2026.
 9. **Claim before launch** (§4): may the dispatcher start an issue in
-   the run's session before the run exists? Recommended: yes; it is
-   what keeps two dispatchers off one issue.
+   the run's session before the run exists? *Answered:* yes.
 10. **Rework of others' PRs** (§8): may it claim and rework a PR whose
     session has gone, including one a person's desktop session opened?
-    Recommended: yes, under the lock, saying so on the issue.
-11. **Fallback timer and lease:** 20 minutes and 10 minutes? Shorter
-    leases free a dead run's slot sooner and renew more often.
+    *Answered:* yes, under the lock, saying so on the issue; a PR its
+    own runs did not open only with the label `dispatch:rework`, not
+    after a grace period (§8).
+11. **Fallback timer and lease:** 20 minutes and 10 minutes?
+    *Answered:* yes.
