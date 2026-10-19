@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -418,7 +417,11 @@ func TestDeadCollectorLogs(t *testing.T) {
 	for _, tc := range []struct{ name, endpoint string }{{"a closed port", closed}, {"a listener that never answers", silent}} {
 		t.Run(tc.name, func(t *testing.T) {
 			noLeak(t)
-			plain, dead := start(t, ""), start(t, tc.endpoint)
+			addr := tc.endpoint
+			if addr == "" {
+				addr = clienttest.SilentPort(t)
+			}
+			plain, dead := start(t, ""), start(t, addr)
 			var off, took time.Duration
 			for i := range rounds {
 				at := time.Now()
@@ -443,16 +446,13 @@ func TestDeadCollectorLogs(t *testing.T) {
 	}
 }
 
-// deadCollectors returns the address of a port that fails every connection, and
-// of a listener that accepts connections and never answers.
+// deadCollectors returns the address of a port nothing listens on, and
+// "" for a listener that accepts connections and never answers, which a
+// subtest makes with clienttest.SilentPort.
 func deadCollectors(t *testing.T) (closed, silent string) {
 	t.Helper()
 	closed = clienttest.DeadPort(t)
-	// Connections queue in the listener's backlog and are never read.
-	s, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return closed, s.Addr().String()
+	// The silent listener is made by the subtest that uses it, empty here,
+	// so that it is closed before the leak check.
+	return closed, ""
 }
