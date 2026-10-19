@@ -1,8 +1,10 @@
 # The outcome record: what each run of an issue led to
 
 **Design, 19 October 2026 (aries-4x4vo7cq, L0 of the learning loop,
-epic aries-dmqqolg4).** Proposed; nothing in it is built, and nothing is
-built until the maintainer answers §14.
+epic aries-dmqqolg4).** Nothing in it is built. The maintainer answered
+Q5, Q7 and Q8 of §14 on 19 Oct 2026: capture with a CLI-only command,
+`brief:` comments from the coordinator now, and tokens per run
+deferred. The other questions are open.
 
 The learning loop's primary signal is not what an agent says about its
 run. It is what the run led to, measured after the outcome is known:
@@ -101,7 +103,7 @@ What is **not** in it, and why:
   and the host keeps it for a limited time. The record carries the run's
   id as `ci:ID` (lessons.md §3's evidence type), which a person or L3
   follows.
-- **Tokens per run.** No read returns a session's tokens on one issue:
+- **Tokens per run** (deferred to O3, Q8). No read returns a session's tokens on one issue:
   `aries cost` groups by account, issue, epic, person, model and
   outcome, and grouping by person would name the person. Until a read by
   session exists (Q8), tokens are the issue's, and `runs[]` carries each
@@ -300,12 +302,13 @@ the next merge, or the next fallback, finds it. Issues are found with
 --state closed` (for `pr-closed`), and `comments` (for an existing
 record).
 
-**How the coordinator captures it is the first decision (Q5).** By hand,
-from `show`, `history`, `comments`, two `cost` reads and five or more
-`gh` and `git` calls, a model session spends tokens on arithmetic it can
-get wrong, and two coordinators would round differently, which defeats a
-record meant to be objective. The recommendation is a small client
-command, `aries outcome ID [--post]`, that does exactly §2 to §6 and
+**How the coordinator captures it: a command** (Q5, answered 19 Oct
+2026). By hand, from `show`, `history`, `comments`, two `cost` reads and
+five or more `gh` and `git` calls, a model session spends tokens on
+arithmetic it can get wrong, and two coordinators would round
+differently, which defeats a record meant to be objective. So the
+capture is a small client command, `aries outcome ID [--post]`, that
+does exactly §2 to §6 and
 prints the record (`--json`) or posts it. It is CLI only, never an MCP
 tool (rule 12's spirit: it reads a CI host with a person's credentials),
 experimental like `aries dispatch`, and built over existing ops, so it
@@ -480,6 +483,7 @@ touching the release.
    record exists to replace. If the maintainer wants data before the
    command exists, hand capture for at most one week, marked
    `"capturer":"coordinator"`, and L0b reports those apart.
+   *Answered 19 Oct 2026:* build the CLI-only command (O1).
 6. **The comment carries the derived half as a snapshot** until the
    field exists, and L0b recomputes it and reports differences (§9).
    *Recommended:* yes. With the field, only the recorded half is sent.
@@ -490,10 +494,13 @@ touching the release.
    naming the harness, model and effort, so the record's `runs[]` has
    them. Without it, every record of a desktop session lists `brief`
    and `harness` as missing, and the capture measure says so.
+   *Answered 19 Oct 2026:* as recommended. The coordinator posts a
+   `brief:` comment for every session it starts, from now on.
 8. **Tokens per run.** A read of an issue's tokens by session needs a
    new `cost` grouping, a protocol change. *Recommended:* defer it to
    O3, with the field; until then tokens are the issue's and `runs[]`
-   gives each run's held time and models (§2).
+   gives each run's held time and models (§2). *Answered 19 Oct 2026:*
+   as recommended: tokens by session wait for O3.
 9. **Backfill.** Capture records for the issues that landed in the 30
    days before O1, marked `"backfill":true`, so L0b's first report has
    past weeks to compare against. *Recommended:* yes, within the host's
