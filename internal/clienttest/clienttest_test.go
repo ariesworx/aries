@@ -21,7 +21,7 @@ import (
 func TestEveryConnectingPackageIsIsolated(t *testing.T) {
 	t.Parallel()
 	const module = `"github.com/ariesworx/aries/internal/`
-	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`, module + `offline"`}
+	connects := []string{module + `client"`, module + `cli"`, module + `mcpserver"`, module + `board"`, module + `offline"`, module + `sextant"`}
 	needs, has := map[string]string{}, map[string]bool{}
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
