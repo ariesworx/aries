@@ -26,6 +26,9 @@ what was learned and what has really landed.
 >   server, observability, work while the server cannot be reached, and
 >   a project's workflow, where *closed* means *landed*. None of the
 >   offline work has run on Windows.
+> - v0.6.0 is in progress on `main`: protocol 9 binds the HTTPS key
+>   proof to the TLS session, and lets an agent settle its acceptance
+>   items at handoff ([draft notes](docs/releases/v0.6.0.md)).
 > - HTTPS is the default transport; SSH is off until an operator turns
 >   it on. v0.5.0 authenticates people and services by keys
 >   ([decision 91](docs/design/aries.md#14-decisions)). Sign-in at a
@@ -197,7 +200,7 @@ development.
 | [How Aries works](docs/concepts.md) | Identity, issues, dependencies, gates, locks, claims and leases, the workflow, handoffs, the inbox, memory, time and cost |
 | [Using `aries`](docs/cli.md) | Connecting a repository, signing in, every command, working offline, exit codes |
 | [Agents](docs/agents.md) | Setting agents up, session-start and usage hooks, MCP tools, sessions |
-| [CI gates](docs/ci.md) | Holding work until CI reports a check, landing, `aries land`, and workflows for GitHub Actions and GitLab CI, with what they cost |
+| [CI gates](docs/ci.md) | Holding work until CI reports a check, landing, `aries land`, the `Aries:` trailer check, and workflows for GitHub Actions and GitLab CI, with what they cost |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 
 **Running a server**
@@ -209,7 +212,7 @@ development.
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
 | [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server |
-| [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports |
+| [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports; [v0.6.0's draft](docs/releases/v0.6.0.md) grows as changes land |
 | [Changelog](CHANGELOG.md) | One entry per release, newest first, each linking its full notes |
 | [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 
@@ -257,11 +260,15 @@ v1.0.0, which is held as long as possible
 - **From v0.5.0 on:** a release that changes the protocol keeps
   accepting the one before it, and the names a dashboard or an alert
   relies on are kept.
-- **v0.6.0:** ACME against a real CA, the key proof bound to the TLS
-  session, and the review's other deferred findings
+- **v0.6.0, in progress:** on `main`, protocol 9, which binds the key
+  proof to the TLS session where `ariesd` terminates TLS and lets
+  `handoff` settle acceptance items; still to come, ACME against a real
+  CA and the review's other deferred findings
   ([Not in this release](docs/releases/v0.5.0.md#not-in-this-release)).
-- **Before v1.0.0:** organization memory, and the server-wide default
-  workflow (W5) that builds on it.
+  The [draft notes](docs/releases/v0.6.0.md) grow with each change.
+- **Before v1.0.0:** organization memory, the server-wide default
+  workflow (W5) that builds on it, and pseudonymous names in every log
+  ([decision 97](docs/design/aries.md#14-decisions)).
 - **In 1.x:** sign-in against a real identity provider, with its
   security review; a remote MCP endpoint; GitHub's sign-in; a Claude
   Desktop extension; and stage 6's G3 to G5
@@ -284,7 +291,10 @@ model, to fix where their work stands and chart the next step.
   `aries`.
 - **Bearings** is the orchestrator planned on top of it, a design only.
 - **Sextant** is reserved for future observability: metrics,
-  monitoring, tracing, and cost and usage reporting. It is a name only.
+  monitoring, tracing, and cost and usage reporting. It is planned as a
+  binary of its own in this repository
+  ([decision 98](docs/design/aries.md#14-decisions)), and is a design
+  only.
 
 ## Contributing
 
