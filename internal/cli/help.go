@@ -51,7 +51,7 @@ var helpGroups = []helpGroup{
 		{"away", "extend all your claims, before you go offline"},
 		{"lock", "take, renew, release or list a lock; run a command under one"},
 		{"inbox", "list your unread lost claims, handoffs, mentions, assignments"},
-		{"watch", "print inbox items as they arrive, until interrupted"},
+		{"watch", "print inbox items and, with --events, issue events"},
 		{"who", "list the agents at work and the issues each holds"},
 		{"digest", "summarize what closed, started, stalled and was handed off"},
 		{"tui", "show a live board of ready, held and blocked issues"},
@@ -197,6 +197,7 @@ var examples = map[string][]example{
 	"watch": {
 		{"Print inbox items as they arrive", "aries watch"},
 		{"One JSON object a line, for a script", "aries --json watch"},
+		{"Also every issue event, your own included", "aries --json watch --events"},
 	},
 	"who": {
 		{"Who is at work now", "aries who"},
