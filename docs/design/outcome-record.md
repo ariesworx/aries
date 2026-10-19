@@ -2,9 +2,10 @@
 
 **Design, 19 October 2026 (aries-4x4vo7cq, L0 of the learning loop,
 epic aries-dmqqolg4).** Nothing in it is built. The maintainer answered
-Q5, Q7 and Q8 of §14 on 19 Oct 2026: capture with a CLI-only command,
-`brief:` comments from the coordinator now, and tokens per run
-deferred. The other questions are open.
+every question of §14 on 19 Oct 2026: Q5, Q7 and Q8 first (capture
+with a CLI-only command, `brief:` comments from the coordinator now,
+tokens per run deferred), then the rest as recommended. O1, the
+command, is built after this design merges.
 
 The learning loop's primary signal is not what an agent says about its
 run. It is what the run led to, measured after the outcome is known:
@@ -444,7 +445,7 @@ each with its n (productivity-metrics.md §5, caution 9).
 
 | Slice | What | Done when |
 |---|---|---|
-| O0 | This design, answered | The maintainer has answered §14 |
+| O0 | This design, answered 19 Oct 2026 | The maintainer has answered §14 |
 | O1 | `aries outcome ID [--json] [--post]`, CLI only and experimental, over existing ops; the CI host interface with `gh` as its first implementation; §4's rework, §5's causes and §6's merges, each tested against fixtures (a fake `gh` on `PATH`, as `internal/iaptest` fakes `gcloud`, and a real git repository); the coordinator's sweep step in the memory `workflow`; `brief:` comments from the coordinator (Q7) | A week's landed issues each have a record, the share complete is reported on the epic, and pre-merge rework is held to hand-computed values by a test |
 | O2 | The dispatcher's sweep runs O1's command (dispatcher.md §8) | Its runs' records have no harness or brief missing |
 | O3 | The field: the `outcome` op and table, the event, the derived half on read, the export's join (lessons.md §6); a read of tokens by session (Q8) | Protocol 10 or the release after; designed when O1 has run a month |
@@ -459,22 +460,26 @@ touching the release.
    `docs/design/outcome-record.md`, with a row in the design README, and
    lessons.md §2 points to it, for the reasons in the introduction.
    *Recommended:* yes.
+   *Answered 19 Oct 2026:* as recommended.
 2. **One record per outcome, each covering the issue's life to date.**
    A reopened and relanded issue has two records; readers take the
    latest `seq`; a correction supersedes, never edits (§1).
    *Recommended:* yes. The alternative, a record per run, has no
    outcome to attach to a run that only handed off `partial`.
+   *Answered 19 Oct 2026:* as recommended.
 3. **Outcomes: `landed`, `closed` and `pr-closed`.** An issue waiting
    with a `partial` or `blocked` handoff is not abandoned and gets no
    record until it reaches one (§1). *Recommended:* yes. A time-based
    "abandoned" (unclaimed for N days) would record a run as failed while
    the maintainer is simply away.
+   *Answered 19 Oct 2026:* as recommended.
 4. **Pre-merge rework's boundary** is the earlier of the first `done`
    handoff and the first failed CI attempt, whatever its cause, and runs
    to the merge; today's figure is kept as `post_close` (§4).
    *Recommended:* yes, counting `flake` and `infra` failures too, since
    the tokens were spent either way; L0b can split rework by the
    boundary's trigger and the failures' causes.
+   *Answered 19 Oct 2026:* as recommended.
 5. **Capture by a command, `aries outcome`, from O1's first week**,
    CLI only and experimental, run by the coordinator's sweep (§7), rather
    than the coordinator reading and summing by hand. *Recommended:* the
@@ -487,6 +492,7 @@ touching the release.
 6. **The comment carries the derived half as a snapshot** until the
    field exists, and L0b recomputes it and reports differences (§9).
    *Recommended:* yes. With the field, only the recorded half is sent.
+   *Answered 19 Oct 2026:* as recommended.
 7. **Briefs now.** Until aries-2qx4mlm2 records briefs, the coordinator
    posts a `brief:` comment with the brief's full text on the issue when
    it starts a session, as the dispatcher will (dispatcher.md §7), and
@@ -507,13 +513,16 @@ touching the release.
    retention. Their brief and harness are missing and count against
    completeness honestly; L0b's first weeks report coverage and
    completeness for backfilled and live records apart.
+   *Answered 19 Oct 2026:* as recommended.
 10. **When L0b's rates speak.** *Recommended:* L0b always reports
     coverage and completeness, computes rates over complete records
     only with their n, and marks a week below 80% complete as not
     comparable with the weeks before it. The threshold is a guess to
     revisit after a month.
+    *Answered 19 Oct 2026:* as recommended.
 11. **Review counts from the host.** The issue's list does not name
     them; `review` adds the number of reviews requesting changes and of
     review comments, never who wrote them (§2). *Recommended:* yes. They
     are a cause of pre-merge rework that neither CI nor conflicts
     explain, and they cost nothing beyond the change's read.
+    *Answered 19 Oct 2026:* as recommended.
