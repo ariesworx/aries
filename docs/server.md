@@ -3891,7 +3891,7 @@ number of series cannot grow with what clients send:
 | `event` of a lock | `acquire`, `wait`, `grant`, `renew`, `release`, `expire`, `leave` |
 | `kind` of a gate | `human`, `ci` |
 | `event` of a gate | `added`, `passed`, `failed`, `waived`, `rearmed` |
-| `kind` of a token | `input`, `output`, `cache_write`, `cache_read` (`cache_write` includes the part written for an hour) |
+| `kind` of a token | `input`, `output`, `cache_write`, `cache_write_1h`, `cache_read` (`cache_write` is the part written for five minutes and `cache_write_1h` the part written for an hour, which are priced apart) |
 | `model` | The name of a model the project's price table has a price for, at most 64 of them; `(other)` for any other model, a client's text |
 | `reason` of a claim | `membership`, `disabled` or `archived` for a release that ended with the holder's access; `none` for every other change |
 | `signal` | `metrics`, `traces`, `logs` |

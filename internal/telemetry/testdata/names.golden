@@ -235,5 +235,6 @@ value aries.telemetry.dropped signal metrics
 value aries.telemetry.dropped signal traces
 value aries.usage.tokens kind cache_read
 value aries.usage.tokens kind cache_write
+value aries.usage.tokens kind cache_write_1h
 value aries.usage.tokens kind input
 value aries.usage.tokens kind output
