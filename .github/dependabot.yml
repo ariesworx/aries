@@ -68,6 +68,15 @@ updates:
       # hand (RELEASING.md, Changing the Postgres pin).
       - dependency-name: postgres
         update-types: ["version-update:semver-major"]
+      # The registry lists architecture-specific tags (0.162.0-386, the
+      # 32-bit x86 image) beside a release's multi-architecture tag, and
+      # Dependabot proposes one as a newer version. It would replace the
+      # index with one architecture's digest, which the pin tests refuse
+      # (TestHarnessImagesArePinned). `ignore` matches dependency names
+      # and version ranges, not a tag's suffix, so there is no rule for
+      # every image: ignore each such tag when it is proposed.
+      - dependency-name: otel/opentelemetry-collector
+        versions: ["0.162.0-386"]
     groups:
       compose-images:
         patterns: ["*"]
