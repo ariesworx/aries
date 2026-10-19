@@ -127,6 +127,18 @@ for a person to approve before any of it starts.
   as an admin may, whoever it names, on the record. `aries gate rearm ID`
   reopens a passed gate, by its approvers or an admin, so that it holds
   again; work already started on what it holds goes on.
+- **Why it is not ready.** An issue under a gated epic, such as one
+  whose type the [workflow](#the-workflow) gives an approval before
+  start, leaves `ready` with nothing said there, so the reason is given
+  where you look. `aries blocked` and `aries show` on the issue name
+  the gate that holds it, through its parent or a blocker, and who may
+  pass it; the MCP `blocked` gives `gates` and `show` gives `held`, one
+  line each with the command a person runs (`aries gate pass ID`). The
+  result of creating an issue under such a parent, or of an update that
+  sets one (MCP `create` and `update`, `aries create`), says it is held
+  until the gate passes (`held`). These are fields of existing results,
+  so they need no new protocol version, and an agent is still told to ask a person
+  rather than pass the gate.
 - **Who is told.** The approvers, in their inbox, when a gate is added
   and when more work is put behind it (`gate.pending`); for a gate that
   names none, the project's admins other than its creator, the

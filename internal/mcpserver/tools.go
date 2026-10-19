@@ -355,7 +355,10 @@ type Issues struct {
 type Blocked struct {
 	untrusted
 	Issues []proto.BlockedIssue `json:"issues"`
-	More   bool                 `json:"more,omitempty"`
+	// Gates are the open gates among the blockers, one line each: who
+	// passes it, and the command a person runs.
+	Gates []string `json:"gates,omitempty"`
+	More  bool     `json:"more,omitempty"`
 }
 
 // Issue is the compact form of show: no timestamps or authorship, and
@@ -400,6 +403,10 @@ type Issue struct {
 	// updates parked against others' changes, for a person to resolve
 	// and an agent to propose for (design §18.7).
 	Conflicts []Conflict `json:"conflicts,omitempty"`
+	// Held are the open gates that keep the issue out of ready, on it or
+	// on an ancestor, each "ID, passed by WHO: a person runs `aries gate
+	// pass ID`".
+	Held []string `json:"held,omitempty"`
 	// Checks are the CI checks on the issue, each "CHECK STATE (GATE)":
 	// waits for its CI principals, or the last report with its evidence.
 	// A closed issue whose landed check waits has not landed.
@@ -442,6 +449,39 @@ type Created struct {
 	ID      string `json:"id"`
 	Rev     int64  `json:"rev"`
 	Similar string `json:"similar,omitempty"`
+	// Held says the new issue is held out of ready by these gates.
+	Held string `json:"held,omitempty"`
+}
+
+// Updated is update's result: the write's {id, rev}, and, when the issue
+// was put under a parent, the gates that now hold it.
+type Updated struct {
+	ID   string `json:"id"`
+	Rev  int64  `json:"rev"`
+	Held string `json:"held,omitempty"`
+}
+
+// gateLine is one open gate as an agent reads it: its id, who passes it,
+// and the person's command. An agent never passes a gate (rule 12).
+func gateLine(g proto.Gate) string {
+	if g.Kind == proto.GateCI {
+		return g.ID + ", waits for CI to report " + g.Check + " on " + g.Subject
+	}
+	who := "an admin"
+	if len(g.Approvers) > 0 {
+		who = strings.Join(g.Approvers, " or ")
+	}
+	return g.ID + ", passed by " + who + ": a person runs `aries gate pass " + g.ID + "`"
+}
+
+// heldLine says in one sentence that gates, by id, hold an issue out of
+// ready. It is empty when none do.
+func heldLine(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	return "held out of ready until a person passes " + strings.Join(ids, ", ") +
+		" (`aries gate pass " + ids[0] + "` at their terminal; ask them, never pass it yourself)"
 }
 
 // maxItemText is how much of each acceptance item start and show give.
@@ -672,6 +712,9 @@ func (s *Server) register() {
 			var r proto.BlockedResult
 			err := c.Call(ctx, proto.OpBlocked, proto.LimitArgs{Limit: orDefault(in.Limit, DefaultLimit)}, &r)
 			out := Blocked{Issues: r.Issues}
+			for _, g := range r.Gates {
+				out.Gates = append(out.Gates, gateLine(g))
+			}
 			out.fit()
 			return out, err
 		})
@@ -687,11 +730,11 @@ func (s *Server) register() {
 				DeferUntil: in.DeferUntil, Due: in.Due}
 			var r proto.CreateResult
 			err := c.Call(ctx, proto.OpCreate, args, &r)
-			return Created{ID: r.ID, Rev: r.Rev, Similar: similarLine(r.Similar)}, err
+			return Created{ID: r.ID, Rev: r.Rev, Similar: similarLine(r.Similar), Held: heldLine(r.Held)}, err
 		})
 	add(s, tool{name: "update", desc: "Change the fields given; empty clears assignee, owner, parent, dates.", ann: write,
 		enums: enums{"status": setStatuses, "type": issueTypes}},
-		func(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) { return update(ctx, c, in) })
+		func(ctx context.Context, c Conn, in UpdateIn) (Updated, error) { return update(ctx, c, in) })
 	add(s, tool{name: "close", desc: "Close a finished issue.", ann: write},
 		func(ctx context.Context, c Conn, in CloseIn) (Closed, error) {
 			var out proto.CloseResult
@@ -807,6 +850,9 @@ func (r *Issues) fit() {
 // MaxResultTokens, and sets More if it dropped any.
 func (r *Blocked) fit() {
 	dropLast(&r.Issues, &r.More, func() bool { return size(r) <= MaxResultTokens })
+	for size(r) > MaxResultTokens && len(r.Gates) > 1 {
+		r.Gates, r.More = r.Gates[:len(r.Gates)-1], true
+	}
 }
 
 // fit drops the last agents, leaving at least one, until r is under
@@ -895,6 +941,9 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 	for _, g := range r.Checks {
 		out.Checks = append(out.Checks, checkLine(g))
 	}
+	for _, g := range r.Gates {
+		out.Held = append(out.Held, gateLine(g))
+	}
 	for _, d := range r.Deps {
 		if d.From == is.ID {
 			out.DependsOn = append(out.DependsOn, d.To+" "+d.Type)
@@ -948,28 +997,29 @@ func (r *Issue) fitNeededBy() {
 // update is the update tool. Without a rev it reads the current one
 // first, so the write is refused as stale only if the issue changes in
 // between.
-func update(ctx context.Context, c Conn, in UpdateIn) (proto.WriteResult, error) {
+func update(ctx context.Context, c Conn, in UpdateIn) (Updated, error) {
 	args := proto.UpdateArgs{ID: in.ID, Rev: in.Rev, Title: in.Title, Body: in.Body, Design: in.Design,
 		Acceptance: in.Acceptance, Notes: in.Notes, Status: in.Status, Priority: in.Priority, Type: in.Type,
 		Assignee: in.Assignee, Owner: in.Owner, Parent: in.Parent, DeferUntil: in.DeferUntil, Due: in.Due, Idem: in.idem}
 	if args.Title == nil && args.Body == nil && args.Design == nil && args.Acceptance == nil && args.Notes == nil &&
 		args.Status == nil && args.Priority == nil && args.Type == nil && args.Assignee == nil && args.Owner == nil &&
 		args.Parent == nil && args.DeferUntil == nil && args.Due == nil {
-		return proto.WriteResult{}, proto.Errf(proto.CodeInvalid, "", "nothing to update: give at least one field")
+		return Updated{}, proto.Errf(proto.CodeInvalid, "", "nothing to update: give at least one field")
 	}
 	if args.Rev == 0 {
 		var cur proto.ShowResult
 		if err := c.Call(ctx, proto.OpShow, proto.ShowArgs{ID: in.ID}, &cur); err != nil {
 			if client.Unreachable(err) {
-				return proto.WriteResult{}, notQueued(c, err,
+				return Updated{}, notQueued(c, err,
 					"an update is kept for later only with the rev it was based on, which only the server knows: give rev")
 			}
-			return proto.WriteResult{}, err
+			return Updated{}, err
 		}
 		args.Rev = cur.Issue.Rev
 	}
-	var out proto.WriteResult
-	return out, c.Call(ctx, proto.OpUpdate, args, &out)
+	var out proto.UpdateResult
+	err := c.Call(ctx, proto.OpUpdate, args, &out)
+	return Updated{ID: out.ID, Rev: out.Rev, Held: heldLine(out.Held)}, err
 }
 
 // maxCommentBody is how much of each comment a list shows.

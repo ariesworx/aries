@@ -358,8 +358,11 @@ or a status change of a gate, are refused `invalid`, and so are a
 `close` or `finish` of a held issue, a `dep` removal of the edge, and an
 `update` that moves a held issue out from under its gated parent. The
 fix tells the agent to pick other work or tell the user, naming the
-approvers. `show` gives an issue's `gates` that hold it; `blocked`
-lists the issue with the gate among its blockers. An agent hears that
+approvers. `show` gives an issue's `held`, the gates that hold it, and
+`blocked` lists the issue with the gate among its blockers and, in
+`gates`, who passes each and the command a person runs. `create`, and
+`update` when it sets a parent, say `held` when the issue lands under a
+gate, so that it does not vanish from `ready` unexplained. An agent hears that
 a gate passed through its `inbox` (`gate.passed`) when it is the
 assignee of what the gate held. Running `aries gate pass` in the agent's
 shell is refused too: a pass counts only from the person's own

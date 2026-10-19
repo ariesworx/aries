@@ -143,7 +143,23 @@ func create(ctx context.Context, pr *served, a store.Actor, in proto.CreateArgs)
 		return nil, pr.mapErr(ctx, proto.OpCreate, in.ID, 0, err)
 	}
 	return proto.CreateResult{WriteResult: proto.WriteResult{ID: string(c.ID), Rev: int64(c.Rev)},
-		Similar: pr.similar(ctx, c.Issue), Items: c.Items}, nil
+		Similar: pr.similar(ctx, c.Issue), Held: pr.gatesHolding(ctx, c.ID), Items: c.Items}, nil
+}
+
+// gatesHolding names the open gates that hold issue id, for the result of a write
+// that may have put it under one. The write has been made, so a failed
+// read is logged and names none.
+func (pr *served) gatesHolding(ctx context.Context, id store.IssueID) []string {
+	gs, err := pr.store.GatesHolding(ctx, id)
+	if err != nil {
+		pr.log.ErrorContext(ctx, "read the gates holding an issue", "event", logs.RequestPart, "issue", id, "err", err)
+		return nil
+	}
+	var out []string
+	for _, g := range gs {
+		out = append(out, string(g.ID))
+	}
+	return out
 }
 
 // similar lists the closed issues like is, for create and show. A failure
@@ -375,6 +391,10 @@ func update(ctx context.Context, pr *served, a store.Actor, in proto.UpdateArgs)
 		is, err := pr.store.UpdateIssue(ctx, a, store.IssueID(in.ID), store.Rev(in.Rev), p)
 		if err != nil {
 			return nil, pr.mapErr(ctx, proto.OpUpdate, in.ID, in.Rev, err)
+		}
+		if in.Parent != nil {
+			return proto.UpdateResult{WriteResult: proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)},
+				Held: pr.gatesHolding(ctx, is.ID)}, nil
 		}
 		return proto.WriteResult{ID: string(is.ID), Rev: int64(is.Rev)}, nil
 	}

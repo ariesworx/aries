@@ -183,6 +183,9 @@ type WriteResult struct {
 type CreateResult struct {
 	WriteResult
 	Similar []Summary `json:"similar,omitempty"`
+	// Held names the open gates that hold the new issue out of ready, on
+	// it or an ancestor: it waits for a person to pass them.
+	Held []string `json:"held,omitempty"`
 	// Items is how many acceptance items the project's workflow added
 	// (design §21.4).
 	Items int `json:"items,omitempty"`
@@ -447,6 +450,9 @@ type UpdateResult struct {
 	Parked  []ParkedField `json:"parked,omitempty"`
 	Dropped []string      `json:"dropped,omitempty"`
 	Comment string        `json:"comment,omitempty"`
+	// Held names the open gates that hold the issue out of ready after an
+	// update that set its parent; other updates leave it out.
+	Held []string `json:"held,omitempty"`
 }
 
 // ParkedField is a field a replayed update parked, and its conflict.
