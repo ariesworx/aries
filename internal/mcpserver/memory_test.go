@@ -93,11 +93,11 @@ func TestRecall(t *testing.T) {
 		return proto.RecallResult{Memories: ms, More: 5}, nil
 	}}
 	cs, _ := connect(t, f)
-	res := callTool(t, cs, "recall", map[string]any{"text": "deploy", "tag": "ops", "key": "k", "scope": "team"})
+	res := callTool(t, cs, "recall", map[string]any{"text": "deploy", "tag": "ops", "scope": "team"})
 	if res.IsError {
 		t.Fatal(text(t, res))
 	}
-	if sent != (proto.RecallArgs{Text: "deploy", Tag: "ops", Key: "k", Scope: "team"}) {
+	if sent != (proto.RecallArgs{Text: "deploy", Tag: "ops", Scope: "team"}) {
 		t.Errorf("recall sent %+v", sent)
 	}
 	var got Memories
@@ -117,6 +117,44 @@ func TestRecall(t *testing.T) {
 	}
 	if res := callTool(t, cs, "recall", map[string]any{"scope": "everyone"}); !res.IsError {
 		t.Error("recall with a scope that is none of the three was accepted")
+	}
+}
+
+// recall by key returns the memory whole, up to the store's 4,096-byte
+// cap, so an agent can edit it and replace it with remember without
+// dropping what a cut body hid; a search still cuts bodies.
+func TestRecallKeyWhole(t *testing.T) {
+	t.Parallel()
+	body := strings.Repeat("x", 4095) + "y"
+	f := &fakeConn{reply: func(string, any) (any, error) {
+		ms := memories(1, 0)
+		ms[0].Key, ms[0].Body = "workflow", body
+		return proto.RecallResult{Memories: ms}, nil
+	}}
+	cs, _ := connect(t, f)
+	res := callTool(t, cs, "recall", map[string]any{"key": "workflow"})
+	if res.IsError {
+		t.Fatal(text(t, res))
+	}
+	var got Memories
+	if err := json.Unmarshal([]byte(text(t, res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Memories) != 1 || got.Memories[0].Body != body || got.Truncated {
+		t.Errorf("recall by key: %d memories, body %d bytes, truncated %v; want it whole", len(got.Memories), len(got.Memories[0].Body), got.Truncated)
+	}
+	if n := Tokens([]byte(text(t, res))); n > MaxResultTokens {
+		t.Errorf("recall by key is %d tokens, cap %d", n, MaxResultTokens)
+	}
+	// A body that JSON escaping swells past the cap is still cut to fit.
+	body = strings.Repeat("\n", 4096)
+	res = callTool(t, cs, "recall", map[string]any{"key": "workflow"})
+	got = Memories{}
+	if err := json.Unmarshal([]byte(text(t, res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if n := Tokens([]byte(text(t, res))); n > MaxResultTokens || !got.Truncated {
+		t.Errorf("escaped body: %d tokens, truncated %v; want within %d and truncated", n, got.Truncated, MaxResultTokens)
 	}
 }
 
