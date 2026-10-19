@@ -198,3 +198,27 @@ func TestDispatchUsageCostWithoutPrices(t *testing.T) {
 		t.Errorf("digest.usage = %+v, want tokens and no cost", d)
 	}
 }
+
+// A report by outcome gives each group's issues, a landed issue's cost
+// and its rework, whole on the wire.
+func TestDispatchCostByOutcome(t *testing.T) {
+	t.Parallel()
+	s := newServer(t)
+	mustCall[proto.PriceSetResult](t, s, dana, proto.OpPriceSet, proto.PriceSetArgs{Model: "example-large", From: "2026-01-01", Rates: testRates})
+	is := mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: "work"})
+	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: is.ID})
+	since := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano)
+	rec := usageRec("r1", time.Now().UTC(), 1_000_000) // 2 USD
+	rec.Model = "example-large"
+	mustCall[proto.UsageResult](t, s, alice, proto.OpUsage, proto.UsageArgs{Records: []proto.UsageRecord{rec}})
+	mustCall[proto.FinishResult](t, s, alice, proto.OpFinish, proto.FinishArgs{ID: is.ID, Reason: "landed"})
+
+	r := mustCall[proto.CostResult](t, s, bob, proto.OpCost, proto.CostArgs{By: "outcome", Since: since})
+	if len(r.Groups) != 1 || r.Groups[0].Key != "landed" || r.Groups[0].Issues != 1 || r.Groups[0].CostUSD != "2" ||
+		r.Groups[0].PerIssueUSD != "2" || r.Groups[0].Rework != nil || len(r.Groups[0].Types) != 1 || r.Groups[0].Types[0].Type != "task" {
+		t.Fatalf("cost by outcome groups = %+v, want one landed group of one task issue at 2 USD", r.Groups)
+	}
+	if len(r.Landed) != 1 || r.Landed[0].ID != is.ID || r.Landed[0].CostUSD != "2" || r.Landed[0].Rework != nil {
+		t.Errorf("cost by outcome landed = %+v, want %s at 2 USD with no rework", r.Landed, is.ID)
+	}
+}

@@ -619,7 +619,7 @@ first; F4 measures before it builds.
 **Protocol.** F1, F2 and F4 are telemetry: no op and no argument. F3 adds
 result fields to `cost`, which needs no bump, but if it takes a new
 `group_by` value, an older server refuses it as invalid, which rule 10
-treats as a change of the protocol after v0.5.0; F3 says which it chose.
+treats as a change of the protocol after v0.5.0; F3 chose the new `group_by` value `outcome` (built 19 Oct 2026; the fields it adds are optional), joining protocol 9.
 
 **Names.** Every new instrument, attribute and value is recorded in
 `internal/telemetry/testdata/names.golden` and in docs/server.md's "What

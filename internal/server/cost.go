@@ -62,6 +62,9 @@ func cost(ctx context.Context, pr *served, _ store.Actor, in proto.CostArgs) (an
 		out.Groups = append(out.Groups, wireCostGroup(g))
 	}
 	n := min(len(r.Unpriced), proto.MaxUsageModels)
+	for _, l := range r.Landed {
+		out.Landed = append(out.Landed, wireLanded(l))
+	}
 	out.Unpriced, out.UnpricedMore = r.Unpriced[:n], len(r.Unpriced)-n
 	return out, nil
 }
@@ -89,6 +92,31 @@ func wireCostGroup(g store.CostGroup) proto.CostGroup {
 		Unpriced: g.Cost.Unpriced, Split: g.Split, LoggedSeconds: seconds(g.Logged)}
 	if g.Amortized != nil {
 		out.AmortizedUSD = proto.USD(g.Amortized)
+	}
+	out.Issues = g.Issues
+	if g.Rework != nil {
+		out.Rework = wireRework(*g.Rework)
+	}
+	if g.PerIssue != nil {
+		out.PerIssueUSD = proto.USD(g.PerIssue.Picodollars)
+	}
+	for _, t := range g.Types {
+		out.Types = append(out.Types, proto.CostByType{Type: string(t.Type), Tokens: proto.Tokens(t.Tokens), Issues: t.Issues,
+			CostUSD: proto.USD(t.Cost.Picodollars), PerIssueUSD: proto.USD(t.PerIssue.Picodollars), Unpriced: t.Cost.Unpriced})
+	}
+	return out
+}
+
+func wireRework(r store.CostRework) *proto.CostRework {
+	return &proto.CostRework{Tokens: proto.Tokens(r.Tokens), CostUSD: proto.USD(r.Cost.Picodollars), Unpriced: r.Cost.Unpriced}
+}
+
+func wireLanded(l store.LandedIssue) proto.CostLanded {
+	out := proto.CostLanded{ID: string(l.ID), Title: l.Title, Type: string(l.Type), Tokens: proto.Tokens(l.Tokens),
+		CostUSD: proto.USD(l.Cost.Picodollars), Unpriced: l.Cost.Unpriced, HeldSeconds: seconds(l.Held),
+		CycleSeconds: seconds(l.Cycle), Waivers: l.Waivers, Split: l.Split}
+	if l.ReworkTokens != (store.Tokens{}) {
+		out.Rework = wireRework(store.CostRework{Tokens: l.ReworkTokens, Cost: l.Rework})
 	}
 	return out
 }

@@ -14,15 +14,15 @@ import (
 )
 
 // costBys are the groupings aries cost takes.
-var costBys = []string{"account", "issue", "epic", "person", "model"}
+var costBys = []string{"account", "issue", "epic", "person", "model", "outcome"}
 
-const costUsage = "cost --since 7d|DATE|TIME [--until DATE|TIME] [--group-by account|issue|epic|person|model] [-n N]"
+const costUsage = "cost --since 7d|DATE|TIME [--until DATE|TIME] [--group-by account|issue|epic|person|model|outcome] [-n N]"
 
 func cmdCost(ctx context.Context, r *runner, args []string) error {
 	const usage = costUsage
 	fs := r.newFlags("cost")
 	var in proto.CostArgs
-	fs.StringVar(&in.By, "group-by", "account", "group by account, issue, epic, person or model")
+	fs.StringVar(&in.By, "group-by", "account", "group by account, issue, epic, person, model or outcome")
 	fs.StringVar(&in.Since, "since", "", "window start: a duration back from now (7d), a date or an RFC 3339 time")
 	fs.StringVar(&in.Until, "until", "", "window end, not included: a date or an RFC 3339 time (default now)")
 	fs.IntVar(&in.Limit, "n", 0, "groups to list, the rest summed (default 50)")
@@ -36,7 +36,7 @@ func cmdCost(ctx context.Context, r *runner, args []string) error {
 	case in.Since == "":
 		return usagef(usage, "cost needs --since, such as 7d or 2026-10-01")
 	case !slices.Contains(costBys, in.By):
-		return usagef(usage, "--group-by must be account, issue, epic, person or model")
+		return usagef(usage, "--group-by must be account, issue, epic, person, model or outcome")
 	}
 	var out proto.CostResult
 	if err := r.call(ctx, proto.OpCost, in, &out); err != nil {
@@ -125,6 +125,9 @@ func printCost(w io.Writer, c proto.CostResult) {
 	p("\n")
 	if slices.ContainsFunc(c.Groups, func(g proto.CostGroup) bool { return g.Split }) {
 		p("split: shared by time with other work, so an estimate\n")
+	}
+	if c.By == "outcome" {
+		printOutcome(w, c)
 	}
 	if len(c.Unpriced) > 0 {
 		names := strings.Join(escAll(c.Unpriced), ", ")
@@ -310,4 +313,70 @@ func printPrices(w io.Writer, res proto.PricesResult) {
 			proto.FormatRate(r.CacheWrite), proto.FormatRate(r.CacheWrite1h), proto.FormatRate(r.CacheRead), esc(p.SetBy))
 	}
 	_ = tw.Flush()
+}
+
+// printOutcome renders what a report by outcome adds to the table of
+// groups: per group the issues counted, the cost of a landed one and the
+// rework, then the landed issues by type and one by one.
+func printOutcome(w io.Writer, c proto.CostResult) {
+	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+	for _, g := range c.Groups {
+		if g.Issues == 0 && g.Rework == nil {
+			continue
+		}
+		p("%s: %s", esc(g.Key), countOf(g.Issues, "issue"))
+		if g.PerIssueUSD != "" {
+			p(", %s per issue", proto.Dollars(g.PerIssueUSD))
+		}
+		if g.Rework != nil {
+			p(", rework %s (%s tokens)", costOrUnpriced(g.Rework.CostUSD, g.Rework.Unpriced), proto.TokenCount(tokens(g.Rework.Tokens)))
+		}
+		p("\n")
+		for _, t := range g.Types {
+			p("  %s: %s, %s per issue\n", esc(t.Type), countOf(t.Issues, "issue"), costOrUnpriced(t.PerIssueUSD, t.Unpriced))
+		}
+	}
+	if len(c.Landed) == 0 {
+		return
+	}
+	p("landed issues, dearest first (held is time held, cycle is creation to last close):\n")
+	var b bytes.Buffer
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, l := range c.Landed {
+		title := []rune(strings.Join(strings.Fields(l.Title), " "))
+		if len(title) > costTitle {
+			title = append(title[:costTitle], '…')
+		}
+		var marks []string
+		if l.Rework != nil {
+			marks = append(marks, "rework "+costOrUnpriced(l.Rework.CostUSD, l.Rework.Unpriced))
+		}
+		if l.Waivers > 0 {
+			marks = append(marks, countOf(l.Waivers, "waiver"))
+		}
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\theld %s of %s\t%s\n", esc(l.ID), esc(l.Type), esc(string(title)),
+			costOrUnpriced(l.CostUSD, l.Unpriced), proto.Span(time.Duration(l.HeldSeconds)*time.Second),
+			proto.Span(time.Duration(l.CycleSeconds)*time.Second), strings.Join(marks, ", "))
+	}
+	_ = tw.Flush()
+	for line := range strings.Lines(b.String()) {
+		p("%s\n", strings.TrimRight(line, " \n"))
+	}
+}
+
+// costOrUnpriced is a cost as dollars, or "unpriced" when no token had
+// a price.
+func costOrUnpriced(usd string, unpriced bool) string {
+	if unpriced && isZero(usd) {
+		return "unpriced"
+	}
+	return proto.Dollars(usd)
+}
+
+// countOf is "1 issue", "2 issues".
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
