@@ -27,8 +27,7 @@ The learning loop has four slices:
   and `ariesd` as defaults and checks.
 
 Since the revision, the loop's primary signal is not the lesson. It is
-**a per-run outcome record**, which the epic tracks as an issue of its
-own (§2).
+**a per-run outcome record**, aries-4x4vo7cq (§2).
 
 This is a document of its own, not a section of
 [aries.md](aries.md), for the reasons [dispatcher.md](dispatcher.md) and
@@ -78,14 +77,14 @@ The line is held by what agents are told (the memory, the brief, the
 tool description) and by the distillation, which weighs only `factory`
 lessons for the playbook. The store's part is to make the scope a
 required field, so that every lesson says which side of the line its
-author put it.
+author put it. The author's scope is a hint: the distillation
+re-derives it from the lesson's text.
 
 ## 2. The outcome record first, the lesson beside it
 
 **The primary signal is a per-run outcome record**, captured after the
 outcome is known rather than written by the agent at handoff. It is
-filed separately, as the outcome record issue under epic
-aries-dmqqolg4. For each run it records:
+filed separately, as aries-4x4vo7cq under epic aries-dmqqolg4. For each run it records:
 
 - the brief, the model and the duration;
 - CI attempts and the cause of each failure;
