@@ -107,6 +107,10 @@ type Limits struct {
 	// WSMessageBytes caps one message on a WebSocket, which carries one
 	// frame: at most proto.MaxFrame.
 	WSMessageBytes int `yaml:"ws_message_bytes"`
+	// WSWriteTimeout is how long one frame the server writes to a
+	// proved WebSocket may take: a client that stops reading is closed
+	// when a write waits this long, and its slot freed.
+	WSWriteTimeout Duration `yaml:"ws_write_timeout"`
 	// AuthFailureRate is how many refused key proofs, and sign-ins
 	// refused past SignInsPendingPerAddr, a minute one address's token
 	// bucket refills, and AuthFailureBurst how many it holds. With none
@@ -171,7 +175,7 @@ var DefaultLimits = Limits{
 	Control: store.DefaultControlLimits, OpenStores: 64, StoreIdle: Duration(10 * time.Minute),
 	ControlWriteRate: 1, ControlWriteBurst: 30,
 	HTTPSConns: 4096, HTTPSConnsPerAddr: 64, HTTPSAddrPrefixV6: 64, HTTPSHeaderBytes: 16 << 10, HTTPSHeaderTimeout: Duration(10 * time.Second), HTTPSBodyTimeout: Duration(10 * time.Second),
-	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame,
+	HTTPSBodyBytes: 64 << 10, UpgradeTimeout: Duration(10 * time.Second), WSMessageBytes: proto.MaxFrame, WSWriteTimeout: Duration(30 * time.Second),
 	AuthFailureRate: 30, AuthFailureBurst: 60, SignInsPending: 10000, SignInsPendingPerAddr: 16, DPoPProofs: 100000,
 	WorkloadTokens: 10000,
 }
@@ -226,7 +230,7 @@ func (l Limits) WithDefaults() Limits {
 	}
 	for _, f := range []struct{ v, d *Duration }{{&l.IdleTimeout, &d.IdleTimeout}, {&l.AgentKeep, &d.AgentKeep}, {&l.InboxKeep, &d.InboxKeep},
 		{&l.StoreIdle, &d.StoreIdle}, {&l.IdemWindow, &d.IdemWindow}, {&l.AwayMax, &d.AwayMax},
-		{&l.HTTPSHeaderTimeout, &d.HTTPSHeaderTimeout}, {&l.HTTPSBodyTimeout, &d.HTTPSBodyTimeout}, {&l.UpgradeTimeout, &d.UpgradeTimeout}} {
+		{&l.HTTPSHeaderTimeout, &d.HTTPSHeaderTimeout}, {&l.HTTPSBodyTimeout, &d.HTTPSBodyTimeout}, {&l.UpgradeTimeout, &d.UpgradeTimeout}, {&l.WSWriteTimeout, &d.WSWriteTimeout}} {
 		if *f.v == 0 {
 			*f.v = *f.d
 		}
@@ -264,7 +268,7 @@ func (l Limits) Validate() error {
 		{"control_write_burst", l.ControlWriteBurst < 0},
 		{"https_conns_per_server", l.HTTPSConns < 0}, {"https_conns_per_addr", l.HTTPSConnsPerAddr < 0},
 		{"https_header_bytes", l.HTTPSHeaderBytes < 0}, {"https_header_timeout", l.HTTPSHeaderTimeout < 0},
-		{"https_body_bytes", l.HTTPSBodyBytes < 0}, {"https_body_timeout", l.HTTPSBodyTimeout < 0}, {"upgrade_timeout", l.UpgradeTimeout < 0},
+		{"https_body_bytes", l.HTTPSBodyBytes < 0}, {"https_body_timeout", l.HTTPSBodyTimeout < 0}, {"upgrade_timeout", l.UpgradeTimeout < 0}, {"ws_write_timeout", l.WSWriteTimeout < 0},
 		{"ws_message_bytes", l.WSMessageBytes < 0 || l.WSMessageBytes > proto.MaxFrame},
 		{"auth_failures_per_minute", l.AuthFailureRate < 0 || math.IsNaN(l.AuthFailureRate) || math.IsInf(l.AuthFailureRate, 0)},
 		{"auth_failure_burst", l.AuthFailureBurst < 0},

@@ -578,6 +578,9 @@ func (w *web) prove(c *wsconn.Conn, exporter []byte) (*proto.Frame, *proto.Error
 	}
 	_ = c.SetDeadline(time.Time{})
 	c.SetMax(w.s.cfg.Limits.WSMessageBytes)
+	// A write that waits this long on a client that reads nothing ends
+	// the connection, rather than holding it and its slot for ever.
+	c.SetWriteTimeout(time.Duration(w.s.cfg.Limits.WSWriteTimeout))
 	return &proto.Frame{T: proto.FrameBridge, Principal: principal, Key: fingerprint}, nil, ""
 }
 

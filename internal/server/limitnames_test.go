@@ -34,7 +34,7 @@ var limitNames = []string{
 	"open_stores_per_server", "store_idle", "control_writes_per_second", "control_write_burst",
 	// server.Limits, the HTTPS listener's
 	"https_conns_per_server", "https_conns_per_addr", "https_addr_prefix_v6", "https_header_bytes", "https_header_timeout", "https_body_bytes", "https_body_timeout",
-	"upgrade_timeout", "ws_message_bytes", "auth_failures_per_minute", "auth_failure_burst",
+	"upgrade_timeout", "ws_message_bytes", "ws_write_timeout", "auth_failures_per_minute", "auth_failure_burst",
 	// server.Limits, the sign-in's, in the daemon's memory
 	"signins_pending_per_server", "signins_pending_per_addr", "dpop_proofs_per_server", "workload_tokens_per_server",
 }
@@ -68,7 +68,7 @@ func TestLimitNames(t *testing.T) {
 		t.Errorf("the keys of limits: are\n%q\nwant\n%q", got, want)
 	}
 	durations := map[string]bool{"idle_timeout": true, "agent_keep": true, "inbox_keep": true, "idem_window": true,
-		"away_max": true, "store_idle": true, "https_header_timeout": true, "https_body_timeout": true, "upgrade_timeout": true}
+		"away_max": true, "store_idle": true, "https_header_timeout": true, "https_body_timeout": true, "upgrade_timeout": true, "ws_write_timeout": true}
 	for _, k := range got {
 		switch {
 		case durations[k], strings.HasSuffix(k, "_bytes"), strings.HasSuffix(k, "_burst"), strings.HasSuffix(k, "_prefix_v6"):
