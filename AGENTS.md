@@ -127,6 +127,12 @@ ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test -race -shuffle=on ./...
 ARIES_REQUIRE_POSTGRES=1 ARIES_E2E_TRANSPORT=https scripts/leftovers.sh go test -race -shuffle=on ./internal/e2e/
 ```
 
+With `--pgtest-lock` (or `ARIES_GATE_PGTEST_LOCK=1`), the script runs
+each whole-suite `go test` line above under the Aries lock `pgtest/HOST`
+(HOST the machine's name, capacity 2, waiting rather than failing), so
+that agents in parallel on one machine do not run out of System V shared
+memory; it needs `aries` on `PATH`, and without the flag nothing changes
+([CONTRIBUTING.md](CONTRIBUTING.md#agents-testing-in-parallel-on-one-machine)).
 The script stops at the first failure (`--keep-going` does not), and
 away from Linux it also vets, builds and lints for Linux, which CI does
 natively. The tests run under `scripts/leftovers.sh`, which fails a run
