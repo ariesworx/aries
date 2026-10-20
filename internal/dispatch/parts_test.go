@@ -21,7 +21,11 @@ import (
 func standin(t *testing.T, extra ...string) (env []string, record string) {
 	t.Helper()
 	record = filepath.Join(t.TempDir(), "record.jsonl")
-	env = append([]string{"PATH=" + os.Getenv("PATH"), standinEnv + "=aries", recordEnv + "=" + record}, extra...)
+	// GOCOVERDIR: a test binary built for coverage, started again as
+	// the stand-in, warns on stderr without one, and the run's output
+	// would then not be aries's lines alone.
+	env = append([]string{"PATH=" + os.Getenv("PATH"), standinEnv + "=aries", recordEnv + "=" + record,
+		"GOCOVERDIR=" + t.TempDir()}, extra...)
 	return env, record
 }
 
