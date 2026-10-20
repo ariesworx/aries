@@ -170,6 +170,12 @@ keeps only its hash.
 Run when the default branch moves, and once at start. It takes over the
 memory `workflow`'s step 8 from the coordinating session.
 
+*Note, 20 October 2026.* Finding and reporting pull requests (orphaned,
+broken, merged but open, stranded commits, and an issue for each pull
+request no issue names) moved to a permanent command, `aries prs check`
+([prs-check.md](prs-check.md), aries-ewuqxh4h), which this sweep calls.
+The sweep keeps its own acts below: resume, rework and queueing merges.
+
 - **Open PRs.** `gh pr list` with each PR's merge state and checks. A PR
   maps to its issue by its branch name (`gitx`) or the `Aries:` trailer.
   For each conflicted PR, and each whose checks failed on a commit after
