@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -43,6 +44,10 @@ type Dispatcher struct {
 	Save  func(*State) error
 	// StopRequest returns the stop asked for: StopDrain, StopNow or "".
 	StopRequest func() string
+	// Template is the project's brief template, read once at start
+	// (brief.Load), so that every run of one dispatcher follows one
+	// version.
+	Template *brief.Template
 
 	procs map[string]Process
 	// interrupts are the runs interrupted, by session.
@@ -296,6 +301,9 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 	skip := func(rule, whyNot string) Decision {
 		return Decision{Action: ActSkip, Issue: id, Model: dec.Model, Rule: rule, Why: whyNot}
 	}
+	if d.Template == nil {
+		return skip(RuleLaunch, "no brief template was read; "+brief.File+" is needed")
+	}
 	st, err := d.Tracker.Start(ctx, id, session, d.Cfg.Lease)
 	if err != nil {
 		if pe, ok := errors.AsType[*proto.Error](err); ok && pe.Code == proto.CodeConflict {
@@ -308,8 +316,9 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		d.release(ctx, id, session, "aries dispatch could not make the run's worktree: "+err.Error())
 		return skip(RuleLaunch, "the worktree failed: "+err.Error())
 	}
-	brief := Brief(BriefInput{Issue: st.Issue, Items: st.Items, Handoff: st.Handoff, Session: session, Model: dec.Model, Dir: dir, Branch: st.Branch})
-	sp := Spec{Issue: id, Session: session, Model: dec.Model, Dir: dir, Branch: st.Branch, Brief: brief,
+	text := Brief(d.Template, st, session, dir)
+	model := ModelID(dec.Model)
+	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
 		Env: d.runEnv(session), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
@@ -317,16 +326,17 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		d.release(ctx, id, session, "aries dispatch could not launch the run: "+err.Error())
 		return skip(RuleLaunch, "the launch failed: "+err.Error())
 	}
-	run := &Run{Issue: id, Session: session, Harness: HarnessClaudeCode, Model: dec.Model, Worktree: dir,
+	run := &Run{Issue: id, Session: session, Harness: HarnessClaudeCode, Model: model, Worktree: dir,
 		Branch: st.Branch, PID: p.PID(), Started: d.Now().UTC()}
 	d.State.Runs = append(d.State.Runs, run)
 	d.procs[session] = p
 	d.save()
-	if err := d.Tracker.Comment(ctx, id, session, BriefComment(HarnessClaudeCode, dec.Model, EffortDefault, session, brief)); err != nil {
+	rec := brief.Record{Harness: HarnessClaudeCode, Model: model, Effort: EffortDefault, Session: session, Template: d.Template.Name()}
+	if err := d.Tracker.Comment(ctx, id, session, brief.Comment(rec, text)); err != nil {
 		d.say("could not post the brief on %s: %s", id, errText(err))
 	}
-	d.say("start %s (model %s, session %s, pid %d)", id, dec.Model, session, run.PID)
-	d.log(record{Event: "start", Issue: id, Session: session, Model: dec.Model, PID: run.PID, Path: dir, Branch: st.Branch, Brief: briefHash(brief)})
+	d.say("start %s (model %s, session %s, pid %d)", id, model, session, run.PID)
+	d.log(record{Event: "start", Issue: id, Session: session, Model: model, PID: run.PID, Path: dir, Branch: st.Branch, Brief: brief.Hash(text)})
 	return dec
 }
 

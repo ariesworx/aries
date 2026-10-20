@@ -167,6 +167,91 @@ aries-2qx4mlm2 designs; until that ships, as a comment beginning
 `brief:`, which aries-2qx4mlm2's design may then read back. The log
 keeps only its hash.
 
+**As built: the brief template (20 October 2026, aries-urc4j53x).** The
+fixed steps every worker gets are one file in the repository,
+`.aries/brief.txt`, beside `.aries/workflow.yaml`, and no longer Go
+(docs/design/factory-review.md §3.1, §3.3, convergence steps 1 and 5;
+the maintainer's answers on aries-lm22dgzp). The dispatcher renders
+each run's brief from it, and `aries dispatch brief ID` renders the same
+text for a coordinator to send to a Desktop session. `internal/brief`
+holds the format, the rendering and the record, so that the dispatcher,
+the CLI and `aries outcome` share one statement of each.
+
+- **The format is plain text with named slots**, not a template
+  language. Lines beginning `#` are comments and are dropped. The first
+  other line is `version: N`, then a blank line, then the brief. A line
+  beginning `[headless] ` is kept only in a headless run's brief and
+  `[desktop] ` only in a Desktop session's, without the tag; every
+  other line is in both. The slots are `{id}`, `{session}`,
+  `{worktree}`, `{branch}`, `{issue}` (the issue quoted as data, built
+  in code as before: id, type, priority, title, body, notes, open items
+  and last handoff between `-----` lines) and `{handwritten}`. A line
+  that is only a slot which renders empty is dropped. Any other `{word}`
+  of lowercase letters is refused when the file is read, so a mistyped
+  slot fails at once rather than reaching a model. Steps are numbered by
+  hand; where the harnesses differ, the file has a line of each tag
+  under one number. No conditionals, loops or escapes: what a reader
+  sees in the file is what a worker reads, less the tags and comments.
+- **Where it is found.** Both commands read `.aries/brief.txt` at the
+  top of the main checkout of the repository they run in (the parent of
+  `git rev-parse --git-common-dir`, where the dispatcher already keeps
+  its worktrees), so a brief rendered from a worktree follows what
+  merged, not that worktree's edits. The dispatcher reads it once at
+  start, before it claims anything, and `--dry-run` reads it too; a
+  change takes effect at the next `dispatch run`, so the runs of one
+  dispatcher all follow one version. **A missing or malformed file is
+  refused** with code `invalid` and a fix naming the file and this
+  section: no built-in copy stands in, since a default compiled into the
+  binary is this repository's rules again in Go, which is what moved out.
+- **The version** is the file's `version:` line, a positive integer
+  raised by hand in the pull request that changes any line after the
+  header. It is recorded as `template=brief@N` in every brief's record.
+  The repository's own test (`scripts/brief_test.go`) holds every
+  version's SHA-256 in `scripts/testdata/brief-versions.golden`, one
+  line each, oldest first: it fails when the text changed and the
+  version did not, and when a new version is not above every recorded
+  one; `go test ./scripts/ -run TestBriefTemplate -update` appends the
+  new version's line and never rewrites one. A wording change thus
+  ships by review and with a bump, and the golden is the template's
+  history.
+- **What differs between harnesses** is only what each harness can do.
+  Desktop (`harness=claude-code-desktop`) has Auto-fix: turn it on right
+  after opening the PR, and stop every background command and monitor
+  before the handoff. Headless (`harness=claude-code`) has neither a
+  wake on its PR nor background work: start none, and say in the
+  handoff that the sweep takes over the PR (until it ships, the
+  coordinator does, memory `dispatch`, answer 6). The headless brief
+  names its session and worktree, which the dispatcher chose; a
+  Desktop brief names neither, since the session and its worktree do
+  not exist when it is written, and carries `{handwritten}` instead: a
+  section between marked lines for what this session needs that the
+  issue does not say, filled from `--note` or `(none)`. The dispatcher's
+  briefs have no hand-written section.
+- **Byte-stable rendering.** The file is read as UTF-8; `\r\n` becomes
+  `\n`, trailing space on each line is dropped, and so are trailing
+  blank lines; in the rendering a run of blank lines is one (a dropped
+  slot line leaves none behind), and it ends in exactly one newline. The same file
+  and input give the same bytes on every system, and the template's
+  hash is of its text after the header, so the golden names the version
+  and not the checkout's line endings.
+- **The record.** The `brief:` comment's first line is
+  `brief: harness=H model=M effort=E session=S template=T`
+  (`brief.Record`), as the memory `briefs` (rev 2) fixes it, then a
+  blank line and the brief. The dispatcher writes the full model id
+  (`claude-haiku-5-5`, not `haiku`), and passes that id to `--model`,
+  so the record names what ran rather than what an alias meant that
+  day. **One hash rule:** `brief.Hash` is the SHA-256 of the brief with
+  surrounding space trimmed, which the dispatcher's log
+  (`brief_sha256`) and `aries outcome` both use, so the two join; before
+  this the log hashed the trailing newline and the record did not.
+  **Briefs are matched to runs by `session=`** when a brief names a
+  session one of the issue's runs holds, and the briefs left go to the
+  runs left in order, as before; a second brief for one session no
+  longer shifts the briefs of every later run. A coordinator's
+  `session=` is the Desktop's `local_…` id, which no claim carries, so
+  its briefs still match by order until a Desktop brief can name the
+  claim's session.
+
 ## 8. The after-merge sweep
 
 Run when the default branch moves, and once at start. It takes over the
@@ -275,7 +360,7 @@ is from documentation and is verified by the slice that adds it.
 | `prime` hook | Yes (SessionStart fires under `-p`) | `aries setup codex` | `aries setup gemini` | Yes |
 | Usage to Aries | Yes, `aries usage --hook` | **No**: no usage hook | **No**: no usage hook | Yes |
 | Woken by its PR | No | No | No | **Yes, Auto-fix, the only one** |
-| Model labels | `model:*` map to `--model` aliases | Need labels of their own | Need labels of their own | — |
+| Model labels | `model:*` map to full model ids for `--model` (As built, §7) | Need labels of their own | Need labels of their own | — |
 
 So: Auto-fix exists only in the desktop app, and the sweep (§8) is what
 every headless run has instead. Codex and Gemini runs are invisible to
@@ -463,8 +548,8 @@ It departs from or settles the design here:
   added here.
 - **The brief** is on stdin through an unlinked file, so the run reads
   it even if the dispatcher dies first, and nothing of it stays on disk;
-  the log keeps its SHA-256. It tells the run to test under
-  `scripts/gate.sh --pgtest-lock` where the repository has it.
+  the log keeps its SHA-256. Its text is rendered from the template
+  `.aries/brief.txt` (§7, As built: the brief template).
 - **Permissions:** `--permission-mode dontAsk` with an allow list
   (`dispatch.DefaultAllowed`: the editing tools, the aries tools, git,
   Go, the gate, `gh pr create|view|checks|list`) and §11's deny list. A
