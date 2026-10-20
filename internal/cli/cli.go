@@ -17,6 +17,7 @@ import (
 	"github.com/ariesworx/aries/internal/credential"
 	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
+	"github.com/ariesworx/aries/internal/outcome"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/safetext"
 )
@@ -88,6 +89,10 @@ type Env struct {
 	// Nil opens the system's (credential.Open); tests give one of their
 	// own, so that none touches a person's keychain.
 	Credentials func(ctx context.Context) (credential.Store, error)
+	// OutcomeHost is the CI host `outcome` reads, for the repository in
+	// dir. Nil reads GitHub through gh when gh is on PATH, and no host
+	// otherwise.
+	OutcomeHost func(dir string) outcome.Host
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -163,6 +168,7 @@ func init() {
 		{"whoami", "whoami", "say which principal the server takes you for, and which sign-in or key let you in", cmdWhoami},
 		{"login", loginUsage, "sign in at the server's identity provider, for the day; --url when no browser opens here", cmdLogin},
 		{"logout", "logout", "end your sign-in at the server, and remove it from this machine", cmdLogout},
+		{"outcome", outcomeUsage, "experimental: record what issues' outcomes led to (CI, merges, rework) as an outcome: comment, once each", cmdOutcome},
 		{"cost", costUsage, "report the list-price and amortized cost of tokens, and the hours logged, by account, issue, epic, person, model or outcome", cmdCost},
 		{"hours", hoursUsage, "log your hours on an issue (1.5h, 90m), undo an entry, or list entries", cmdHours},
 		{"remember", "remember KEY TEXT...|- [--scope S] [--tag T]... [--issue ID] [--rev N] [--pin]", "keep a memory for later sessions; --rev replaces one", cmdRemember},

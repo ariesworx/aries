@@ -527,8 +527,10 @@ type Comment struct {
 // the older ones left out.
 type Comments struct {
 	untrusted
-	Comments []Comment `json:"comments"`
-	Omitted  int       `json:"omitted,omitempty"`
+	Comments  []Comment `json:"comments"`
+	Omitted   int       `json:"omitted,omitempty"`
+	Truncated bool      `json:"truncated,omitempty"`
+	Next      string    `json:"next,omitempty"`
 }
 
 // Event is one history entry, compact.
@@ -799,7 +801,7 @@ func (s *Server) register() {
 			err := c.Call(ctx, proto.OpComment, proto.CommentArgs{ID: in.ID, Body: in.Body, Idem: in.idem}, &out)
 			return Commented{ID: out.ID}, err
 		})
-	add(s, tool{name: "comments", desc: "An issue's newest comments.", ann: readOnly, retry: true},
+	add(s, tool{name: "comments", desc: "An issue's newest comments; limit 1 gives one whole.", ann: readOnly, retry: true},
 		func(ctx context.Context, c Conn, in PageIn) (Comments, error) { return comments(ctx, c, in) })
 	add(s, tool{name: "history", desc: "An issue's newest changes.", ann: readOnly, retry: true},
 		func(ctx context.Context, c Conn, in PageIn) (History, error) { return history(ctx, c, in) })
@@ -1022,8 +1024,12 @@ func update(ctx context.Context, c Conn, in UpdateIn) (Updated, error) {
 	return Updated{ID: out.ID, Rev: out.Rev, Held: heldLine(out.Held)}, err
 }
 
-// maxCommentBody is how much of each comment a list shows.
-const maxCommentBody = 1000
+// maxCommentBody is how much of each comment a list shows; with limit 1
+// the newest is given up to wholeCommentBody, the store's cap on a text.
+const (
+	maxCommentBody   = 1000
+	wholeCommentBody = 65535
+)
 
 // omitted is how many of total a page of n left out, keeping the newest
 // keep.
@@ -1031,7 +1037,9 @@ func omitted(n, total, keep int) int { return total - min(n, keep) }
 
 // comments is the comments tool: the newest in.Limit (DefaultLimit if
 // unset), oldest first, each cut to maxCommentBody, with the oldest
-// dropped to fit MaxResultTokens.
+// dropped to fit MaxResultTokens. With limit 1 the newest comment is given
+// whole, cut only to fit MaxResultTokens, which a comment near the store's
+// cap exceeds: the result then says it is cut and where to read the rest.
 func comments(ctx context.Context, c Conn, in PageIn) (Comments, error) {
 	var r proto.CommentsResult
 	limit := orDefault(in.Limit, DefaultLimit)
@@ -1041,11 +1049,27 @@ func comments(ctx context.Context, c Conn, in PageIn) (Comments, error) {
 	all := r.Comments
 	keep := min(len(all), limit)
 	out := Comments{Comments: []Comment{}, Omitted: omitted(len(all), r.Total, keep)}
+	n := maxCommentBody
+	if limit == 1 {
+		n = wholeCommentBody
+	}
 	for _, cm := range all[len(all)-keep:] {
-		body, _ := cut(cm.Body, maxCommentBody)
+		body, _ := cut(cm.Body, n)
 		out.Comments = append(out.Comments, Comment{Author: cm.Author, At: stamp(cm.CreatedAt), Kind: cm.Kind, Body: body})
 	}
 	out.fit()
+	if limit == 1 && len(out.Comments) == 1 {
+		whole := all[len(all)-1].Body
+		out.set(true) // the note is added after, so count it now
+		if len(out.Comments[0].Body) < len(whole) || size(out) > MaxResultTokens {
+			out.Truncated = true
+			out.Next = "cut to fit; ask a person to read it whole with aries comments"
+		}
+		for size(out) > MaxResultTokens {
+			b := out.Comments[0].Body
+			out.Comments[0].Body, _ = cut(b, len(b)*9/10)
+		}
+	}
 	return out, nil
 }
 

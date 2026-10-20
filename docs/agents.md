@@ -231,6 +231,11 @@ window's in `digest`.
   its issue. Pinning is left to people (`aries pin`). A memory that looks
   like it holds a secret is refused, and the fix tells the agent to name
   where the secret is kept instead.
+- **`comments` cuts each comment to about 1,000 bytes; `limit: 1` gives
+  the newest whole.** A comment may be 64 KiB and a result is capped at
+  2,000 estimated tokens (about 6,000 bytes), so a longer one is cut to
+  fit, with `"truncated": true` and a `next` telling the agent to ask a
+  person to read it with `aries comments`.
 - **`show` and `digest` carry time, cost and tokens.** `show` gives the
   issue's `account` and a one-line `usage`: time held, the hours people
   logged (`logged 1.5h`), cost at list price

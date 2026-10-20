@@ -1,0 +1,77 @@
+name: smoke
+# deploy/docker/smoke.sh in each of its modes (docs/deploy/docker.md, Run
+# the smoke test), every night on main and by hand: the Docker test
+# server built from the checkout and driven end to end over HTTPS, SSH,
+# with telemetry checked, with sign-in at Keycloak, and through nginx.
+# A mode that two merges break between them, as the telemetry mode was
+# before v0.6.0 (aries-dcycn5fx), shows up within a day. It never runs
+# on a pull request or a push, is not a required check, and so costs the
+# merge queue nothing; the repository's standard runners are free while
+# it is public (docs/design/ci-analysis.md, §3).
+on:
+  schedule:
+    - cron: '30 4 * * *'  # every day, 04:30 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+
+env:
+  # As ci.yml has it; setup-go sets GOTOOLCHAIN=local itself.
+  GOFLAGS: -mod=readonly
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.mode }})
+    runs-on: ubuntu-24.04
+    # Each mode took 1.5 to 3.5 minutes on Apple silicon for v0.6.0's
+    # release candidate; a runner builds the image and pulls Postgres,
+    # nginx, Keycloak and the observability images first, on a slower
+    # amd64 machine. This bounds a hang well past that.
+    timeout-minutes: 30
+    strategy:
+      # One failure leaves the others to finish: each says something.
+      fail-fast: false
+      matrix:
+        mode: [https, ssh, telemetry, identity, proxy]
+        include:
+          - mode: ssh
+            ssh: "1"
+          - mode: telemetry
+            telemetry: "1"
+          - mode: identity
+            identity: "1"
+          - mode: proxy
+            proxy: "1"
+    # smoke.sh reads its ARIES_SMOKE_* variables alone, and sets the
+    # server's own (ARIES_SSH, ARIES_TELEMETRY, ARIES_PROXY) from them.
+    env:
+      ARIES_SMOKE_SSH: ${{ matrix.ssh }}
+      ARIES_SMOKE_TELEMETRY: ${{ matrix.telemetry }}
+      ARIES_SMOKE_IDENTITY: ${{ matrix.identity }}
+      ARIES_SMOKE_PROXY: ${{ matrix.proxy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go at go.mod's toolchain line
+        uses: ./.github/actions/go-toolchain
+      - name: smoke.sh
+        # smoke.sh builds aries and the image from the checkout, starts
+        # its own server and removes everything it made. Its last lines
+        # say which check failed, and are copied to the job's summary.
+        run: |
+          set -o pipefail
+          log=$RUNNER_TEMP/smoke.log
+          status=0
+          deploy/docker/smoke.sh 2>&1 | tee "$log" || status=$?
+          {
+            echo "### smoke.sh, ${{ matrix.mode }}: $([ "$status" = 0 ] && echo passed || echo "failed ($status)")"
+            echo '```'
+            tail -n 20 "$log"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"

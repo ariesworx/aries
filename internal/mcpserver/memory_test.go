@@ -318,3 +318,50 @@ func TestMemoryErrorsNameTheNextStep(t *testing.T) {
 		})
 	}
 }
+
+// With limit 1 the newest comment comes back whole, up to what the result
+// budget holds; the store accepts 65,535 bytes, so a longer one is cut to
+// fit, marked, and told where to read the rest.
+func TestCommentsLimitOneWhole(t *testing.T) {
+	t.Parallel()
+	var body string
+	f := &fakeConn{reply: func(string, any) (any, error) {
+		return proto.CommentsResult{Total: 2, Comments: []proto.Comment{
+			{ID: "1", Author: "bob", Body: "older"},
+			{ID: "2", Author: "bob", Body: body},
+		}}, nil
+	}}
+	cs, _ := connect(t, f)
+	read := func(args map[string]any) Comments {
+		res := callTool(t, cs, "comments", args)
+		if res.IsError {
+			t.Fatal(text(t, res))
+		}
+		var got Comments
+		if err := json.Unmarshal([]byte(text(t, res)), &got); err != nil {
+			t.Fatal(err)
+		}
+		if n := Tokens([]byte(text(t, res))); n > MaxResultTokens {
+			t.Errorf("comments %v is %d tokens, cap %d", args, n, MaxResultTokens)
+		}
+		return got
+	}
+
+	body = strings.Repeat("x", 5000) + "y"
+	got := read(map[string]any{"id": "ar-1", "limit": 1})
+	if len(got.Comments) != 1 || got.Comments[0].Body != body || got.Truncated {
+		t.Errorf("limit 1: %d comments, truncated %v; want the newest whole", len(got.Comments), got.Truncated)
+	}
+	// Several comments are still cut to a list's size.
+	got = read(map[string]any{"id": "ar-1", "limit": 2})
+	if len(got.Comments) == 0 || got.Comments[len(got.Comments)-1].Body == body {
+		t.Errorf("limit 2 gave a comment whole")
+	}
+
+	// The longest comment the store accepts is cut to fit and says so.
+	body = strings.Repeat("z", 65535)
+	got = read(map[string]any{"id": "ar-1", "limit": 1})
+	if len(got.Comments) != 1 || !got.Truncated || got.Next == "" || len(got.Comments[0].Body) <= maxCommentBody {
+		t.Errorf("longest comment: %d comments, truncated %v, next %q, body %d bytes", len(got.Comments), got.Truncated, got.Next, len(got.Comments[0].Body))
+	}
+}
