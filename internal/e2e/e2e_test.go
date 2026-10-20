@@ -44,6 +44,7 @@ import (
 	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/oidc/oidctest"
+	outcomerec "github.com/ariesworx/aries/internal/outcome"
 	"github.com/ariesworx/aries/internal/pgtest"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/server"
@@ -891,6 +892,9 @@ type user struct {
 	// terminal says a person is at the CLI's input and output, so that it
 	// may ask them something.
 	terminal bool
+	// outcomeHost, if set, is the CI host `aries outcome` reads
+	// (cli.Env.OutcomeHost); unset, gh, which no test reaches.
+	outcomeHost func(dir string) outcomerec.Host
 	// pubFile is the user's public key file, for `aries admin key add`.
 	pubFile string
 	// queues gives the user's `aries mcp` an outbox, as cmdMCP does.
@@ -1010,6 +1014,8 @@ func (u *user) runTo(ctx context.Context, stdout, stderr io.Writer, version stri
 		// by, and nothing else of the test's environment.
 		Environ: func() []string { return []string{"PATH=" + os.Getenv("PATH")} },
 		After:   u.after,
+
+		OutcomeHost: u.outcomeHost,
 	})
 }
 
