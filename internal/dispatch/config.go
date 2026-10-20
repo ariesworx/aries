@@ -15,6 +15,10 @@ type Config struct {
 	Fallback time.Duration
 	// BranchPoll is how often the default branch's ref is read.
 	BranchPoll time.Duration
+	// LockPoll is how often the loop reads the two locks while it holds
+	// for the pause or for a slot: neither change is an event the watch
+	// delivers. An idle loop with a free slot does not poll.
+	LockPoll time.Duration
 	// Tick is how often the loop looks at its runs and the stop file,
 	// both on this machine.
 	Tick time.Duration
@@ -44,6 +48,7 @@ func DefaultConfig() Config {
 		Lease:       10 * time.Minute,
 		Fallback:    20 * time.Minute,
 		BranchPoll:  5 * time.Minute,
+		LockPoll:    90 * time.Second,
 		Tick:        2 * time.Second,
 		Debounce:    10 * time.Second,
 		RunLimit:    90 * time.Minute,
@@ -70,6 +75,7 @@ const (
 	WakeResync = "resync"
 	WakeExit   = "exit"
 	WakeBranch = "branch"
+	WakeLock   = "lock"
 	WakeTimer  = "timer"
 )
 

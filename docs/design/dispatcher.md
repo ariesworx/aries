@@ -58,9 +58,10 @@ pushes, and never touches the main checkout.
 | Inbox | One long-lived `aries --json watch`; `{"op":"resync"}` triggers a full reconcile | `gate.passed` (an issue it ran closed, or what is left), `gate.failed`, `claim.lost`, handoffs to its principal |
 | A run's exit | `wait` on the child | The run handed off, failed or was stopped |
 | The default branch | `git ls-remote origin refs/heads/main` every 5 minutes, and once at start | The maintainer's trigger for the sweep (§8); one ref, no fetch |
+| Lock poll | `lock list` of the two locks every 90 seconds, only while the loop holds for `pause` or `slots` (As built, 20 October 2026) | A released pause, and a slot freed by another machine's run ending or its lease lapsing, are not events the watch delivers |
 | Fallback | A timer of 20 minutes | Catches anything a missed event or a dropped connection hid |
 
-Nothing polls faster than every 5 minutes, and only the one ref.
+Nothing polls faster than every 5 minutes, and only the one ref, except the lock poll while a hold lasts.
 
 **A gap.** `aries watch --json` prints inbox items only. A close the
 dispatcher's principal makes itself (a person's `aries close` under the
@@ -390,6 +391,17 @@ that replaces it, so moving is a swap, not a redesign:
 whole, wired to the process by `aries dispatch run|status|stop|key` in
 `internal/cli` ([docs/cli.md](../cli.md#the-dispatcher-experimental)).
 It departs from or settles the design here:
+
+- **It wakes when a lock changes** (aries-jjntvrsc). The watch cannot
+  carry it: lock events are kept out of what `watch --events` pushes
+  (`store.LockTarget`), renewals are not events, and a lapsed lease is
+  no event until a write finds it, so pushing them would be a server
+  and protocol change (rule 10) that would still miss the lapse. While
+  the last wake ended on `hold [pause]` or `hold [slots]`, the loop
+  reads the two locks each `Config.LockPoll` (90 seconds) and wakes
+  (source `lock`) when the pause is released or a slot is free; with a
+  slot free and nothing held it never polls. A wake costs a ready read
+  and up to 20 shows, so the poll reads only the locks.
 
 - **It calls aries as a program.** Every read and write is
   `aries -C TOP --json --no-queue …` (`dispatch.Exec`), not an in-process
