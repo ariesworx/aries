@@ -36,6 +36,8 @@ type Config struct {
 	MaxFailures int
 	// ReadyLimit is how many ready issues each wake reads.
 	ReadyLimit int
+	// Filter limits the run to some of the ready issues.
+	Filter Filter
 	// DryRun says what it would do and does none of it.
 	DryRun bool
 }

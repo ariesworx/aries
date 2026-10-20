@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-const dispatchUsage = "dispatch run [--dry-run] [--once] [--capacity N] [--cap TOKENS] [--max-budget-usd USD] [--clear]" +
+const dispatchUsage = "dispatch run [--dry-run] [--once] [--capacity N] [--cap TOKENS] [--max-budget-usd USD] [--models M[,M]] [--labels L[,L]] [--clear]" +
 	" | dispatch status | dispatch stop [--now] | dispatch key set|remove"
 
 // cmdDispatch is the client-side dispatcher (docs/design/dispatcher.md,
@@ -73,6 +74,8 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 	fs.IntVar(&cfg.Capacity, "capacity", cfg.Capacity, "the lock "+dispatch.RunsLock+"'s capacity: runs at once, of every dispatcher")
 	fs.Int64Var(&cfg.OpusCap, "cap", cfg.OpusCap, "a UTC day's Opus output tokens past which it starts nothing")
 	budget := fs.String("max-budget-usd", "", "each run's --max-budget-usd")
+	models := fs.String("models", "", "start only issues whose model label is one of these (haiku,sonnet,opus)")
+	labels := fs.String("labels", "", "start only issues carrying all of these labels")
 	clearStop := fs.Bool("clear", false, "clear the stop CI failures or an auth failure left, and the hold on issues its runs failed on")
 	pos, err := parse(fs, args, dispatchUsage)
 	if err != nil {
@@ -87,6 +90,13 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 		return usagef(dispatchUsage, "--capacity must be 1 to 16")
 	case cfg.OpusCap < 1:
 		return usagef(dispatchUsage, "--cap must be at least 1")
+	}
+	if cfg.Filter, err = dispatch.ParseFilter(*models, *labels); err != nil {
+		var pe *proto.Error
+		if errors.As(err, &pe) {
+			return usagef(dispatchUsage, "%s; fix: %s", pe.Message, pe.Fix)
+		}
+		return err
 	}
 	if err := r.refuseOffUnix(); err != nil {
 		return err
@@ -335,6 +345,9 @@ func printDispatchStatus(w io.Writer, s *dispatch.State, running bool, stop stri
 	}
 	if !s.WokeAt.IsZero() {
 		p("last wake: %s, %s", esc(s.Wake), when(s.WokeAt))
+	}
+	if f := (dispatch.Filter{Models: s.Models, Labels: s.Labels}); running && f.Active() {
+		p("scope: %s", esc(f.String()))
 	}
 	if s.Hold != "" {
 		p("hold: %s: %s", esc(s.Hold), esc(s.HoldWhy))
