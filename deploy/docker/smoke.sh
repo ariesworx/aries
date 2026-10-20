@@ -552,12 +552,18 @@ new_traceparent() {
 telemetry_checks() {
   local pushed=(aries.request.duration aries.project.requests aries.connections aries.handshakes
     aries.store.write.duration aries.stores.open aries.store.open.duration
-    aries.claims aries.control.writes aries.keys_file.writes aries.keys_file.last_write.time
+    aries.claims aries.control.writes
     aries.reaper.duration aries.reaper.last_run.time aries.clock.behind aries.db.pool.conns aries.db.pool.waits)
   local scraped=(aries_request_duration_seconds aries_project_requests_total aries_connections aries_handshakes_total
     aries_store_write_duration_seconds aries_stores_open aries_store_open_duration_seconds
-    aries_claims_total aries_control_writes_total aries_keys_file_writes_total aries_keys_file_last_write_time_seconds
+    aries_claims_total aries_control_writes_total
     aries_reaper_duration_seconds aries_reaper_last_run_time_seconds aries_clock_behind_seconds aries_db_pool_conns aries_db_pool_waits_total)
+  # The keys file is written for sshd alone, so its metrics exist only
+  # with SSH on.
+  if [[ -n $ssh ]]; then
+    pushed+=(aries.keys_file.writes aries.keys_file.last_write.time)
+    scraped+=(aries_keys_file_writes_total aries_keys_file_last_write_time_seconds)
+  fi
   local name='     -> Name: ' traced server_span attempt_span stand_in rules log all bad t0 alive_took alive dead
   local metrics0 traces0 logs0 warned_metrics warned_traces warned_logs recovered queries query refused_took frozen_took frozen_restart
   local req seq subject
@@ -616,15 +622,15 @@ telemetry_checks() {
   # who made it and whom it changed are stand-ins, which a server admin
   # resolves, and the line in the server's log, by the event's number,
   # has the names.
-  expect "an access change" '^principal erin added, a member of project first$' alice admin principal add erin
-  last=$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -E ' event=audit[.]principal[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=principal[.]add target=erin subject=erin$' || true)
+  expect "an access change" '^principal frank added, a member of project first$' alice admin principal add frank
+  last=$("${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -E ' event=audit[.]principal[.]add audit=true seq=[0-9]+ at=[^ ]+ principal=alice session=[^ ]+ op=principal[.]add target=frank subject=frank$' || true)
   seq=$(sed -n 's/.* seq=\([0-9]*\) .*/\1/p' <<<"$last")
-  [[ $seq =~ ^[0-9]+$ ]] || fail "ariesd's own log has no one audit line for the principal alice added, naming alice and erin" "$last"
+  [[ $seq =~ ^[0-9]+$ ]] || fail "ariesd's own log has no one audit line for the principal alice added, naming alice and frank" "$last"
   passed=$((passed + 1))
   await 30 "its audit record arrives, with the event's number" record_arrived \
     "^record event=audit.principal.add trace= span= event=audit.principal.add audit=true seq=$seq at=[^ ]+ principal=$stand_in session=s_[0-9a-f]{16} op=principal.add subject=p_[0-9a-f]{16} "
   subject=$(sed -n 's/.* subject=\(p_[0-9a-f]*\) .*/\1/p' <<<"$last")
-  expect "a server admin resolves whom it changed" "^$subject is erin\$" alice admin principal whois "$subject"
+  expect "a server admin resolves whom it changed" "^$subject is frank\$" alice admin principal whois "$subject"
   await 10 "the membership it gave is a record too" record_arrived \
     "^record event=audit.member.set .* audit=true seq=$((seq + 1)) .* principal=$stand_in .* op=member.set project=$project subject=$subject role=member "
   # Every field of a record that names a person holds a stand-in, and
@@ -640,7 +646,7 @@ telemetry_checks() {
   passed=$((passed + 2))
   # Nothing the collector received, in a span, a metric or a log
   # record, names a person, a session or an issue's title.
-  if last=$(grep -Ew -m 3 -- 'alice|bob|carol|dave|erin|mallory' <<<"$log") || last=$(grep -E -m 3 -- 'example[.]com|smoke-|Traced by' <<<"$log"); then
+  if last=$(grep -Ew -m 3 -- 'alice|bob|carol|dave|erin|frank|mallory' <<<"$log") || last=$(grep -E -m 3 -- 'example[.]com|smoke-|Traced by' <<<"$log"); then
     fail "what the collector received names a person, a session or a title" "$last"
   fi
   passed=$((passed + 1))

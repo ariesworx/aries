@@ -580,6 +580,14 @@ reporting no fault.
 deploy/docker/smoke.sh
 ```
 
+CI runs it too, in every mode below, every night on `main` and whenever
+a person starts it from the Actions tab (`.github/workflows/smoke.yml`):
+one job per mode, none of them a required check and none on a pull
+request, so a pull request's checks do not cover it. A mode broken by two
+merges that each passed then fails within a day. A failed night is in
+the Actions tab, with the last lines of `smoke.sh` on the job's summary
+naming the check that failed; file it in Aries with the run's link.
+
 It builds the image and `aries` from the checkout and starts its own
 server, serving HTTPS alone on port 8444 with two invented principals,
 so a server on 8443 is left alone, and drives `aries` over HTTPS. It

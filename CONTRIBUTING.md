@@ -160,7 +160,8 @@ and `aries admin status` shows the server.
 `deploy/docker/smoke.sh` builds the image and `aries` from the checkout,
 starts its own server on port 2223, drives `aries` through the main
 commands and through `aries admin` end to end, and removes everything it
-made. CI does not run it, so run it after changing the server, the
+made. No pull request runs it: CI runs it in every mode only nightly on
+`main` (the `smoke` workflow), so run it after changing the server, the
 protocol, `deploy/docker` or the setup steps in docs/server.md:
 
 ```sh

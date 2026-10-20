@@ -449,7 +449,7 @@ func TestGateScript(t *testing.T) {
 				"Tests ran on darwin/amd64; CI runs them on linux/amd64", "TestCheckPeer*"},
 			not: []string{"TestCheckPeerOtherUID"}},
 		{name: "smoke", args: []string{"--smoke"}, files: map[string]string{"deploy/docker/smoke.sh": "#!/bin/sh\necho smoke ok\n"},
-			want: []string{"deploy/docker/smoke.sh ... ok (", ": 14 of 14 commands"}, not: []string{"was not run; CI does not run it either"}},
+			want: []string{"deploy/docker/smoke.sh ... ok (", ": 14 of 14 commands"}, not: []string{"was not run; CI runs it only nightly on main"}},
 		{name: "unknown option", args: []string{"--nope"}, status: 2, calls: []string{},
 			want: []string{"gate.sh: unknown option --nope", "fix: "}},
 	}
