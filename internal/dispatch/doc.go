@@ -17,7 +17,8 @@
 // worktree, and start a headless run under the lock ([Claude]). With
 // Config.DryRun it only says what it would start, skip and queue, and
 // why. [Dispatcher.Loop] wakes it on inbox items and issue events, a
-// run's exit, the default branch moving, and a fallback timer.
+// run's exit, the default branch moving, a pause released or a slot
+// freed while it holds for one, and a fallback timer.
 //
 // It runs on macOS and Linux: runs are process groups, interrupted by
 // signal. It builds everywhere, and on Windows the command refuses.

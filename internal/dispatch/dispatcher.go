@@ -572,7 +572,8 @@ func (d *Dispatcher) stopRequest() string {
 // Loop runs until ctx ends or a stop asked for has been carried out. It
 // adopts runs a dispatcher before it left, wakes once, then on each
 // inbox item or issue event (at most every Debounce), each run's exit,
-// each move of the default branch, and the fallback timer. Ended by ctx,
+// each move of the default branch, a freed pause or slot found by
+// the lock poll while it holds for one, and the fallback timer. Ended by ctx,
 // it leaves its runs running: they renew their own claims and slots, and
 // the next dispatcher adopts them.
 func (d *Dispatcher) Loop(ctx context.Context) error {
@@ -597,6 +598,8 @@ func (d *Dispatcher) Loop(ctx context.Context) error {
 	defer branch.Stop()
 	tick := time.NewTicker(d.Cfg.Tick)
 	defer tick.Stop()
+	lockPoll := time.NewTicker(d.Cfg.LockPoll)
+	defer lockPoll.Stop()
 	last, pending := d.Now(), ""
 	wake := func(source string) error {
 		pending, last = "", d.Now()
@@ -624,6 +627,10 @@ func (d *Dispatcher) Loop(ctx context.Context) error {
 			head = h
 			d.log(record{Event: "branch"})
 			err = wake(WakeBranch)
+		case <-lockPoll.C:
+			if d.lockFreed(ctx) {
+				err = wake(WakeLock)
+			}
 		case <-tick.C:
 			d.enforce(ctx)
 			switch {
@@ -642,6 +649,24 @@ func (d *Dispatcher) Loop(ctx context.Context) error {
 			return d.left(err)
 		}
 	}
+}
+
+// lockFreed reports whether a loop holding for the pause or for a slot may
+// start a run now. Neither a release of dispatch/pause nor a slot freed
+// by another machine's run, or by a lease that lapsed, reaches the watch
+// (lock events are not pushed to it, and a lapse is no event until a
+// write finds it), so the loop reads the two locks each LockPoll while it
+// holds for them, and at no other time.
+func (d *Dispatcher) lockFreed(ctx context.Context) bool {
+	if d.State.Hold != HoldPause && d.State.Hold != HoldSlots {
+		return false
+	}
+	paused, err := d.Tracker.Paused(ctx)
+	if err != nil || paused {
+		return false
+	}
+	held, err := d.Tracker.Slots(ctx)
+	return err == nil && held < d.Cfg.Capacity
 }
 
 // left says what a loop that ends by ctx leaves running.

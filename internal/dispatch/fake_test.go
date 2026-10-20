@@ -98,6 +98,8 @@ type fakeTracker struct {
 	comments map[string][]string
 	opus     int64
 	paused   bool
+	// lockReads counts the reads of the two locks.
+	lockReads atomic.Int64
 	// stale makes Show leave out claims, as a show read before another
 	// dispatcher's start would.
 	stale bool
@@ -223,10 +225,18 @@ func (f *fakeTracker) OpusOutput(context.Context, time.Time) (int64, error) {
 func (f *fakeTracker) Paused(context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lockReads.Add(1)
 	return f.paused, nil
 }
 
+func (f *fakeTracker) setPaused(p bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.paused = p
+}
+
 func (f *fakeTracker) Slots(context.Context) (int, error) {
+	f.lockReads.Add(1)
 	return f.slots.count(), nil
 }
 
