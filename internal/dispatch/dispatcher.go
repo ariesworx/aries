@@ -222,7 +222,13 @@ func (d *Dispatcher) judge(ctx context.Context, id string, now time.Time) Decisi
 	if err != nil {
 		return Decision{Action: ActSkip, Issue: id, Rule: RuleUnreadable, Why: why[RuleUnreadable] + ": " + errText(err)}
 	}
-	return Judge(sr, d.running, now)
+	var pr *PR
+	if h := sr.Handoff; h != nil && h.Branch != "" && d.Forge != nil && (h.State == "partial" || h.State == "blocked") {
+		if pr, err = d.Forge.PR(ctx, h.Branch); err != nil {
+			return Decision{Action: ActSkip, Issue: id, Rule: RuleUnreadable, Why: why[RuleUnreadable] + ": " + errText(err)}
+		}
+	}
+	return Judge(sr, d.running, pr, now)
 }
 
 // decided says and logs a decision.
