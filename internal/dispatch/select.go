@@ -35,40 +35,44 @@ type Decision struct {
 // The rules that skip or queue an issue (dispatcher.md §4; the memory
 // `dispatch`, rules 1 and 2).
 const (
-	RuleRunning      = "running"
-	RuleNotOpen      = "not-open"
-	RuleEpic         = "epic"
-	RuleHuman        = "human"
-	RuleWaiting      = "waiting:maintainer"
-	RuleHandedOff    = "handed-off"
-	RuleSigning      = "release-signing"
-	RuleClaimed      = "claimed"
-	RuleModels       = "models"
-	RuleNoModel      = "no-model"
-	RuleFailedBefore = "failed-before"
-	RuleUnreadable   = "unreadable"
-	RuleHeld         = "held"
-	RuleSlots        = "slots"
-	RuleLaunch       = "launch"
+	RuleRunning        = "running"
+	RuleNotOpen        = "not-open"
+	RuleEpic           = "epic"
+	RuleHuman          = "human"
+	RuleWaiting        = "waiting:maintainer"
+	RuleHandedOff      = "handed-off"
+	RuleAwaitingReview = "awaiting-review"
+	RuleBlocked        = "blocked"
+	RuleSigning        = "release-signing"
+	RuleClaimed        = "claimed"
+	RuleModels         = "models"
+	RuleNoModel        = "no-model"
+	RuleFailedBefore   = "failed-before"
+	RuleUnreadable     = "unreadable"
+	RuleHeld           = "held"
+	RuleSlots          = "slots"
+	RuleLaunch         = "launch"
 )
 
 // why says each rule for a person.
 var why = map[string]string{
-	RuleRunning:      "one of this dispatcher's runs works it",
-	RuleNotOpen:      "it is not open",
-	RuleEpic:         "an epic is planned by a person, not run",
-	RuleHuman:        "labeled human: a person's to do",
-	RuleWaiting:      "labeled waiting:maintainer: it waits on the maintainer's answers",
-	RuleHandedOff:    "its last handoff is done: it waits on review or landing",
-	RuleSigning:      "it names release signing, which agents never touch (rule 3)",
-	RuleClaimed:      "another session holds its claim",
-	RuleModels:       "it has more than one model label; a person picks one",
-	RuleNoModel:      "it has no model label (model:haiku, model:sonnet or model:opus); a person labels it",
-	RuleFailedBefore: "a run of this dispatcher on it failed or was stopped; a person looks first",
-	RuleUnreadable:   "show failed, so it could not be judged",
-	RuleHeld:         "another session claimed it first",
-	RuleSlots:        "no slot of the lock " + RunsLock + " is free",
-	RuleLaunch:       "the run could not be started",
+	RuleRunning:        "one of this dispatcher's runs works it",
+	RuleNotOpen:        "it is not open",
+	RuleEpic:           "an epic is planned by a person, not run",
+	RuleHuman:          "labeled human: a person's to do",
+	RuleWaiting:        "labeled waiting:maintainer: it waits on the maintainer's answers",
+	RuleHandedOff:      "its last handoff is done: it waits on review or landing",
+	RuleAwaitingReview: "its last handoff left a PR open on its branch: it waits on review",
+	RuleBlocked:        "its last handoff is blocked and nothing has changed on the issue since",
+	RuleSigning:        "it names release signing, which agents never touch (rule 3)",
+	RuleClaimed:        "another session holds its claim",
+	RuleModels:         "it has more than one model label; a person picks one",
+	RuleNoModel:        "it has no model label (model:haiku, model:sonnet or model:opus); a person labels it",
+	RuleFailedBefore:   "a run of this dispatcher on it failed or was stopped; a person looks first",
+	RuleUnreadable:     "show failed, so it could not be judged",
+	RuleHeld:           "another session claimed it first",
+	RuleSlots:          "no slot of the lock " + RunsLock + " is free",
+	RuleLaunch:         "the run could not be started",
 }
 
 // models maps a model label to the harness's model alias.
@@ -85,8 +89,9 @@ var signing = []string{"internal/release", "keys.go", "release workflow", ".gith
 // Judge applies the picking rules to one ready issue: the first rule that
 // fits skips it; an issue no rule skips is started with the model its
 // label names. running reports whether one of the dispatcher's runs works
-// an issue. It reads nothing but its arguments.
-func Judge(sr proto.ShowResult, running func(id string) bool, now time.Time) Decision {
+// an issue; pr is the pull request on its last handoff's branch, nil when
+// it has none or none was read. It reads nothing but its arguments.
+func Judge(sr proto.ShowResult, running func(id string) bool, pr *PR, now time.Time) Decision {
 	is := sr.Issue
 	skip := func(rule string) Decision {
 		return Decision{Action: ActSkip, Issue: is.ID, Rule: rule, Why: why[rule]}
@@ -104,6 +109,10 @@ func Judge(sr proto.ShowResult, running func(id string) bool, now time.Time) Dec
 		return skip(RuleWaiting)
 	case sr.Handoff != nil && sr.Handoff.State == "done":
 		return skip(RuleHandedOff)
+	case sr.Handoff != nil && waitsOnReview(sr.Handoff, pr):
+		return skip(RuleAwaitingReview)
+	case sr.Handoff != nil && sr.Handoff.State == "blocked" && !is.UpdatedAt.After(sr.Handoff.CreatedAt):
+		return skip(RuleBlocked)
 	case namesSigning(is):
 		return skip(RuleSigning)
 	case sr.Claim != nil && sr.Claim.ExpiresAt.After(now):
@@ -133,4 +142,12 @@ func namesSigning(is proto.Issue) bool {
 		}
 	}
 	return false
+}
+
+// waitsOnReview reports whether a partial or blocked handoff left a PR
+// open on its branch: the work is done and waits on a person, so a second
+// session would only repeat it. A merged or closed PR releases the issue.
+// The handoff's text is never read.
+func waitsOnReview(h *proto.Handoff, pr *PR) bool {
+	return (h.State == "partial" || h.State == "blocked") && pr != nil && pr.State == "OPEN"
 }

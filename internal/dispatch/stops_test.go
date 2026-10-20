@@ -2,6 +2,8 @@ package dispatch
 
 import (
 	"testing"
+
+	"github.com/ariesworx/aries/internal/proto"
 )
 
 // Before every start (design §6, §12): a stop asked for, a run that failed
@@ -129,5 +131,25 @@ func TestRecordExit(t *testing.T) {
 				t.Errorf("after %s: stopped %q, failures %d; want %q and 1", tc.outcome, s.Stopped, s.Failures, tc.stopped)
 			}
 		})
+	}
+}
+
+// The dispatcher reads the PR on a partial handoff's branch through gh: an
+// open one holds the issue, and once it merges the issue is startable.
+func TestJudgeReadsHandoffPR(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "task", "model:opus")
+	w.tracker.set("ar-1", func(sr *proto.ShowResult) {
+		sr.Handoff = &proto.Handoff{HandoffFields: proto.HandoffFields{State: "partial", Branch: "fix/ar-1"}}
+	})
+	w.forge.set("fix/ar-1", PR{Number: 7, State: "OPEN"})
+	d, _ := w.dispatcher(DefaultConfig())
+	if dec := d.judge(t.Context(), "ar-1", w.now); dec.Rule != RuleAwaitingReview {
+		t.Fatalf("open PR: %+v", dec)
+	}
+	w.forge.set("fix/ar-1", PR{Number: 7, State: "MERGED"})
+	if dec := d.judge(t.Context(), "ar-1", w.now); dec.Action != ActStart {
+		t.Errorf("merged PR: %+v", dec)
 	}
 }

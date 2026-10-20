@@ -19,10 +19,19 @@ func TestJudge(t *testing.T) {
 		f(&sr)
 		return sr
 	}
+	// handed gives the issue a last handoff of state, on branch, made now
+	// an hour ago; the issue was last changed that long after the handoff.
+	handed := func(sr proto.ShowResult, state, branch string, changed time.Duration) proto.ShowResult {
+		at := now.Add(-time.Hour)
+		sr.Handoff = &proto.Handoff{Comment: proto.Comment{CreatedAt: at}, HandoffFields: proto.HandoffFields{State: state, Branch: branch}}
+		sr.Issue.UpdatedAt = at.Add(changed)
+		return sr
+	}
 	tests := []struct {
 		name    string
 		sr      proto.ShowResult
 		running bool
+		pr      *PR // the PR of the handoff's branch, as the dispatcher read it
 		action  Action
 		rule    string
 		model   string
@@ -41,10 +50,28 @@ func TestJudge(t *testing.T) {
 			sr: with(issue("feature", "model:opus"), func(sr *proto.ShowResult) {
 				sr.Handoff = &proto.Handoff{HandoffFields: proto.HandoffFields{State: "done"}}
 			}), action: ActSkip, rule: RuleHandedOff},
-		{name: "handed off partial is work to continue",
-			sr: with(issue("feature", "model:opus"), func(sr *proto.ShowResult) {
-				sr.Handoff = &proto.Handoff{HandoffFields: proto.HandoffFields{State: "partial"}}
-			}), action: ActStart, model: "opus"},
+		{name: "handed off partial with nothing waiting is work to continue",
+			sr: handed(issue("feature", "model:opus"), "partial", "fix/a", time.Hour), action: ActStart, model: "opus"},
+		{name: "partial with an open PR waits on its review",
+			sr: handed(issue("feature", "model:opus"), "partial", "fix/a", time.Hour), pr: &PR{Number: 7, State: "OPEN"},
+			action: ActSkip, rule: RuleAwaitingReview},
+		{name: "partial whose PR merged is released",
+			sr: handed(issue("feature", "model:opus"), "partial", "fix/a", time.Hour), pr: &PR{Number: 7, State: "MERGED"},
+			action: ActStart, model: "opus"},
+		{name: "partial whose PR closed is released",
+			sr: handed(issue("feature", "model:opus"), "partial", "fix/a", time.Hour), pr: &PR{Number: 7, State: "CLOSED"},
+			action: ActStart, model: "opus"},
+		{name: "partial waiting on answers carries the label",
+			sr: handed(issue("feature", "model:opus", "waiting:maintainer"), "partial", "", time.Hour), action: ActSkip, rule: RuleWaiting},
+		{name: "partial released by removing the label",
+			sr: handed(issue("feature", "model:opus"), "partial", "", time.Hour), action: ActStart, model: "opus"},
+		{name: "blocked waits until the issue changes",
+			sr: handed(issue("feature", "model:opus"), "blocked", "fix/a", 0), action: ActSkip, rule: RuleBlocked},
+		{name: "blocked with an open PR waits on its review",
+			sr: handed(issue("feature", "model:opus"), "blocked", "fix/a", 0), pr: &PR{Number: 7, State: "OPEN"},
+			action: ActSkip, rule: RuleAwaitingReview},
+		{name: "blocked released by a later change to the issue",
+			sr: handed(issue("feature", "model:opus"), "blocked", "fix/a", time.Minute), action: ActStart, model: "opus"},
 		{name: "release signing in the body",
 			sr:     with(issue("task", "model:opus"), func(sr *proto.ShowResult) { sr.Issue.Body = "Rotate the key in internal/release/keys.go" }),
 			action: ActSkip, rule: RuleSigning},
@@ -76,7 +103,7 @@ func TestJudge(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			d := Judge(tc.sr, func(string) bool { return tc.running }, now)
+			d := Judge(tc.sr, func(string) bool { return tc.running }, tc.pr, now)
 			if d.Action != tc.action || d.Rule != tc.rule || d.Model != tc.model {
 				t.Fatalf("Judge = %+v; want action %s rule %q model %q", d, tc.action, tc.rule, tc.model)
 			}
@@ -93,7 +120,7 @@ func TestJudge(t *testing.T) {
 // Every rule says why in words of its own, never the issue's text.
 func TestRulesSayWhy(t *testing.T) {
 	t.Parallel()
-	for _, rule := range []string{RuleRunning, RuleNotOpen, RuleEpic, RuleHuman, RuleWaiting, RuleHandedOff,
+	for _, rule := range []string{RuleRunning, RuleNotOpen, RuleEpic, RuleHuman, RuleWaiting, RuleHandedOff, RuleAwaitingReview, RuleBlocked,
 		RuleSigning, RuleClaimed, RuleModels, RuleNoModel, RuleFailedBefore, RuleUnreadable, RuleHeld, RuleSlots, RuleLaunch} {
 		if why[rule] == "" {
 			t.Errorf("rule %s has no why", rule)

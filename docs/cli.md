@@ -503,11 +503,19 @@ and open PRs with your own `git` and `gh`.
 
 **What it skips.** An issue with no `model:haiku`, `model:sonnet` or
 `model:opus` label, or more than one; the label `human` or
-`waiting:maintainer`; an epic; an issue whose last handoff is `done`;
-one whose text names release signing (`internal/release`, `keys.go`,
+`waiting:maintainer`; an epic; an issue whose last handoff is `done`; one whose last handoff
+is `partial` or `blocked` and whose handoff branch has an open PR
+(`awaiting-review`: it waits on review, and a merged or closed PR
+releases it); one whose last handoff is `blocked` and whose row has not
+changed since (`blocked`: a reopen, a label change or an edit releases
+it); one whose text names release signing (`internal/release`, `keys.go`,
 the release workflow); one another session holds; and one a run of its
 own failed on or was stopped on, until `dispatch run --clear`. Each
-skip names its rule.
+skip names its rule. It reads the PR with `gh pr view` on the handoff's
+branch, never the handoff's text; a `partial` handoff with no open PR
+and no `waiting:maintainer` label is work to continue and is started,
+so a session that leaves a question for the maintainer must also label
+the issue `waiting:maintainer`.
 
 **What stops it.** Before each start it reads `aries cost` for the UTC
 day: past the cap, it starts nothing more that day and lets runs end.

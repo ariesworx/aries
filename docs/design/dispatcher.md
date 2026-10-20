@@ -409,6 +409,18 @@ It departs from or settles the design here:
   until `dispatch run --clear` (`failed-before`). Show is read for each
   ready issue, at most 20, since ready carries no labels; with no slot
   free a real wake reads none.
+- **A handoff that waits (aries-pcztsm6u).** `handed-off` skips only a
+  `done` handoff. The replay of 16-17 October found `partial` handoffs
+  whose PR waited on the maintainer judged startable for hours, so a
+  `partial` or `blocked` handoff whose branch has an open PR is skipped as
+  `awaiting-review` (the PR read by `gh pr view`, the handoff's text
+  never), and a `blocked` one as `blocked` until the issue row changes
+  after the handoff (a reopen, a label change, an edit; a comment does
+  not). Chosen over skipping every `partial` handoff, which would leave
+  unfinished work to a person; it leaves startable a `partial` handoff
+  with no open PR and no `waiting:maintainer` label, which is what
+  `partial` means, so a design that waits on answers must carry the label.
+  An unreadable PR skips as `unreadable`; without a forge no PR is read.
 - **Claim before launch:** `start ID --for 10m` in the run's session,
   then `git worktree add` (a branch that exists is taken as it is), then
   `aries lock run dispatch/runs --capacity N --for 10m -- claude -p …`
