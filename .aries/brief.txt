@@ -33,7 +33,7 @@ Do this:
 [desktop] 7. Right after opening the PR, turn on Auto-fix: `mcp__ccd_pr__set_monitor` with auto_fix and address_comments true and the PR's url.
 [headless] 7. This run is headless and has no Auto-fix: say so in your handoff, and end after it. The sweep, and until it ships the coordinator, takes over the PR's CI failures and conflicts.
 [desktop] 8. Stop every background command and monitor you started before your handoff.
-[headless] 8. Start no background work: a headless run waits for it before exiting.
+[headless] 8. Start no background work: a headless run waits for it before exiting. Issue every command bare: never write `VAR=value` in front of one (GOTOOLCHAIN=local and GOFLAGS=-mod=readonly are already set in your environment), and never wrap one in `mise exec`; the harness denies those forms. If a command is denied, retry it in its allowed form before you give up: one denial is not a block on all Bash, and you must still commit, push, open the PR and hand off.
 9. If your claim's lease lapses, `start` {id} again before writing to it.
 10. Before your handoff, post your lessons as the memory `lessons` says.
 11. When the PR is open, call `handoff` with state `done`, the PR's link in the note and `ticked` for the items you met. Never call `finish`; never merge.

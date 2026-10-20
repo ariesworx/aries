@@ -483,7 +483,7 @@ func (w *world) dispatcher(cfg Config) (*Dispatcher, *fakeLauncher) {
 		Cfg: cfg, Tracker: w.tracker, Launcher: l, Git: w.git, Forge: w.forge,
 		Out: w.out, Log: w.log, Now: func() time.Time { return w.now },
 		Worktrees: "/repo/.aries-dispatch/worktrees", RunLogs: "/data/runs", Key: "sk-test-not-a-key",
-		Environ:     []string{"PATH=/usr/bin", "ARIES_SESSION=outer", "ANTHROPIC_API_KEY=outer-key", "CLAUDE_CODE_SESSION_ID=outer", "CLAUDECODE=1"},
+		Environ:     []string{"PATH=/usr/bin", "ARIES_SESSION=outer", "ANTHROPIC_API_KEY=outer-key", "CLAUDE_CODE_SESSION_ID=outer", "CLAUDECODE=1", "GOFLAGS=-mod=mod"},
 		State:       &State{},
 		Save:        func(*State) error { w.saved.Add(1); return nil },
 		StopRequest: func() string { return w.stop },

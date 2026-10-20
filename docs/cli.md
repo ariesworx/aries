@@ -540,6 +540,18 @@ template, `dispatch run` refuses before it reads anything. Its worktree is
 `start` names; once the issue closes, the worktree is removed (never
 with `--force`) and the branch deleted when its PR merged.
 
+**What a run may run.** A run is headless under `--permission-mode
+dontAsk`, so a command outside its allow list is denied, not asked.
+Claude Code's allow rules such as `Bash(go:*)` do not match a command
+that starts with `VAR=value`, so each run's environment carries
+`GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`, as the gate sets them,
+and its brief tells it to issue commands bare and, when one is denied,
+to retry it in its allowed form before giving up. The allow list covers
+git, Go, the gate, and `gh pr create`,
+`view`, `checks`, `list`, `ready` and `edit`; `gh pr merge`, `gh api`
+and forced or `main` pushes are always denied. `mise exec` is not
+allowed, nor `scripts/leftovers.sh` (the gate runs it), since each would run anything; `find` with `-exec` or `-ok` is denied.
+
 **Where it keeps its files.** In aries's data directory, under
 `dispatch/PROJECT`: `state.json` (0600), `log.jsonl` (one line per
 decision: ids, rules, numbers and paths, a brief's SHA-256, never its

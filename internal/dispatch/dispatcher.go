@@ -342,7 +342,9 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 
 // runEnv is a run's environment: the dispatcher's, without a session or
 // a key of its own or the marks of a Claude Code session around it, with
-// the run's session and the key.
+// the run's session and the key, and the Go variables the gate sets
+// (AGENTS.md, Commands), so that no command needs them written in front:
+// an allow rule does not match a command that starts with an assignment.
 func (d *Dispatcher) runEnv(session string) []string {
 	var env []string
 	for _, kv := range d.Environ {
@@ -354,6 +356,8 @@ func (d *Dispatcher) runEnv(session string) []string {
 		}
 		env = append(env, kv)
 	}
+	env = withEnv(env, "GOTOOLCHAIN", "local")
+	env = withEnv(env, "GOFLAGS", "-mod=readonly")
 	env = append(env, "ARIES_SESSION="+session)
 	if d.Key != "" {
 		env = append(env, "ANTHROPIC_API_KEY="+d.Key)

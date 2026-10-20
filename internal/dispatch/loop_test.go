@@ -171,7 +171,8 @@ func TestStartClaimsBeforeLaunch(t *testing.T) {
 		t.Errorf("spec = %+v", sp)
 	}
 	env := strings.Join(sp.Env, "\n")
-	for _, want := range []string{"ARIES_SESSION=" + s, "ANTHROPIC_API_KEY=sk-test-not-a-key", "PATH=/usr/bin"} {
+	for _, want := range []string{"ARIES_SESSION=" + s, "ANTHROPIC_API_KEY=sk-test-not-a-key", "PATH=/usr/bin",
+		"GOTOOLCHAIN=local", "GOFLAGS=-mod=readonly"} {
 		if !slices.Contains(sp.Env, want) {
 			t.Errorf("the run's environment lacks %s:\n%s", want, env)
 		}
