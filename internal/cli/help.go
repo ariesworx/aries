@@ -120,8 +120,8 @@ var examples = map[string][]example{
 	},
 	"dispatch": {
 		{"Say what it would start, skip and queue, and why, once", "aries dispatch run --dry-run --once"},
-		{"Scope a trial to cheap, labeled work", "aries dispatch run --models haiku --labels trial"},
 		{"Stop it, interrupting its runs", "aries dispatch stop --now"},
+		{"Print the brief a coordinator sends a Desktop session", "aries dispatch brief ar-a1b2 --note 'Leave the permission list alone.'"},
 	},
 	"ready": {
 		{"What to work on next", "aries ready"},

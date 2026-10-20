@@ -79,6 +79,24 @@ var why = map[string]string{
 	RuleLaunch:         "the run could not be started",
 }
 
+// modelIDs maps a model alias to the full model id a run is started
+// with and its brief records, so that the record names what ran, not
+// what the alias meant that day (aries-pk72yzeh).
+var modelIDs = map[string]string{
+	"haiku":  "claude-haiku-5-5",
+	"sonnet": "claude-sonnet-5-5",
+	"opus":   "claude-opus-5-5",
+}
+
+// ModelID is the full model id of a model alias; an alias it does not
+// know is returned as it is.
+func ModelID(alias string) string {
+	if id, ok := modelIDs[alias]; ok {
+		return id
+	}
+	return alias
+}
+
 // models maps a model label to the harness's model alias.
 var models = map[string]string{
 	"model:haiku":  "haiku",

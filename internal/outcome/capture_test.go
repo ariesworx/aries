@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	briefpkg "github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -433,5 +435,40 @@ func TestSecondCapturePostsNothing(t *testing.T) {
 		if action, _ := Plan(r, second.Posted); action != "unchanged" {
 			t.Errorf("seq %d: %s, want unchanged", r.Seq, action)
 		}
+	}
+}
+
+// Briefs go to runs by their session= field (aries-pk72yzeh): two
+// briefs for different sessions posted out of order each reach their
+// own run, a second brief for one session shifts no other run's, and a
+// brief with no session takes the first run left, in order.
+func TestBriefsMatchBySession(t *testing.T) {
+	t.Parallel()
+	events := []proto.Event{
+		ev(10, "s1", "claim.take", "", `{"epoch":1,"expires_at":`+stamp(30)+`}`),
+		ev(20, "s1", "claim.release", `{"epoch":1,"expires_at":`+stamp(30)+`}`, ""),
+		ev(30, "s2", "claim.take", "", `{"epoch":2,"expires_at":`+stamp(50)+`}`),
+		ev(40, "s2", "claim.release", `{"epoch":2,"expires_at":`+stamp(50)+`}`, ""),
+		ev(50, "s3", "claim.take", "", `{"epoch":3,"expires_at":`+stamp(70)+`}`),
+	}
+	comments := []proto.Comment{
+		cm("b2", 31, briefpkg.Comment(briefpkg.Record{Harness: "claude-code", Model: "claude-sonnet-5-5", Effort: "default", Session: "s2", Template: "brief@1"}, "Two.\n")),
+		cm("b1", 32, briefpkg.Comment(briefpkg.Record{Harness: "claude-code", Model: "claude-haiku-5-5", Effort: "default", Session: "s1", Template: "brief@1"}, "One.\n")),
+		cm("b1again", 33, briefpkg.Comment(briefpkg.Record{Harness: "claude-code", Model: "claude-opus-5-5", Effort: "high", Session: "s1", Template: "brief@1"}, "One again.\n")),
+		cm("b3", 51, "brief: harness=claude-code-desktop model=claude-fable-5-1 effort=max session=local_0000 template=brief@1\n\nThree."),
+	}
+	cut := at(60)
+	rs := runs(holds(events, cut), events, briefs(comments, cut), cut)
+	got := map[string]string{}
+	for _, r := range rs {
+		got[r.Session] = r.Harness + " " + strings.Join(r.Models, ",") + " " + r.Effort
+	}
+	want := map[string]string{
+		"s1": "claude-code claude-haiku-5-5 default",
+		"s2": "claude-code claude-sonnet-5-5 default",
+		"s3": "claude-code-desktop claude-fable-5-1 max",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("runs got\n%v\nwant\n%v", got, want)
 	}
 }

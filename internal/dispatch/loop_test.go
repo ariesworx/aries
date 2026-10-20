@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -161,12 +162,12 @@ func TestStartClaimsBeforeLaunch(t *testing.T) {
 		t.Fatalf("launched %d runs; want 1: %q", len(sessions), w.calls.all())
 	}
 	s := sessions[0]
-	start, add, launch, brief := w.calls.index("start ar-1 "+s+" 10m0s"), w.calls.index("worktree add "), w.calls.index("launch ar-1 "+s), w.calls.index("comment ar-1 "+s)
-	if start < 0 || add < start || launch < add || brief < launch {
+	start, add, launch, posted := w.calls.index("start ar-1 "+s+" 10m0s"), w.calls.index("worktree add "), w.calls.index("launch ar-1 "+s), w.calls.index("comment ar-1 "+s)
+	if start < 0 || add < start || launch < add || posted < launch {
 		t.Fatalf("want start, worktree, launch, brief in order; got %q", w.calls.all())
 	}
 	sp := l.spec(s)
-	if sp.Model != "opus" || sp.Dir != "/repo/.aries-dispatch/worktrees/ar-1" || sp.Branch != "feature/ar-1-title" {
+	if sp.Model != "claude-opus-5-5" || sp.Dir != "/repo/.aries-dispatch/worktrees/ar-1" || sp.Branch != "feature/ar-1-title" {
 		t.Errorf("spec = %+v", sp)
 	}
 	env := strings.Join(sp.Env, "\n")
@@ -186,8 +187,26 @@ func TestStartClaimsBeforeLaunch(t *testing.T) {
 	}
 	comment := w.tracker.comments["ar-1"][0]
 	first, rest, _ := strings.Cut(comment, "\n")
-	if first != "brief: harness claude-code, model opus, effort default, session "+s || strings.TrimPrefix(rest, "\n") != sp.Brief {
+	if first != "brief: harness=claude-code model=claude-opus-5-5 effort=default session="+s+" template="+d.Template.Name() || strings.TrimPrefix(rest, "\n") != sp.Brief {
 		t.Errorf("the brief: comment is\n%s\nfor the brief\n%s", comment, sp.Brief)
+	}
+	// The comment parses as aries outcome reads it, with every field
+	// filled (aries-pk72yzeh), and the log's hash is the record's.
+	rec, text, ok := brief.ParseComment(comment)
+	if !ok || rec != (brief.Record{Harness: "claude-code", Model: "claude-opus-5-5", Effort: "default", Session: s, Template: d.Template.Name()}) {
+		t.Errorf("the comment parses to %+v", rec)
+	}
+	var logged struct {
+		Event string `json:"event"`
+		Brief string `json:"brief_sha256"`
+	}
+	for l := range strings.SplitSeq(w.log.String(), "\n") {
+		if json.Unmarshal([]byte(l), &logged) == nil && logged.Event == "start" {
+			break
+		}
+	}
+	if logged.Brief == "" || logged.Brief != brief.Hash(text) {
+		t.Errorf("the log's brief hash %q is not the record's %q", logged.Brief, brief.Hash(text))
 	}
 	if strings.Contains(comment, "sk-test") {
 		t.Error("the brief: comment holds the key")
