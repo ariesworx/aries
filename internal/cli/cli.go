@@ -14,6 +14,7 @@ import (
 
 	"github.com/ariesworx/aries/internal/board"
 	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/credential"
 	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/proto"
@@ -83,6 +84,10 @@ type Env struct {
 	// Nil opens none: login prints the URL instead. cmd/aries sets
 	// OpenBrowser(runtime.GOOS).
 	OpenBrowser func(url string) error
+	// Credentials opens the store `aries dispatch` keeps its API key in.
+	// Nil opens the system's (credential.Open); tests give one of their
+	// own, so that none touches a person's keychain.
+	Credentials func(ctx context.Context) (credential.Store, error)
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -139,6 +144,7 @@ func init() {
 		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
 		{"workflow", workflowCheckUsage, "check that the server's workflow is the one in FILE; exits 1 when it differs", cmdWorkflow},
 		{"lock", lockUsage, "take, renew, release or list a lock, a leased mutex or semaphore for a deploy or a merge; run a command under one", cmdLock},
+		{"dispatch", dispatchUsage, "experimental, macOS and Linux: start headless agent runs on ready issues, within a budget, until stopped; status, stop, and the API key it gives them", cmdDispatch},
 		{"dep", depUsage, "add or remove a dependency: FROM depends on TO", cmdDep},
 		{"label", labelUsage, "add or remove labels", cmdLabel},
 		{"comment", "comment ID TEXT...|-", "add a comment", cmdComment},

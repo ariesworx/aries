@@ -2,7 +2,8 @@
 
 Status: **design, 17 October 2026, accepted 19 October 2026**
 (aries-w5aa37nf; decision 96 in [aries.md §14](aries.md#14-decisions)).
-Nothing in it is built. The maintainer answered §14 on 19 October 2026,
+The loop is built, without the sweep: see **As built (20 October
+2026)** at the end of §12. The maintainer answered §14 on 19 October 2026,
 and the answers are recorded there, with what they changed in the
 sections they name. It draws on the five
 research issues of the epic aries-hzuyf4mt: idle time (aries-5llpbo64),
@@ -377,6 +378,67 @@ that replaces it, so moving is a swap, not a redesign:
 | Queueing under rule 4 | Merge train in queue mode (§3.5) |
 | The pause lock | Pauses (§3.16, §3.23) |
 | The state file as a cache of Aries and git | The Bearings schema (§3.23); principle 2's "no state outside Postgres" |
+
+**As built (20 October 2026).** The loop is `internal/dispatch`
+(aries-emlsyvmv), a package of its own so that Bearings replaces it
+whole, wired to the process by `aries dispatch run|status|stop|key` in
+`internal/cli` ([docs/cli.md](../cli.md#the-dispatcher-experimental)).
+It departs from or settles the design here:
+
+- **It calls aries as a program.** Every read and write is
+  `aries -C TOP --json --no-queue …` (`dispatch.Exec`), not an in-process
+  call, so that the claim before launch is taken under the run's own
+  session (`ARIES_SESSION`), which a connection fixes at its handshake.
+  `--no-queue` keeps a write out of the outbox, and an answer from the
+  cache (`"cached": true`) counts as the server not reached: it never
+  acts on a stale copy, and starts nothing while it cannot read.
+- **`--dry-run`** reads and judges as a real wake does and prints
+  `would start`, `skip ID [RULE]` and `queue ID [slots]`, with why; it
+  claims, makes, launches and saves nothing, and needs no key. Every
+  test of the loop begins there, against stand-ins for aries, git, gh
+  and the runner; none starts a harness.
+- **Picking** applies §4's rules in a fixed order, each named in the
+  output and the log; two model labels are a person's to settle, and an
+  issue a run of its own failed or was stopped on is not started again
+  until `dispatch run --clear` (`failed-before`). Show is read for each
+  ready issue, at most 20, since ready carries no labels; with no slot
+  free a real wake reads none.
+- **Claim before launch:** `start ID --for 10m` in the run's session,
+  then `git worktree add` (a branch that exists is taken as it is), then
+  `aries lock run dispatch/runs --capacity N --for 10m -- claude -p …`
+  without `--wait`, then the `brief:` comment. A conflict skips the issue
+  (`held`); a worktree or launch that fails, and a run the lock refused
+  before the harness started (`refused`, told apart from a failed run by
+  Claude Code's JSON result being absent and aries's lines alone being
+  printed), release the claim with a handoff. A run that ends otherwise
+  still holding its claim has it released. That the run's own `start`
+  returns the claim its session holds is the store's rule (a session
+  that starts an issue it holds extends its lease); no test of it was
+  added here.
+- **The brief** is on stdin through an unlinked file, so the run reads
+  it even if the dispatcher dies first, and nothing of it stays on disk;
+  the log keeps its SHA-256. It tells the run to test under
+  `scripts/gate.sh --pgtest-lock` where the repository has it.
+- **Permissions:** `--permission-mode dontAsk` with an allow list
+  (`dispatch.DefaultAllowed`: the editing tools, the aries tools, git,
+  Go, the gate, `gh pr create|view|checks|list`) and §11's deny list. A
+  brief that asks for more than the allow list grants is refused by the
+  harness, so the list and the memory `workflow` change together.
+- **CI results** are read from `gh pr view BRANCH` for each ended run,
+  and count once per run. Auth is read from the run's JSON result or
+  output (an invalid key, `/login`, OAuth, 401, a low credit balance).
+  The auth and CI stops last until `dispatch run --clear`; the budget
+  stop lasts the UTC day. Each lasting stop is logged once.
+- **Stop** writes a request file beside the state, which the loop reads
+  every 2 seconds, so a signal never reaches a reused pid. One
+  dispatcher a project runs on a machine, held by `flock`. ctrl-c ends
+  the loop and leaves its runs running, to be adopted (pid and session
+  id both matching, through `ps`) by the next.
+- **Not built here:** the sweep of §8 (aries-i6fndp4h), the notices on
+  a standing issue (§12, Q7, with it), and resuming a run. A move of the
+  default branch wakes the loop, which reconciles and cleans up. A run's
+  wall-clock limit and `--now` send SIGINT, then SIGTERM after 30
+  seconds, to the run's process group.
 
 ## 13. Failure drills
 
