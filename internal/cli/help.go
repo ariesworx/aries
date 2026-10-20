@@ -50,6 +50,7 @@ var helpGroups = []helpGroup{
 		{"handoff", "leave a note for whoever continues; --release lets it go"},
 		{"away", "extend all your claims, before you go offline"},
 		{"lock", "take, renew, release or list a lock; run a command under one"},
+		{"dispatch", "experimental: start agent runs on ready issues, within a budget"},
 		{"inbox", "list your unread lost claims, handoffs, mentions, assignments"},
 		{"watch", "print inbox items and, with --events, issue events"},
 		{"who", "list the agents at work and the issues each holds"},
@@ -116,6 +117,11 @@ var examples = map[string][]example{
 		{"Open bugs at priority 0 or 1", "aries list -t bug -p 0,1"},
 		{"Everything assigned to alice, closed issues too", "aries list --assignee alice --all"},
 		{"An epic's children in progress", "aries list --status in_progress --parent ar-a1b2c3d4"},
+	},
+	"dispatch": {
+		{"Say what it would start, skip and queue, and why, once", "aries dispatch run --dry-run --once"},
+		{"Keep three runs going, under a lower daily cap", "aries dispatch run --capacity 3 --cap 800000"},
+		{"Stop it, interrupting its runs", "aries dispatch stop --now"},
 	},
 	"ready": {
 		{"What to work on next", "aries ready"},

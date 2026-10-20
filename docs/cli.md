@@ -483,6 +483,55 @@ in one terminal are two holders; `lock acquire` holds in your session,
 so two acquires of yours in the same session are one hold, and the
 second gets the first's epoch.
 
+### The dispatcher (experimental)
+
+`aries dispatch` keeps agents at work between waves without a person
+starting each session ([design](design/dispatcher.md)): it picks ready
+issues by their model label, claims each, makes it a worktree, and
+starts a headless Claude Code run in it under the lock `dispatch/runs`,
+within a daily budget. It is internal and experimental: Bearings will
+replace it, and the v1.0.0 freeze does not keep it. It runs on macOS
+and Linux, and refuses on Windows. Runs act as your principal, and push
+and open PRs with your own `git` and `gh`.
+
+| Command | Does |
+|---|---|
+| `dispatch run` | Run the loop until stopped or interrupted. Each wake (an inbox item or issue event, at most every 10 seconds; a run's exit; the default branch moving, read every 5 minutes; and a 20-minute timer) prints a line per decision: `start ID (model M, session S, pid P)`, `skip ID [RULE]: why`, `queue ID (model M) [slots]: why`, or `hold [RULE]: why` when nothing may start. `--dry-run` prints `would start` for what it would start and starts, claims, makes and writes nothing, and needs no key; `--once` wakes once and exits, leaving the runs it started running. `--capacity N` is the lock's capacity (default 4); `--cap TOKENS` a UTC day's Opus output tokens past which it starts nothing (default 1300000); `--max-budget-usd USD` each run's limit; `--clear` clears a stop that two CI failures in a row or an auth failure left, and lets the issues its runs failed on be picked again. Interrupted (ctrl-c), it exits and its runs keep running; the next `dispatch run` adopts them |
+| `dispatch status` | Say what its state file holds: whether it runs, what holds it, today's Opus output against the cap, the CI failures in a row, and its runs, each with its issue, model, state, session, pid, PR, CI result and worktree. It never connects. `--json` prints the state as one document |
+| `dispatch stop` | Ask the dispatcher running for this project on this machine to start nothing more; it exits once its runs have ended. `--now` also interrupts them (SIGINT, then SIGTERM after 30 seconds). To stop every dispatcher, on every machine, hold the lock `dispatch/pause`: `aries lock acquire dispatch/pause --for 24h` |
+| `dispatch key set`, `dispatch key remove` | Keep the API key the runs are given in the system's credential store (the macOS keychain; the Secret Service on Linux where one runs, else a 0600 file in aries's data directory), read from standard input alone, never a terminal, or remove it. `dispatch run` reads it at start and says which store it read; it reaches each run in its environment only |
+
+**What it skips.** An issue with no `model:haiku`, `model:sonnet` or
+`model:opus` label, or more than one; the label `human` or
+`waiting:maintainer`; an epic; an issue whose last handoff is `done`;
+one whose text names release signing (`internal/release`, `keys.go`,
+the release workflow); one another session holds; and one a run of its
+own failed on or was stopped on, until `dispatch run --clear`. Each
+skip names its rule.
+
+**What stops it.** Before each start it reads `aries cost` for the UTC
+day: past the cap, it starts nothing more that day and lets runs end.
+Two CI failures in a row on PRs its runs opened stop it, and a green
+one between resets the count; the first run that fails to authenticate
+stops it at once. A run past 90 minutes is interrupted. Each stop is
+logged once and shown by `status`. The cap is an alert before the
+provider's own: set a spend limit on the key in the provider's console.
+
+**What each run gets.** The dispatcher claims the issue under the run's
+session id before it starts the run, so a second dispatcher is refused
+the claim and moves on; a launch that fails releases the claim with a
+handoff saying why. The run's brief is built from the issue, never by a
+model, and is given on standard input and posted on the issue as a
+comment beginning `brief:`. Its worktree is
+`.aries-dispatch/worktrees/ID` at the repository's top, on the branch
+`start` names; once the issue closes, the worktree is removed (never
+with `--force`) and the branch deleted when its PR merged.
+
+**Where it keeps its files.** In aries's data directory, under
+`dispatch/PROJECT`: `state.json` (0600), `log.jsonl` (one line per
+decision: ids, rules, numbers and paths, a brief's SHA-256, never its
+text, a key or an issue's text), and each run's output under `runs/`.
+
 ### See what is happening
 
 | Command | Does |
