@@ -11,6 +11,19 @@ minor version (decision 93). Entries for v0.1.0 to v0.4.0 were written
 afterward, from the notes GitHub generated for each release; the project
 had another name then, and its notes say Aries and `aries` today.
 
+## v0.6.0 (unreleased)
+
+- Protocol 9, accepting 8: v0.5.0's `aries` keeps working against a
+  v0.6.0 server, and `aries` v0.6.0 needs one; upgrade `ariesd` first.
+  No schema change.
+- The HTTPS key proof is bound to the TLS session where `ariesd`
+  terminates TLS (finding K-2), and `handoff` settles acceptance items.
+- Cost per outcome, the gates that hold an issue in `blocked` and
+  `show`, `aries watch --events`, and Sextant X0, built from source.
+- Breaking: `cache_write` in `aries.usage.tokens` is now the
+  five-minute cache write alone, beside `cache_write_1h`.
+- Notes: [docs/releases/v0.6.0.md](docs/releases/v0.6.0.md).
+
 ## v0.5.0 (2026-10-17)
 
 - The first release as Aries, and a fresh start: new names for every
