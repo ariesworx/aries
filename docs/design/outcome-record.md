@@ -5,7 +5,7 @@ epic aries-dmqqolg4).** Nothing in it is built. The maintainer answered
 every question of §14 on 19 Oct 2026: Q5, Q7 and Q8 first (capture
 with a CLI-only command, `brief:` comments from the coordinator now,
 tokens per run deferred), then the rest as recommended. O1, the
-command, is built (20 Oct 2026; [§15, As built](#15-as-built)).
+command, is built after this design merges.
 
 The learning loop's primary signal is not what an agent says about its
 run. It is what the run led to, measured after the outcome is known:
@@ -526,74 +526,3 @@ touching the release.
     are a cause of pre-merge rework that neither CI nor conflicts
     explain, and they cost nothing beyond the change's read.
     *Answered 19 Oct 2026:* as recommended.
-
-## 15. As built
-
-**O1, 20 October 2026 (aries-4x4vo7cq).** `aries outcome ID...`, or
-`--since WHEN` for every issue that reached an outcome since then, with
-`--backfill`, `--dry-run` and `--workflow NAME` ([docs/cli.md](../cli.md)).
-CLI only and experimental, over the ops a client already sends (`show`,
-`history`, `comments`, `list`, `cost` by issue, `comment`): no protocol
-change and no store change. Where it lives:
-
-- `internal/outcome`: the record (`record.go`), its capture from the
-  event log, comments and usage (`capture.go`), §5's attempts and causes
-  and §6's catch-up merges (`ci.go`), and the CI host as an interface,
-  `Host` (`host.go`), which names no host.
-- `internal/outcome/github.go`: the only GitHub-specific part, `gh pr
-  list`, `gh api` (a pull request's commits, reviews, review comments
-  and timeline, a rerun's earlier attempts), `gh run list --branch` and
-  `--event merge_group`, `gh run view --json jobs`, and a fetch of
-  `refs/pull/N/head`. Another host is another `Host`; `cli.Env.OutcomeHost`
-  chooses one, and tests use fakes. No test calls GitHub.
-- `gitx.MergeConflicts` (`git merge-tree --write-tree`) and `gitx.Fetch`.
-- `internal/cli/outcome.go`: the command, the plan against what is
-  already posted, the secrets lint and the 64 KiB cap before a post.
-
-Where the build departs from, or settles, the design:
-
-- **Cause rules' order.** §5 lists the rules flake, change, base, queue,
-  infra and says the first that holds wins; applied in that order,
-  `base` and `infra` would hold only when no later commit passed. The
-  build applies `infra` (cancelled, timed out, not started) first, then
-  `flake`, `base`, `change`, and `unknown`; a merge queue's failure is
-  `infra`, `flake` (a rerun of the same queue commit passed), `queue`
-  (the change's last attempt before it passed) or `unknown`. A `change`
-  failure is one a newer commit of the change fixed, by the change's
-  commit order.
-- **A run cancelled by a newer push is no attempt.** The project's CI
-  cancels a superseded pull request run (`cancel-in-progress`); such a
-  cancellation, followed by an attempt on another commit, is left out of
-  `attempts` and of the rework boundary. Any other cancellation is an
-  `infra` failure.
-- **An attempt** is every workflow's run on one commit with one attempt
-  number, failed when any of them failed, unless `--workflow` names the
-  workflows that count. Runs still going and runs that began after the
-  merge are left out.
-- **Landed** is a close with the reason `landed`, or one made when the
-  issue's `landed` check had passed (the coordinator's finish after the
-  closing pass could not tick items, workflow step 5).
-- **Runs' kind** is read from the session: `cli` is a person's, `ci` a
-  service's, any other an agent's; no principal is read.
-- **Briefs** go to agents' runs in the order both were made; a run
-  without one makes `harness` missing. A brief's hash is of its text
-  after the first line.
-- **Tokens by model** come from `show`, which covers the issue's whole
-  life, so only the latest record of a closed issue has them.
-- **Missing reasons:** `nohost` (no `gh`), `host` (the host's read
-  failed), `none` (no brief; no change for a landed issue), `rewritten`
-  (a force push), `git` (the change's commits could not be fetched or
-  merged), `capped` and `rest` (the cost read, §4), `store`.
-- **Supersede.** A record is posted when no record of its `seq` is on
-  the issue; when the latest one says the same, but for `captured_at`,
-  `capturer`, `rev`, `supersedes` and `backfill`, nothing is posted; any
-  other difference posts a new record with `supersedes` naming the
-  comment it replaces. So a second run posts nothing new, and a backfill
-  after a live capture adds nothing.
-- **`--since`** reads every closed issue's `show` for its close time,
-  and the host's pull requests closed unmerged in the window, matched to
-  issues by branch (`gitx.IDFromBranch`); a project whose prefix has a
-  hyphen is captured by id.
-- Not yet built: the coordinator's sweep step in the memory `workflow`,
-  the backfill run itself, and the share complete reported on the epic,
-  which are the slice's operation, not its code.

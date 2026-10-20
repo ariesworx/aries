@@ -68,7 +68,6 @@ var helpGroups = []helpGroup{
 		{"cost", "report the cost of tokens, and the hours logged"},
 		{"hours", "log your hours on an issue, undo an entry, or list entries"},
 		{"usage", "send a session's token counts (run by the agent's hooks)"},
-		{"outcome", "experimental: record what an issue's outcome took, once"},
 	}},
 	{"Gates", []helpLine{
 		{"gate", "hold issues until a person passes a gate or CI reports a check"},
@@ -243,11 +242,6 @@ var examples = map[string][]example{
 		{"The last week's cost by account", "aries cost --since 7d"},
 		{"October's, by person", "aries cost --since 2026-10-01 --until 2026-11-01 --group-by person"},
 		{"The ten costliest epics of the week", "aries cost --since 7d --group-by epic -n 10"},
-	},
-	"outcome": {
-		{"Record what a landed issue took, from Aries and the CI host", "aries outcome ar-a1b2c3d4"},
-		{"Print the record of every outcome of the last day, posting nothing", "aries outcome --since 24h --dry-run"},
-		{"Record the past 30 days' outcomes, marked as a backfill", "aries outcome --since 30d --backfill"},
 	},
 	"hours": {
 		{"Log an hour and a half on an issue", `aries hours 1.5h ar-a1b2c3d4 --note "paired with bob"`},
