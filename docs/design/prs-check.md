@@ -1,8 +1,11 @@
 # `aries prs check`: every pull request accounted for
 
-**Design, 20 October 2026 (aries-ewuqxh4h, epic aries-hzuyf4mt).**
-Nothing in it is built, and nothing is built until the maintainer
-answers §15. It is a permanent client command that reads the project's
+**Design, 20 October 2026 (aries-ewuqxh4h, epic aries-hzuyf4mt);
+answered the same day** (§15). Nothing in it is built. Three answers
+changed it, in the sections they name: a pull request's link is a field
+on the issue, not a label (§6, Q2); the settings are the project's, on
+the server, not a person's `.aries.yaml` (§3, Q3); and Dependabot's
+issues are tasks (§7.1, Q5). It is a permanent client command that reads the project's
 open and recently merged pull requests, maps each to its issue, reports
 what is orphaned or broken, files an issue for each pull request no
 issue names, and posts each finding once where the maintainer sees it.
@@ -71,31 +74,37 @@ aries prs check [--post] [--json] [--since DURATION] [--repo OWNER/NAME]
 - **CLI only** (rule 12): it reads the CI host with a person's or a
   machine's credentials, and it files issues for others' pull requests.
   An agent reads its findings on the standing issue (§11).
-- **No protocol change.** It is built over ops `aries` already sends:
-  `list`, `show`, `history`, `comments`, `create`, `comment`, `label`
-  and `close`. The one server change this design asks for (§9) is a new
-  inbox kind, which needs no bump either.
+- **Built over ops `aries` already sends** (`list`, `show`, `history`,
+  `comments`, `create`, `comment`, `label` and `close`), plus two server
+  changes the answers ask for: the issue's `pr` field (§6) and the
+  project's `prs` setting (§3), which are new arguments and so a
+  protocol change (rule 10). They take the first protocol after v0.6.0's
+  9, which lessons as a field (lessons.md) also joins. The new inbox kind
+  of §9 needs no bump.
 
 ### Settings
 
-A `prs:` block in `.aries.yaml`, read by whoever runs the check, with
-flags to override each:
+*Revised by the answer to Q3:* the settings are a project's and a team's
+standard, held on the server, not each person's. A `prs` document in the
+project's settings, as the workflow setting is (aries.md §21, decision
+95): kept as a file in the repository, applied by a project admin with
+`aries admin prs set FILE` (CLI only, rule 12), read by every runner of
+the check, whoever they are. Flags override a field for one run only.
 
 ```yaml
-prs:
-  repo: example/app          # default: the remote origin's
-  standing: ar-a1b2c3d4      # the issue findings are posted to
-  mention: alice             # the principal the findings mention
-  stale_after: 3d
-  landing_lag: 1h
-  people:                    # the host's logins of team members
-    alice-example: alice
-    bob-example: bob
+repo: example/app          # default: the remote origin's
+standing: ar-a1b2c3d4      # the issue findings are posted to
+mention: alice             # the principal the findings mention
+stale_after: 3d
+landing_lag: 1h
+people:                    # the host's logins of team members
+  alice-example: alice
+  bob-example: bob
 ```
 
-`.aries.yaml` is where a project keeps what its members share, and the
-check is run by one of them or by CI from the committed copy (Q3). This
-repository commits none (AGENTS.md), so its runner keeps its own.
+`people` maps the CI host's logins to principals, for the team as a
+whole; it names no secret. Until the setting is built (R1 needs it), the
+check reads the same fields from flags, so that R1 can run read-only.
 
 ## 4. Who runs it, and when
 
@@ -166,18 +175,18 @@ In this order, the first that names an issue wins:
    it. It wins because it is what lands the issue.
 2. **The branch name**, with the project's prefix (`gitx.IDFromBranch`):
    `feature/ar-a1b2-…` is `ar-a1b2`.
-3. **A recorded link**: an issue with the label `pr:N`, found with
-   `list --labels pr:N` over every status. The check puts it on each
-   issue it files (§7); a person may add it by hand to tie an existing
-   issue to a pull request. A label, because it is indexed, listed and
-   filtered by ops that exist, and needs no protocol change; the issue's
-   body carries the full URL. `pr:N` assumes one repository per
-   project; a project with several sets `prs.repo` per checkout and
-   labels `pr:REPO#N`, within the 64 bytes a label may hold (Q2).
+3. **A recorded link**: the issue's `pr` field, the pull request's URL
+   on its host, set by the check on each issue it files (§7) and by a
+   person to tie an existing issue to a pull request (`aries update ID
+   --pr URL`). *Revised by the answer to Q2:* a single field, not a label
+   `pr:N`, so that the project's labels do not grow by one for every pull
+   request (rule 18). `list` gains a filter by it, and the outcome
+   record's O3 reads it. A URL rather than a number, so a project with
+   several repositories needs no prefix. It is a protocol change (§3).
 
 When two of them name different issues, that is a finding of its own
 (`mismatch`), and the trailer is taken. aries-y4ibxmqm has `aries land`
-use the same `pr:N` label to land an issue whose squash commit names
+use the same `pr` field to land an issue whose squash commit names
 only `(#N)`.
 
 ## 7. Findings
@@ -191,7 +200,7 @@ a pull request that is fixed and then breaks again is reported again.
 
 | Kind | When | Key | Needs a person |
 |---|---|---|---|
-| `no-issue` | No trailer, branch or `pr:N` names an issue | `no-issue:N` | Only for an outside contributor's (§7.1); the issue is filed either way |
+| `no-issue` | No trailer, branch or recorded `pr` names an issue | `no-issue:N` | Only for an outside contributor's (§7.1); the issue is filed either way |
 | `unknown-issue` | It names an issue the project does not have | `unknown:N:ID` | Yes |
 | `issue-closed` | Its issue is closed, and the pull request is still open | `closed:N:ID` | Yes: close the pull request or reopen the issue |
 | `mismatch` | Two of §6's ways name different issues | `mismatch:N:SHA` | Yes |
@@ -229,7 +238,7 @@ that step with this command's first slice (Q7).
 | `awaiting-landing` | Merged more than `landing_lag` (1 hour) ago; its issue requires `landed` and has no report of it | `awaiting:N` | Yes: the pull job has not run, or skipped (§10) |
 | `merged-open` | Merged; its issue's `landed` passed, and the issue is still open because acceptance items are unsettled | `merged-open:N:ID` | Yes, naming the open items |
 | `stranded` | Merged, and its branch's head on the remote is not the head it merged with, with commits after it (`Ahead` > 0), or the branch was deleted and pushed again | `stranded:N:SHA` | Yes: replay the commits on a new branch |
-| `closed-unmerged` | Closed without a merge while its issue is open | `pr-closed:N` | Yes, unless the issue is a `chore` the check filed, which it closes (§7.1) |
+| `closed-unmerged` | Closed without a merge while its issue is open | `pr-closed:N` | Yes (§7.1) |
 
 `awaiting-landing` is how the check covers a pull job that does not
 run, whatever the reason: off the default branch, a dirty checkout, a
@@ -247,12 +256,13 @@ For a `no-issue` pull request, with `--post`, the check files one:
 
 | Source | Told apart by | Type | Labels | Assigned |
 |---|---|---|---|---|
-| Dependabot | The author is `dependabot[bot]` | `chore` | `pr:N`, `dependabot`, a model label (`model:sonnet`, Q5) | Nobody |
-| An outside contributor | The author's association is not `OWNER`, `MEMBER` or `COLLABORATOR`, or the head is in a fork | `task` | `pr:N`, `external`, `human` | Nobody |
-| A team member who skipped the workflow | The author's login is in `prs.people`, or the association is a member's | `task` | `pr:N` | The principal `prs.people` maps the login to; nobody if none |
+| Dependabot | The author is `dependabot[bot]` | `task` (Q5) | `dependabot`, a model label (`model:sonnet`, Q5) | Nobody |
+| An outside contributor | The author's association is not `OWNER`, `MEMBER` or `COLLABORATOR`, or the head is in a fork | `task` | `external`, `human` | Nobody |
+| A team member who skipped the workflow | The author's login is in `prs.people`, or the association is a member's | `task` | none | The principal `people` maps the login to; nobody if none |
 
-- **Idempotent.** It looks for `pr:N` first and files nothing if an
-  issue has it, open or closed. The create carries the idempotency key
+- **Each filed issue's `pr` field** is the pull request's URL (§6).
+- **Idempotent.** It looks for an issue whose `pr` is the pull
+  request first and files nothing if one has it, open or closed. The create carries the idempotency key
   `prs-file:N` as well, so two runs at once by one principal make one
   issue.
 - **The title** is `PR N: ` and the pull request's title, cleaned of
@@ -266,13 +276,13 @@ For a `no-issue` pull request, with `--post`, the check files one:
   inbox items to any principal, the maintainer's agents included. A
   body the store's checks refuse is filed with the URL alone and a note
   that its text was left out.
-- **Closed with its pull request.** A `chore`, which under this
-  project's workflow requires no `landed` check, is closed by the
-  check when its pull request closes: with the reason `merged`, citing
-  the merge commit, or `pr-closed`. A `task` requires `landed`: merged,
-  it lands through the `pr:N` label (aries-y4ibxmqm); closed unmerged,
-  the workflow refuses its close, so the check reports
-  `closed-unmerged` for a person to close or keep it.
+- **Closed with its pull request.** Every issue the check files is a
+  `task` (Q5), which requires `landed`: merged, it lands through its
+  `pr` field (aries-y4ibxmqm), with the usual acceptance items settled
+  as any task's are; closed unmerged, the workflow refuses its close, so
+  the check reports `closed-unmerged` for a person to close it with a
+  waiver or keep it. A superseded Dependabot bump is the common case,
+  and a person closes those in one pass from the standing issue's list.
 
 **The trust line.** An outside contributor's code is not run by any
 agent before a person has read it. The check enforces what it can:
@@ -442,7 +452,7 @@ Table tests against a fake `gh` and a real daemon (the e2e world):
   commit on a conflicted pull request posts it again.
 - Two principals running `--post` one after the other post each finding
   once.
-- Dependabot's pull request gets a `chore` with a model label; an
+- Dependabot's pull request gets a `task` with a model label; an
   outside contributor's gets `external` and `human` and no model label;
   a team member's is assigned to the mapped principal.
 - A quoted body with `@name` sends no mention; unsafe characters are
@@ -459,61 +469,64 @@ Table tests against a fake `gh` and a real daemon (the e2e world):
 | Slice | What | Needs |
 |---|---|---|
 | R0 | This design, answered | The maintainer |
+| R0b | The issue's `pr` field and the project's `prs` setting, with `aries admin prs set` and `aries update --pr`: the protocol change of §3, after v0.6.0 | R0 |
 | R1 | `internal/forge` with `gh`, shared with `aries outcome` (outcome-record.md O1, whichever is built first makes it); `aries prs check` read only: §6 and §7, `--json` | R0 |
 | R2 | `--post`: filing (§7.1), posting (§8), the `ended` list; the memory `workflow` gains the draft-for-revision step | R1 |
 | R3 | The `issue.closed` inbox kind (§9), a store change | R0 |
 | R4 | The pull job's three steps (§10), in aries-yryu7pv6 | R2 |
-| — | `aries land` by `pr:N` (aries-y4ibxmqm) | R2 |
+| — | `aries land` by the `pr` field (aries-y4ibxmqm) | R2 |
 | — | The dispatcher's sweep calls R1 (aries-i6fndp4h) | R1 |
 
 ## 15. Questions for the maintainer
 
+Answered by the maintainer on 20 October 2026, each in place.
+
 1. **A document of its own,** with a note in dispatcher.md §8 pointing
-   here, for §2's reasons. *Recommended:* yes.
+   here, for §2's reasons. *Recommended:* yes. *Answered 20 Oct 2026:* yes.
 2. **The recorded link is a label `pr:N`** (§6), not a new field on
    the issue. *Recommended:* the label now, since it needs no protocol
    change and `list` already filters by it; a field can come with the
-   outcome record's O3, which also wants the change on the issue.
+   outcome record's O3, which also wants the change on the issue. *Answered 20 Oct 2026:* a single field, not a label ("Let's use a single field"). §6 and §3 are revised: the issue's `pr` field holds the pull request's URL, set by the check and by a person, a protocol change after v0.6.0 (slice R0b).
 3. **Settings in `.aries.yaml`'s `prs:` block** (§3), flags over them.
    *Recommended:* yes. The alternative, project settings on the server,
    would be a server change shipped in a release, and `prs.people` maps
-   host logins, which are the client's business.
+   host logins, which are the client's business. *Answered 20 Oct 2026:* neither a person's `.aries.yaml` nor flags as the standard: "We need a project/team based standard not an individual developer's settings." §3 is revised: a `prs` document in the project's settings on the server, applied by a project admin as the workflow setting is, with flags for one run only.
 4. **One poster per project** (§4): the pull job here, since CI cannot
    reach this server; the scheduled workflow for a project whose server
    CI reaches. *Recommended:* yes, with the read-back of §8 making a
-   second poster harmless but wasteful.
+   second poster harmless but wasteful. *Answered 20 Oct 2026:* yes.
 5. **Dependabot's issues: `chore`, with `model:sonnet`**, and an agent
    may fix this repository's code for the bump on a branch of its own
    (§11). *Recommended:* yes. `model:haiku` is cheaper but a failing
    bump usually needs reading an API change; `chore` has no `landed`
    check under this project's workflow, so the check closes it at the
-   merge.
+   merge. *Answered 20 Oct 2026:* a `task`, not a `chore`, with `model:sonnet` as recommended: a bump's fix changes code, so it takes a task's acceptance items and the `landed` check. §7.1 is revised.
 6. **Outside contributors: `external` and `human`, no model label**,
    until a person removes `human`. *Recommended:* yes; there is no
-   automatic triage of a fork's code.
+   automatic triage of a fork's code. *Answered 20 Oct 2026:* yes.
 7. **Draft for revision.** When the maintainer asks for a revision of
    an open pull request, the session marks it draft until the revision
    is pushed, and the check reports a draft whose revision is pushed
    (`draft-ready`) or that nobody holds (`draft-orphaned`).
    *Recommended:* yes, the step in the memory `workflow` with R2. A hold
    label the merge queue respects would need a required check of its
-   own; draft is what the queue already refuses.
+   own; draft is what the queue already refuses. *Answered 20 Oct 2026:* yes.
 8. **Who is told about a broken pull request with a live claim:** its
    session, through a comment on its issue, not the maintainer.
    *Recommended:* yes; the maintainer hears of it only once it is
-   orphaned.
+   orphaned. *Answered 20 Oct 2026:* yes.
 9. **`issue.closed` to the last holder's session** (§9), as a store
    change in R3, needing no protocol bump. *Recommended:* yes, and the
-   `ended` list is what cleanup acts on; the item alone wakes nothing.
+   `ended` list is what cleanup acts on; the item alone wakes nothing. *Answered 20 Oct 2026:* yes.
 10. **The pull job always lands** (§10), whether or not it merged.
-    *Recommended:* yes; it costs a `git log` when there is nothing new.
+    *Recommended:* yes; it costs a `git log` when there is nothing new. *Answered 20 Oct 2026:* yes.
 11. **`stale_after` 3 days, `landing_lag` 1 hour, `--max-file` 10.**
-    *Recommended:* yes, as defaults to revisit after a month of runs.
+    *Recommended:* yes, as defaults to revisit after a month of runs. *Answered 20 Oct 2026:* yes.
 12. **The exit code is 0 whatever it finds** (§3). *Recommended:* yes;
     a scheduled job that fails on findings gets ignored. `--strict`,
     exiting 1 on a finding that needs a person, can be added for a
-    workflow that wants a red run.
+    workflow that wants a red run. *Answered 20 Oct 2026:* yes.
 13. **Permanent, not experimental** (unlike `aries dispatch`): it is in
     the v1.0.0 surface. *Recommended:* mark it experimental in its help
     until it has run a month across two runners, then freeze it; the
-    findings' keys and `--json`'s shape are what others will read.
+    findings' keys and `--json`'s shape are what others will read. *Answered 20 Oct 2026:* yes.
