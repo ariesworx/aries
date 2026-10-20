@@ -50,7 +50,6 @@ var helpGroups = []helpGroup{
 		{"handoff", "leave a note for whoever continues; --release lets it go"},
 		{"away", "extend all your claims, before you go offline"},
 		{"lock", "take, renew, release or list a lock; run a command under one"},
-		{"dispatch", "experimental: start agent runs on ready issues, within a budget"},
 		{"inbox", "list your unread lost claims, handoffs, mentions, assignments"},
 		{"watch", "print inbox items and, with --events, issue events"},
 		{"who", "list the agents at work and the issues each holds"},
@@ -69,7 +68,6 @@ var helpGroups = []helpGroup{
 		{"cost", "report the cost of tokens, and the hours logged"},
 		{"hours", "log your hours on an issue, undo an entry, or list entries"},
 		{"usage", "send a session's token counts (run by the agent's hooks)"},
-		{"outcome", "experimental: record what an issue's outcome took, once"},
 	}},
 	{"Gates", []helpLine{
 		{"gate", "hold issues until a person passes a gate or CI reports a check"},
@@ -117,11 +115,6 @@ var examples = map[string][]example{
 		{"Open bugs at priority 0 or 1", "aries list -t bug -p 0,1"},
 		{"Everything assigned to alice, closed issues too", "aries list --assignee alice --all"},
 		{"An epic's children in progress", "aries list --status in_progress --parent ar-a1b2c3d4"},
-	},
-	"dispatch": {
-		{"Say what it would start, skip and queue, and why, once", "aries dispatch run --dry-run --once"},
-		{"Keep three runs going, under a lower daily cap", "aries dispatch run --capacity 3 --cap 800000"},
-		{"Stop it, interrupting its runs", "aries dispatch stop --now"},
 	},
 	"ready": {
 		{"What to work on next", "aries ready"},
@@ -249,11 +242,6 @@ var examples = map[string][]example{
 		{"The last week's cost by account", "aries cost --since 7d"},
 		{"October's, by person", "aries cost --since 2026-10-01 --until 2026-11-01 --group-by person"},
 		{"The ten costliest epics of the week", "aries cost --since 7d --group-by epic -n 10"},
-	},
-	"outcome": {
-		{"Record what a landed issue took, from Aries and the CI host", "aries outcome ar-a1b2c3d4"},
-		{"Print the record of every outcome of the last day, posting nothing", "aries outcome --since 24h --dry-run"},
-		{"Record the past 30 days' outcomes, marked as a backfill", "aries outcome --since 30d --backfill"},
 	},
 	"hours": {
 		{"Log an hour and a half on an issue", `aries hours 1.5h ar-a1b2c3d4 --note "paired with bob"`},
