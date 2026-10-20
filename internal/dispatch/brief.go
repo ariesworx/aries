@@ -65,6 +65,7 @@ func Brief(in BriefInput) string {
 		fmt.Sprintf("Work only in this worktree, %s, on the branch %s. Never touch another checkout, and never the main one.", in.Dir, in.Branch),
 		"At PR time, call `handoff` with state `done`, the PR's link in the note and `ticked` for the items you met; never call `finish`; never merge.",
 		"This run is headless and has no Auto-fix: after opening the PR and handing off, end. The dispatcher's sweep sends a conflicted or failing PR back to this session.",
+		"Issue every command bare: never write `VAR=value` in front of one (GOTOOLCHAIN=local and GOFLAGS=-mod=readonly are already set in your environment), and never wrap one in `mise exec`; the harness denies those forms. If a command is denied, retry it in its allowed form before you give up: one denial is not a block on all Bash, and you must still commit, push, open the PR and hand off.",
 		"Start no background work: a headless run waits for it before exiting.",
 		"Test one package at a time, or with `go test -p 2 ./...`; run a whole suite only under the lock, as `scripts/gate.sh --quick --pgtest-lock` where the repository has it.",
 		fmt.Sprintf("If your claim's lease lapses, `start` %s again before writing to it.", is.ID),

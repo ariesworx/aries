@@ -467,9 +467,19 @@ It departs from or settles the design here:
   `scripts/gate.sh --pgtest-lock` where the repository has it.
 - **Permissions:** `--permission-mode dontAsk` with an allow list
   (`dispatch.DefaultAllowed`: the editing tools, the aries tools, git,
-  Go, the gate, `gh pr create|view|checks|list`) and §11's deny list. A
-  brief that asks for more than the allow list grants is refused by the
-  harness, so the list and the memory `workflow` change together.
+  Go, the gate, `gh pr create|view|checks|list|ready|edit`) and §11's
+  deny list. A brief that asks for more than the allow list grants is
+  refused by the harness, so the list and the memory `workflow` change
+  together. The first live trial (20 October 2026, Haiku) was stopped by
+  one denial: `GOTOOLCHAIN=local GOFLAGS=-mod=readonly go test …` is not
+  matched by `Bash(go:*)`, because an allow rule does not match past a
+  `VAR=value`, and the run took it for a block on all Bash. So a run's
+  environment sets both variables (`runEnv`), the brief says to issue
+  commands bare and retry a denied one in its allowed form, and the list
+  gained `scripts/leftovers.sh`, `gh pr ready`, `gh pr edit` and `cd`.
+  `mise exec` is left out: Claude Code does not strip it, so a rule for
+  it would allow any command. `TestDefaultPermissions` holds one row per
+  command form to Claude Code's documented rules.
 - **CI results** are read from `gh pr view BRANCH` for each ended run,
   and count once per run. Auth is read from the run's JSON result or
   output (an invalid key, `/login`, OAuth, 401, a low credit balance).

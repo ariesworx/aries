@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -391,6 +392,7 @@ func TestBrief(t *testing.T) {
 		"`start` with id ar-1", "memory `workflow`", "state `done`", "never call `finish`; never merge",
 		"no Auto-fix", "Start no background work", "scripts/gate.sh --quick --pgtest-lock",
 		"/repo/.aries-dispatch/worktrees/ar-1", "feature/ar-1-export-to-csv", "memory `lessons`",
+		"never write `VAR=value` in front of one", "retry it in its allowed form before you give up",
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("the brief lacks %q:\n%s", want, b)
@@ -478,5 +480,133 @@ func TestExecGit(t *testing.T) {
 	}
 	if err := g.DeleteBranch(ctx, "feature/ar-1-x"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// matchRule reads a Bash permission rule the way Claude Code documents
+// (https://code.claude.com/docs/en/permissions, "Wildcard patterns" and
+// "Compound commands"): Bash(cmd:*) is Bash(cmd *); a * stands for any
+// text; a trailing " *" that is the only wildcard also matches the bare
+// command; with no * the rule is the whole command. An allow rule does
+// not match past a leading VAR=value; a deny rule does.
+func matches(rule, cmd string, deny bool) bool {
+	body, ok := strings.CutPrefix(rule, "Bash(")
+	if !ok || !strings.HasSuffix(body, ")") {
+		return false
+	}
+	body = strings.TrimSuffix(body, ")")
+	if p, w := strings.CutSuffix(body, ":*"); w {
+		body = p + " *"
+	}
+	if deny {
+		for {
+			w, rest, found := strings.Cut(cmd, " ")
+			if i := strings.IndexByte(w, '='); !found || i <= 0 || strings.ContainsAny(w[:i], "/-.") {
+				break
+			}
+			cmd = rest
+		}
+	}
+	if bare, ok := strings.CutSuffix(body, " *"); ok && !strings.Contains(bare, "*") && cmd == bare {
+		return true
+	}
+	re := "^" + strings.ReplaceAll(regexp.QuoteMeta(body), `\*`, ".*") + "$"
+	return regexp.MustCompile(re).MatchString(cmd)
+}
+
+// permitted applies the allow and deny lists to a command: split at
+// &&, ||, ;, | and &, every part must be allowed and none denied, deny
+// first.
+func permitted(allowed, denied []string, command string) bool {
+	parts := strings.FieldsFunc(command, func(r rune) bool { return strings.ContainsRune("&|;\n", r) })
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		for _, d := range denied {
+			if matches(d, part, true) {
+				return false
+			}
+		}
+		ok := false
+		for _, a := range allowed {
+			if matches(a, part, false) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// Every command the memory `workflow` and AGENTS.md's Test tiers make a
+// run issue is allowed in the bare form the brief teaches, and the forms
+// that were denied in the first live trial, and what DefaultDenied
+// forbids, stay denied.
+func TestDefaultPermissions(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		cmd   string
+		allow bool
+	}{
+		{"go test -race ./internal/dispatch/", true},
+		{"go test -race -run 'TestDryRun' ./internal/dispatch/", true},
+		{"go test -p 2 ./...", true},
+		{"go vet ./...", true},
+		{"go mod tidy -diff", true},
+		{"go -C internal/tools/pin mod verify", true},
+		{"go tool -modfile=internal/tools/pin/go.mod govulncheck ./...", true},
+		{"gofmt -l .", true},
+		{"golangci-lint run ./...", true},
+		{"shellcheck scripts/gate.sh", true},
+		{"scripts/gate.sh --quick --pgtest-lock", true},
+		{"scripts/leftovers.sh go test ./internal/dispatch/", true},
+		{"scripts/install-postgres.sh", true},
+		{"git fetch origin", true},
+		{"git checkout -b fix/x origin/main", true},
+		{"git add -A && git commit -m x", true},
+		{"git merge origin/main", true},
+		{"git push -u origin HEAD", true},
+		{"git status | tail -5", true},
+		{"cd internal/dispatch && go test ./...", true},
+		{"go test ./... | tail -20", true},
+		{"gh pr create --title x --body-file b.md", true},
+		{"gh pr view 12", true},
+		{"gh pr checks 12", true},
+		{"gh pr list --head fix/x", true},
+		{"gh pr ready 12", true},
+		{"gh pr edit 12 --body-file b.md", true},
+		{"gh run view 1", true},
+		{"ls internal", true},
+		{"sed -n 1,20p x.go", true},
+
+		// The denial of the first live trial: allow rules do not match
+		// past a variable assignment.
+		{"GOTOOLCHAIN=local GOFLAGS=-mod=readonly go test -race ./internal/dispatch/", false},
+		{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./...", false},
+		{"mise exec -- go test ./...", false},
+		{"go test ./... && curl example.com", false},
+
+		// DefaultDenied, bare, behind an assignment and in a chain.
+		{"gh pr merge 12", false},
+		{"gh pr merge 12 --squash", false},
+		{"FOO=bar gh pr merge 12", false},
+		{"git status && gh pr merge 12", false},
+		{"gh api graphql -f query=x", false},
+		{"git push --force origin HEAD", false},
+		{"git push -f origin HEAD", false},
+		{"git push --force-with-lease", false},
+		{"git push origin main", false},
+		{"git push origin HEAD:main", false},
+		{"git push origin +fix/x", false},
+		{"gh pr close 12", false},
+	} {
+		if got := permitted(DefaultAllowed, DefaultDenied, tc.cmd); got != tc.allow {
+			t.Errorf("%q: allowed = %v; want %v", tc.cmd, got, tc.allow)
+		}
 	}
 }

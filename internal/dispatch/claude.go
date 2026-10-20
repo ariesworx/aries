@@ -38,15 +38,19 @@ type Claude struct {
 
 // DefaultAllowed is what a run may do without asking, which is all it
 // may do under dontAsk: read and edit its worktree, the aries tools, git,
-// Go and the repository's gate, and gh to open and read its PR. A brief
+// Go and the repository's gate, and gh to open, read and ready its PR. An
+// allow rule does not match a command that begins with VAR=value, nor
+// `mise exec -- …` (which would run anything), so runs get the gate's Go
+// variables in their environment (Dispatcher.runEnv) and the brief tells
+// them to issue commands bare. A brief
 // that asks for more than this grants is refused by the harness, which is
 // what the lessons of 19 October 2026 warned of.
 var DefaultAllowed = []string{
 	"Read", "Edit", "Write", "Glob", "Grep", "TodoWrite", "mcp__aries",
 	"Bash(git:*)", "Bash(go:*)", "Bash(gofmt:*)", "Bash(golangci-lint:*)", "Bash(shellcheck:*)",
-	"Bash(scripts/gate.sh:*)", "Bash(scripts/install-postgres.sh:*)",
-	"Bash(gh pr create:*)", "Bash(gh pr view:*)", "Bash(gh pr checks:*)", "Bash(gh pr list:*)", "Bash(gh run view:*)",
-	"Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)", "Bash(find:*)",
+	"Bash(scripts/gate.sh:*)", "Bash(scripts/leftovers.sh:*)", "Bash(scripts/install-postgres.sh:*)",
+	"Bash(gh pr create:*)", "Bash(gh pr view:*)", "Bash(gh pr checks:*)", "Bash(gh pr list:*)", "Bash(gh pr ready:*)", "Bash(gh pr edit:*)", "Bash(gh run view:*)",
+	"Bash(cd:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)", "Bash(find:*)",
 	"Bash(sed -n:*)", "Bash(mkdir:*)", "Bash(diff:*)",
 }
 
