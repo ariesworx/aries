@@ -42,26 +42,31 @@ type Claude struct {
 // allow rule does not match a command that begins with VAR=value, nor
 // `mise exec -- …` (which would run anything), so runs get the gate's Go
 // variables in their environment (Dispatcher.runEnv) and the brief tells
-// them to issue commands bare. A brief
+// them to issue commands bare. No allowed command is a launcher for
+// arbitrary programs (so no `mise exec`, no `scripts/leftovers.sh`, which
+// runs what follows it; the gate reaches it), except the toolchains git and
+// go, which can run what the run itself wrote. A brief
 // that asks for more than this grants is refused by the harness, which is
 // what the lessons of 19 October 2026 warned of.
 var DefaultAllowed = []string{
 	"Read", "Edit", "Write", "Glob", "Grep", "TodoWrite", "mcp__aries",
 	"Bash(git:*)", "Bash(go:*)", "Bash(gofmt:*)", "Bash(golangci-lint:*)", "Bash(shellcheck:*)",
-	"Bash(scripts/gate.sh:*)", "Bash(scripts/leftovers.sh:*)", "Bash(scripts/install-postgres.sh:*)",
+	"Bash(scripts/gate.sh:*)", "Bash(scripts/install-postgres.sh:*)",
 	"Bash(gh pr create:*)", "Bash(gh pr view:*)", "Bash(gh pr checks:*)", "Bash(gh pr list:*)", "Bash(gh pr ready:*)", "Bash(gh pr edit:*)", "Bash(gh run view:*)",
 	"Bash(cd:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)", "Bash(find:*)",
 	"Bash(sed -n:*)", "Bash(mkdir:*)", "Bash(diff:*)",
 }
 
 // DefaultDenied is what a run may never do, whatever it is allowed
-// (dispatcher.md §11): merge, call gh's API, force a push or push to
+// (dispatcher.md §11): merge, call gh's API, run a program through find
+// (-exec, -execdir, -ok, -okdir), force a push or push to
 // main, or edit the harness's settings, the MCP config or the release
 // keys. Branch protection is the backstop.
 var DefaultDenied = []string{
 	"Bash(gh pr merge:*)", "Bash(gh api:*)",
 	"Bash(git push --force:*)", "Bash(git push -f:*)", "Bash(git push --force-with-lease:*)",
 	"Bash(git push origin main:*)", "Bash(git push origin HEAD:main:*)", "Bash(git push origin +*)",
+	"Bash(find*-exec*)", "Bash(find*-ok*)",
 	"Edit(.claude/**)", "Write(.claude/**)", "Edit(.mcp.json)", "Write(.mcp.json)",
 	"Edit(internal/release/keys.go)", "Write(internal/release/keys.go)",
 }

@@ -542,10 +542,10 @@ that starts with `VAR=value`, so each run's environment carries
 `GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`, as the gate sets them,
 and its brief tells it to issue commands bare and, when one is denied,
 to retry it in its allowed form before giving up. The allow list covers
-git, Go, the gate and `scripts/leftovers.sh`, and `gh pr create`,
+git, Go, the gate, and `gh pr create`,
 `view`, `checks`, `list`, `ready` and `edit`; `gh pr merge`, `gh api`
 and forced or `main` pushes are always denied. `mise exec` is not
-allowed, since it would run anything.
+allowed, nor `scripts/leftovers.sh` (the gate runs it), since each would run anything; `find` with `-exec` or `-ok` is denied.
 
 **Where it keeps its files.** In aries's data directory, under
 `dispatch/PROJECT`: `state.json` (0600), `log.jsonl` (one line per

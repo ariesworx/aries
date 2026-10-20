@@ -476,9 +476,11 @@ It departs from or settles the design here:
   `VAR=value`, and the run took it for a block on all Bash. So a run's
   environment sets both variables (`runEnv`), the brief says to issue
   commands bare and retry a denied one in its allowed form, and the list
-  gained `scripts/leftovers.sh`, `gh pr ready`, `gh pr edit` and `cd`.
-  `mise exec` is left out: Claude Code does not strip it, so a rule for
-  it would allow any command. `TestDefaultPermissions` holds one row per
+  gained `gh pr ready`, `gh pr edit` and `cd`, and the deny list `find`
+  with `-exec`, `-execdir`, `-ok` or `-okdir`. `mise exec` and
+  `scripts/leftovers.sh` are left out: each runs the command after it,
+  which Claude Code does not match against the deny list, so a rule for
+  either would allow any command (the gate reaches leftovers.sh). `TestDefaultPermissions` holds one row per
   command form to Claude Code's documented rules.
 - **CI results** are read from `gh pr view BRANCH` for each ended run,
   and count once per run. Auth is read from the run's JSON result or

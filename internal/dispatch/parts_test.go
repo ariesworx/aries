@@ -564,7 +564,6 @@ func TestDefaultPermissions(t *testing.T) {
 		{"golangci-lint run ./...", true},
 		{"shellcheck scripts/gate.sh", true},
 		{"scripts/gate.sh --quick --pgtest-lock", true},
-		{"scripts/leftovers.sh go test ./internal/dispatch/", true},
 		{"scripts/install-postgres.sh", true},
 		{"git fetch origin", true},
 		{"git checkout -b fix/x origin/main", true},
@@ -589,6 +588,18 @@ func TestDefaultPermissions(t *testing.T) {
 		{"GOTOOLCHAIN=local GOFLAGS=-mod=readonly go test -race ./internal/dispatch/", false},
 		{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./...", false},
 		{"mise exec -- go test ./...", false},
+
+		// Launchers: what follows would get past DefaultDenied if the
+		// launcher were allowed, and find's actions are denied.
+		{"scripts/leftovers.sh gh pr merge 1", false},
+		{"scripts/leftovers.sh go test ./...", false},
+		{"find . -name x.go", true},
+		{"find . -name '*.tmp' -exec gh pr merge 1 ;", false},
+		{"find . -execdir sh -c x ;", false},
+		{"find . -ok rm {} ;", false},
+		{"find . -okdir rm {} ;", false},
+		{"cd /tmp && gh pr merge 1", false},
+		{"cd x; gh api user", false},
 		{"go test ./... && curl example.com", false},
 
 		// DefaultDenied, bare, behind an assignment and in a chain.
