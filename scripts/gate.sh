@@ -284,7 +284,7 @@ elif [ "$(id -u)" != 0 ]; then
 	note "TestCheckPeerOtherUID and TestCheckPeerKeepsStatusFromOtherUsers (internal/server) were skipped: each starts a socket peer as another user, which needs root. CI builds the package's test binary as its own user and runs only that binary under sudo, so that go never runs as root, and under scripts/leftovers.sh, since only root could remove what it left: go test -race -c -o server.test ./internal/server && (cd internal/server && sudo env \"PATH=\$PATH\" ARIES_REQUIRE_POSTGRES=1 ../../scripts/leftovers.sh ../../server.test -test.run '^TestCheckPeer' -test.v); rm server.test"
 fi
 if [ "$smoke" = 0 ]; then
-	note "The Docker smoke test (deploy/docker/smoke.sh, or --smoke) was not run; CI does not run it either. Run it after changing the server, the protocol, deploy/docker or the setup steps in docs/server.md."
+	note "The Docker smoke test (deploy/docker/smoke.sh, or --smoke) was not run; CI runs it only nightly on main, not on a pull request. Run it after changing the server, the protocol, deploy/docker or the setup steps in docs/server.md."
 fi
 note "The soak test ran its short form. Run the long one before changing claims, the reaper, the event log, pushes, the write path, the control store or what happens when access ends (CONTRIBUTING.md, \"The soak test\")."
 
