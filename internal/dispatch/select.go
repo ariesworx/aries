@@ -47,6 +47,8 @@ const (
 	RuleClaimed        = "claimed"
 	RuleModels         = "models"
 	RuleNoModel        = "no-model"
+	RuleOnlyModels     = "only-models"
+	RuleOnlyLabels     = "only-labels"
 	RuleFailedBefore   = "failed-before"
 	RuleUnreadable     = "unreadable"
 	RuleHeld           = "held"
@@ -68,6 +70,8 @@ var why = map[string]string{
 	RuleClaimed:        "another session holds its claim",
 	RuleModels:         "it has more than one model label; a person picks one",
 	RuleNoModel:        "it has no model label (model:haiku, model:sonnet or model:opus); a person labels it",
+	RuleOnlyModels:     "its model is not one of --models",
+	RuleOnlyLabels:     "it lacks a label --labels requires",
 	RuleFailedBefore:   "a run of this dispatcher on it failed or was stopped; a person looks first",
 	RuleUnreadable:     "show failed, so it could not be judged",
 	RuleHeld:           "another session claimed it first",

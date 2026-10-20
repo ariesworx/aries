@@ -119,6 +119,10 @@ func (d *Dispatcher) Wake(ctx context.Context, source string) error {
 	d.say("wake %s", source)
 	d.log(record{Event: "wake", Source: source})
 	d.State.Wake, d.State.WokeAt = source, d.Now().UTC()
+	d.State.Models, d.State.Labels = d.Cfg.Filter.Models, d.Cfg.Filter.Labels
+	if d.Cfg.Filter.Active() {
+		d.say("%s", d.Cfg.Filter)
+	}
 	if !d.Cfg.DryRun {
 		d.reapReady(ctx)
 		d.reconcile(ctx)
@@ -228,7 +232,7 @@ func (d *Dispatcher) judge(ctx context.Context, id string, now time.Time) Decisi
 			return Decision{Action: ActSkip, Issue: id, Rule: RuleUnreadable, Why: why[RuleUnreadable] + ": " + errText(err)}
 		}
 	}
-	return Judge(sr, d.running, pr, now)
+	return d.Cfg.Filter.Apply(sr, Judge(sr, d.running, pr, now))
 }
 
 // decided says and logs a decision.

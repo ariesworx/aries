@@ -104,7 +104,7 @@ func TestDispatchUsage(t *testing.T) {
 	t.Parallel()
 	e := newDispatchEnv(t)
 	for _, args := range [][]string{
-		{"dispatch"}, {"dispatch", "go"}, {"dispatch", "run", "--json"}, {"dispatch", "run", "--capacity", "0"},
+		{"dispatch"}, {"dispatch", "go"}, {"dispatch", "run", "--json"}, {"dispatch", "run", "--capacity", "0"}, {"dispatch", "run", "--models", "gpt"}, {"dispatch", "run", "--labels", "a,,b"},
 		{"dispatch", "run", "extra"}, {"dispatch", "key"}, {"dispatch", "key", "show"},
 	} {
 		// With --json the refusal is the one document on stdout.
@@ -185,6 +185,21 @@ func TestDispatchStatusAndStop(t *testing.T) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
 	}
+	// The filters show only while a dispatcher runs.
+	if strings.Contains(out, "scope:") {
+		t.Errorf("status shows a scope with no filters:\n%s", out)
+	}
+	var sb strings.Builder
+	f := dispatch.Filter{Models: []string{"haiku"}, Labels: []string{"trial"}}
+	printDispatchStatus(&sb, &dispatch.State{PID: 9, Models: f.Models, Labels: f.Labels}, true, "")
+	if !strings.Contains(sb.String(), "scope: only models haiku; only labels trial") {
+		t.Errorf("a running dispatcher's status lacks its scope:\n%s", sb.String())
+	}
+	sb.Reset()
+	printDispatchStatus(&sb, &dispatch.State{Models: f.Models}, false, "")
+	if strings.Contains(sb.String(), "scope:") {
+		t.Errorf("a stopped dispatcher's status shows a scope:\n%s", sb.String())
+	}
 	_, out, _ = e.run(t, "--json", "dispatch", "status")
 	var doc struct {
 		Running bool            `json:"running"`
@@ -258,6 +273,19 @@ func TestDispatchDryRun(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout lacks %q:\n%s", want, out)
 		}
+	}
+	// The filters skip with a rule of their own, and are named.
+	code, out, errb = e.run(t, "dispatch", "run", "--dry-run", "--once", "--models", "haiku,sonnet")
+	if code != ExitOK || !strings.Contains(out, "only models haiku,sonnet") || !strings.Contains(out, "skip ar-1 [only-models]: ") || strings.Contains(out, "would start") {
+		t.Errorf("--models: exit %d\nstdout %s\nstderr %s", code, out, errb)
+	}
+	code, out, errb = e.run(t, "dispatch", "run", "--dry-run", "--once", "--labels", "trial")
+	if code != ExitOK || !strings.Contains(out, "skip ar-1 [only-labels]: ") {
+		t.Errorf("--labels: exit %d\nstdout %s\nstderr %s", code, out, errb)
+	}
+	code, out, errb = e.run(t, "dispatch", "run", "--dry-run", "--once", "--models", "gpt")
+	if code != ExitUsage || !strings.Contains(errb+out, "unknown model") || !strings.Contains(errb+out, "fix: use one of haiku, opus, sonnet") {
+		t.Errorf("--models gpt: exit %d, %q %q", code, out, errb)
 	}
 	b, err := os.ReadFile(record) //nolint:gosec // the stand-in's record, in the test's directory
 	if err != nil {

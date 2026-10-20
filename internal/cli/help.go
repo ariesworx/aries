@@ -120,7 +120,7 @@ var examples = map[string][]example{
 	},
 	"dispatch": {
 		{"Say what it would start, skip and queue, and why, once", "aries dispatch run --dry-run --once"},
-		{"Keep three runs going, under a lower daily cap", "aries dispatch run --capacity 3 --cap 800000"},
+		{"Scope a trial to cheap, labeled work", "aries dispatch run --models haiku --labels trial"},
 		{"Stop it, interrupting its runs", "aries dispatch stop --now"},
 	},
 	"ready": {

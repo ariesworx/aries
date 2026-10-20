@@ -433,6 +433,15 @@ It departs from or settles the design here:
   with no open PR and no `waiting:maintainer` label, which is what
   `partial` means, so a design that waits on answers must carry the label.
   An unreadable PR skips as `unreadable`; without a forge no PR is read.
+- **A run can be scoped (aries-mqfm3htv).** `--models haiku[,sonnet]` and
+  `--labels L[,L]` filter what Judge would start (`Filter.Apply`, after
+  every rule above, so a skip keeps its own rule): an issue whose single
+  model label is not listed is skipped as `only-models`, and one that
+  lacks any listed label as `only-labels`. Both are named on a line after
+  `wake`, kept in the state file while a real run lives and shown by
+  `status` as `scope:`. An unknown model is a usage error with a fix.
+  They exist for the first live trial, whose terms are cheap, low-risk
+  work only.
 - **Claim before launch:** `start ID --for 10m` in the run's session,
   then `git worktree add` (a branch that exists is taken as it is), then
   `aries lock run dispatch/runs --capacity N --for 10m -- claude -p …`

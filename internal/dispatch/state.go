@@ -30,7 +30,10 @@ type State struct {
 	PID    int       `json:"pid,omitempty"`
 	Since  time.Time `json:"since,omitzero"`
 	DryRun bool      `json:"dry_run,omitempty"`
-	Runs   []*Run    `json:"runs"`
+	// Models and Labels are the filters in force (--models, --labels).
+	Models []string `json:"models,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+	Runs   []*Run   `json:"runs"`
 	// Failures counts the CI failures in a row on PRs its runs opened.
 	Failures int `json:"ci_failures"`
 	// Stopped is a stop that lasts until `run --clear`: auth.
