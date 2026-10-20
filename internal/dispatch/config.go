@@ -34,7 +34,10 @@ type Config struct {
 	OpusCap int64
 	// MaxFailures is how many CI failures in a row stop it.
 	MaxFailures int
-	// ReadyLimit is how many ready issues each wake reads.
+	// ReadyLimit is how many ready issues each wake reads and judges.
+	// ready has no offset, so the whole backlog is one read: the default
+	// is the server's cap on a ready answer, 500, so that no filter and
+	// no long backlog hides an issue behind the first page.
 	ReadyLimit int
 	// Filter limits the run to some of the ready issues.
 	Filter Filter
@@ -57,7 +60,7 @@ func DefaultConfig() Config {
 		StopGrace:   30 * time.Second,
 		OpusCap:     1_300_000,
 		MaxFailures: 2,
-		ReadyLimit:  20,
+		ReadyLimit:  500,
 	}
 }
 

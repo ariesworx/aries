@@ -138,7 +138,9 @@ func (f *fakeTracker) claim(id string) string {
 
 var errDown = proto.Errf(proto.CodeUnavailable, "retry", "the server cannot be reached")
 
-func (f *fakeTracker) Ready(context.Context, int) ([]proto.Summary, error) {
+// Ready answers up to n issues (the server's cap, 500, when n is 0 or
+// more), as the server's ready does.
+func (f *fakeTracker) Ready(_ context.Context, n int) ([]proto.Summary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.down {
@@ -151,7 +153,10 @@ func (f *fakeTracker) Ready(context.Context, int) ([]proto.Summary, error) {
 			out = append(out, proto.Summary{ID: id, Title: sr.Issue.Title, Status: "open", Priority: sr.Issue.Priority})
 		}
 	}
-	return out, nil
+	if n <= 0 || n > 500 {
+		n = 500
+	}
+	return out[:min(n, len(out))], nil
 }
 
 func (f *fakeTracker) Show(_ context.Context, id string) (proto.ShowResult, error) {
