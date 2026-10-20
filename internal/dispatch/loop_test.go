@@ -68,6 +68,64 @@ func TestDryRunStartsNothing(t *testing.T) {
 	}
 }
 
+// A filter reaches the issues past the first twenty of ready, and the
+// dry run says how many ready issues it judged.
+func TestDryRunJudgesEveryReadyIssue(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		total   int
+		matchAt int // 1-based place of the one Haiku issue, 0 for none
+		limit   int // 0 takes the default
+		want    []string
+		not     []string
+	}{
+		{name: "match on the first page", total: 25, matchAt: 3,
+			want: []string{"would start ar-3 (model haiku)", "judged 25 ready issues"}},
+		{name: "match on the second page", total: 25, matchAt: 23,
+			want: []string{"would start ar-23 (model haiku)", "judged 25 ready issues"}},
+		{name: "no match", total: 25,
+			want: []string{"judged 25 ready issues"}, not: []string{"would start"}},
+		{name: "no ready issue", total: 0, want: []string{"judged 0 ready issues"}},
+		{name: "past the limit one wake reads", total: 25, matchAt: 23, limit: 20,
+			want: []string{"judged 20 ready issues (the most a wake reads)"}, not: []string{"would start"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			for i := 1; i <= tc.total; i++ {
+				label := "model:sonnet"
+				if i == tc.matchAt {
+					label = "model:haiku"
+				}
+				w.tracker.add(fmt.Sprintf("ar-%d", i), "task", label)
+			}
+			cfg := DefaultConfig()
+			cfg.DryRun = true
+			cfg.Filter = Filter{Models: []string{"haiku"}}
+			if tc.limit > 0 {
+				cfg.ReadyLimit = tc.limit
+			}
+			d, _ := w.dispatcher(cfg)
+			if err := d.Wake(t.Context(), WakeStart); err != nil {
+				t.Fatal(err)
+			}
+			out := w.out.String()
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the output lacks %q:\n%s", want, out)
+				}
+			}
+			for _, not := range tc.not {
+				if strings.Contains(out, not) {
+					t.Errorf("the output has %q:\n%s", not, out)
+				}
+			}
+		})
+	}
+}
+
 // A dry run says what holds it, and judges nothing it could not start.
 func TestDryRunSaysWhatHolds(t *testing.T) {
 	t.Parallel()

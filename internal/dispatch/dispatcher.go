@@ -157,6 +157,7 @@ func (d *Dispatcher) fill(ctx context.Context) {
 		d.held(HoldUnreachable, "aries could not be read: "+errText(err))
 		return
 	}
+	d.say("judged %d ready issues%s", len(ready), d.cappedNote(len(ready)))
 	free := in.Free
 	for _, s := range ready {
 		if ctx.Err() != nil {
@@ -177,6 +178,14 @@ func (d *Dispatcher) fill(ctx context.Context) {
 		}
 		d.decided(dec)
 	}
+}
+
+// cappedNote says that n ready issues is all one wake reads, when it is.
+func (d *Dispatcher) cappedNote(n int) string {
+	if n > 0 && n >= d.Cfg.ReadyLimit {
+		return " (the most a wake reads)"
+	}
+	return ""
 }
 
 // inputs reads the day's Opus output, the pause lock and the free slots.

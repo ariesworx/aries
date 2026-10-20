@@ -401,7 +401,7 @@ It departs from or settles the design here:
   reads the two locks each `Config.LockPoll` (90 seconds) and wakes
   (source `lock`) when the pause is released or a slot is free; with a
   slot free and nothing held it never polls. A wake costs a ready read
-  and up to 20 shows, so the poll reads only the locks.
+  and up to 500 shows (below), so the poll reads only the locks.
 
 - **It calls aries as a program.** Every read and write is
   `aries -C TOP --json --no-queue …` (`dispatch.Exec`), not an in-process
@@ -419,8 +419,15 @@ It departs from or settles the design here:
   output and the log; two model labels are a person's to settle, and an
   issue a run of its own failed or was stopped on is not started again
   until `dispatch run --clear` (`failed-before`). Show is read for each
-  ready issue, at most 20, since ready carries no labels; with no slot
-  free a real wake reads none.
+  ready issue, since ready carries no labels; with no slot free a real
+  wake reads none. A wake reads `Config.ReadyLimit` ready issues, 500 by
+  default (aries-4zjc7i7m). `ready` has no offset and the server caps an
+  answer at 500, so the limit is the cap: a first version took 20, and a
+  filter such as `--models haiku` judged 20 issues and started none while
+  two matching ones sat 23rd and 25th. The dry run and the output say
+  `judged N ready issues`, with `(the most a wake reads)` when N reached
+  the limit. Past 500 ready issues, the rest wait for ones ahead to start
+  or close.
 - **A handoff that waits (aries-pcztsm6u).** `handed-off` skips only a
   `done` handoff. The replay of 16-17 October found `partial` handoffs
   whose PR waited on the maintainer judged startable for hours, so a
