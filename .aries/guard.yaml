@@ -1,0 +1,74 @@
+# What an agent session may run in this repository: aries guard's policy
+# (docs/design/guard.md), read by `aries guard --hook` before every Bash,
+# Edit and Write call, in headless runs and Desktop sessions alike.
+#
+# Sessions read a snapshot of this file taken from origin/main at their
+# start, never the copy in their worktree: a change reaches a session
+# only once it is merged, and at the session's next start. Change it by
+# pull request, for the maintainer's review. `aries guard --check`
+# loads it and says whether a command is allowed.
+version: 1
+
+# Variables a command may set in front of a program. One listed with a
+# fix is allowed when its value equals the session's own (it does
+# nothing), and otherwise denied with the fix; one listed with `any`
+# takes any value. One not listed leaves the command to Claude Code's
+# rules, and never hides a denied program.
+env:
+  GOTOOLCHAIN: {fix: "drop GOTOOLCHAIN=…: the session already sets it"}
+  GOFLAGS: {fix: "drop GOFLAGS=…: the session already sets it"}
+  ARIES_REQUIRE_POSTGRES: {any: true}
+  ARIES_E2E_TRANSPORT: {any: true}
+  ARIES_SOAK: {any: true}
+  GOOS: {any: true}
+  GOARCH: {any: true}
+
+# Programs that run the command that follows their own options. The
+# guard reads that command; the wrapper alone allows nothing.
+wrappers:
+  - scripts/leftovers.sh
+
+# Options that take a value, per program, so that the guard finds the
+# subcommand past them: `git -C dir push`, `gh -R owner/repo pr merge`.
+options:
+  git: [-C, -c, --git-dir, --work-tree, --namespace]
+  gh: [-R, --repo]
+  go: [-C]
+
+allow:
+  - tools: [Read, Edit, Write, Glob, Grep, TodoWrite, mcp__aries]
+  - run: [git, go, gofmt, golangci-lint, shellcheck]
+  - run: [scripts/gate.sh, scripts/install-postgres.sh, deploy/docker/smoke.sh]
+  - run: [gh pr create, gh pr view, gh pr checks, gh pr list, gh pr ready, gh pr edit, gh run view]
+  - run: [cd, ls, cat, head, tail, wc, grep, find, sed -n, mkdir, diff]
+
+# Every deny rule says what to do instead (AGENTS.md rule 11). Each is
+# numbered by its place here: deny 1 is the first.
+deny:
+  - run: gh pr merge
+    fix: "merges are the coordinator's: hand off with the PR's link"
+  - run: gh api
+    fix: "gh api is not allowed: use gh pr view, gh pr checks or gh run view"
+  - run: git push
+    flags: [--force, -f, --force-with-lease, --force-if-includes, --mirror, --delete, -d, --all]
+    fix: "push without force to your own branch: git push -u origin HEAD"
+  - run: git push
+    refs: [main]
+    fix: "push to your branch, never main: git push -u origin HEAD"
+  - run: git
+    config: [alias.*]
+    fix: "write the git command out; aliases are not read"
+  - run: find
+    flags: [-exec, -execdir, -ok, -okdir, -delete, -fprint, -fprint0, -fprintf, -fls]
+    fix: "list with find, then act on each path in a command of its own"
+  - run: sed
+    flags: [-i, --in-place]
+    fix: "change files with the Edit tool, not sed -i"
+  - run: sudo
+    fix: "nothing here needs root: run the command as yourself"
+  - run: doas
+    fix: "nothing here needs root: run the command as yourself"
+  - run: su
+    fix: "nothing here needs root: run the command as yourself"
+  - path: [.claude/**, .mcp.json, .aries/guard.yaml, internal/release/keys.go]
+    fix: "this file is the maintainer's: say what it needs in your handoff"

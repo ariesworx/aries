@@ -2,8 +2,9 @@
 
 Status: design, 21 October 2026 (aries-kqoyjyft), decided the same day:
 the maintainer accepted the ten recommendations, recorded in §12, and
-the sections below state what was chosen. Nothing in it is built; §13
-is the plan. It changes what an unattended agent may run, so it is held
+the sections below state what was chosen. G1, the guard itself, is
+built (aries-qdb5xj4w); §14 says where it departs from this design, and
+§13 what is left. It changes what an unattended agent may run, so it is held
 for the maintainer's review under the memory `merges`.
 
 ## 1. Why
@@ -589,3 +590,88 @@ its suggested order, each a pull request of its own.
    go, raising its version.
 5. **Later.** The outcome record counts denials by session; Codex's and
    Gemini's guards when the dispatcher drives them (§9).
+
+## 14. As built
+
+**As built (G1, the guard, 21 October 2026; aries-qdb5xj4w).** Package
+`internal/guard`, `aries guard --hook` and `--check`
+(`internal/cli/guard.go`), and the starting `.aries/guard.yaml`. G2 and
+G3 are not built: `aries setup claude-code` writes no PreToolUse hook
+and no `permissions.deny`, `prime --hook` takes no snapshot, and the
+dispatcher still uses `DefaultAllowed` and `DefaultDenied`; so no
+session runs the guard yet. Where G1 departs from §3 to §11:
+
+- **The parser** (`sh.go`) reads `case`, `select`, functions, `coproc`,
+  arithmetic (`$(( ))`, `(( ))`, `for ((`), a `${…}` holding an
+  expansion or quotes, and a here-document whose unquoted body holds a
+  command substitution as unreadable, rather than reading into them:
+  agents rarely write them, and unreadable is the conservative answer
+  §5 asks for. `if`, `while`, `until`, `for … in`, `{ }`, `( )`, `!` and
+  `[[ ]]` are read, their words checked as commands wherever they stand,
+  without checking that the compound is well formed (a word in a place
+  no command runs is checked all the same, which can only deny more).
+  A word with an unquoted `{…}` holding `}` (brace expansion), `~` at its
+  start, `*`, `?` or a `[…]` is unknown, `{}` alone excepted. A NUL byte
+  is unreadable. Two fuzz targets: `FuzzParse` (a command it calls
+  readable, rendered back in single quotes, reads as the same words; and
+  words quoted in any of the shell's four styles read back as those
+  words or as unknown, never as others), and `FuzzDecide` (a denied
+  command stays denied after another). `TestParseAgainstSh` checks the
+  words against a real `/bin/sh`.
+- **Writes.** A redirection to a file that is not known, or to a
+  relative path after a `cd`, makes the command unreadable; a write
+  outside the repository (other than `/dev/null`, `/dev/stdout`,
+  `/dev/stderr`) is not allowed, so the command gets no decision.
+- **Matching programs.** A deny rule's program matches any path ending
+  in its name (`/usr/bin/gh` is `gh`), and a `wrappers:` entry likewise
+  by its last element, so a wrapper reached by another path is still
+  read through. An allow rule's bare name matches only the bare name, so
+  `x/git` and `/usr/bin/git` are not allowed by `run: [git]`; a rule
+  naming a path matches the program's path from the repository's top,
+  and never after a `cd` in the same command.
+- **The file tools** are denied by path and otherwise get no decision:
+  the guard never answers `allow` for Edit or Write, which would skip
+  the edit prompt a person keeps in a Desktop session. `tools:` remain
+  for the dispatcher's `--allowedTools`.
+- **A `+refspec`** counts as `--force` for a `git push` rule whose
+  `flags:` hold `--force`. git config keys are compared without case
+  (`-c ALIAS.x=…`), as git compares them, and `--config-env` is read.
+- **Built-in options** for `git` and `gh` (`-C`, `-c`, `--git-dir`,
+  `--work-tree`, `--namespace`, `--config-env`; `-R`, `--repo`) apply
+  with or without a file, so the built-in denies see `git -C . push`.
+- **The starting file** adds to §4's: `GOOS`, `GOARCH` and `ARIES_SOAK`
+  with any value (the gate's and the soak's lines);
+  `deploy/docker/smoke.sh` to the allow list (Test tiers);
+  `--force-if-includes` and `--all` to the push flags; `-fprint`,
+  `-fprint0`, `-fprintf` and `-fls` to find's; and deny rules for
+  `sed -i` (an in-place edit through an allowed `sed -n`) and for
+  `sudo`, `doas` and `su`, which §5's table says the starting file
+  denies. The policy file itself is a `path:` of deny 11, and denied by
+  the built-in rule as well.
+- **Rule names** in a denial and in the count: `deny N`, `builtin`,
+  `env NAME`, `unreadable`, and `unavailable` for a headless run that
+  cannot read its snapshot or its input.
+- **The snapshot** (`snapshot.go`) is the policy file's bytes after a
+  first line `# aries guard snapshot 1 mode=desktop|headless
+  policy=present|none`, so that a policy error names its line in the
+  file. A session is headless when its snapshot says so, or when
+  `ARIES_GUARD_POLICY` is set and its snapshot cannot be read. The
+  snapshot of a Desktop session is `guard/SESSION.yaml` under aries's
+  data directory; the session id must be letters, digits, `.`, `_` and
+  `-`. The snapshot directory, and the file `ARIES_GUARD_POLICY` names,
+  are never written.
+- **The count** is `guard/denials.jsonl` with `at`, `session`, `mode`,
+  `tool` and `rule`; past 1 MiB it is moved to `denials.jsonl.1`.
+- **`--check`** takes the commands to decide as arguments, and
+  `--headless`. The preflight of §8 is a test in `scripts/`
+  (`TestGuardAllowsWorkersCommands`): the brief template's commands,
+  the Test tiers' and every line of AGENTS.md's Commands block are
+  allowed by `.aries/guard.yaml` in a headless run. Running §5's rows
+  and checking Claude Code's version before a run are G3's.
+- **Latency.** `BenchmarkDecide`, loading the starting file and
+  deciding a 1 KiB command: about 0.1 ms and 1,800 allocations on an
+  Apple-silicon Mac. The release-built binary, run 300 times as the hook
+  on that command: 4.3 ms at the median and 6.8 ms at the 99th
+  percentile, with one cold start of 188 ms, the first run.
+  `TestDecideAllocations` bounds what one decision allocates, a
+  steadier hold than a wall clock in a parallel suite.

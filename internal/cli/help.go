@@ -88,6 +88,7 @@ var helpGroups = []helpGroup{
 		{"logout", "end your sign-in, and remove it from this machine"},
 		{"whoami", "say who the server takes you for, and how you signed in"},
 		{"mcp", "serve the MCP tools for an agent on stdin and stdout"},
+		{"guard", "check agents' tool calls against the repository's policy"},
 		{"upgrade", "replace aries with the latest verified release"},
 		{"version", "print the aries version"},
 	}},
@@ -259,6 +260,11 @@ var examples = map[string][]example{
 		{"Log an hour and a half on an issue", `aries hours 1.5h ar-a1b2c3d4 --note "paired with bob"`},
 		{"Log 90 minutes on an earlier day", "aries hours 90m ar-a1b2c3d4 --on 2026-10-16"},
 		{"List what was logged on an issue", "aries hours --issue ar-a1b2c3d4"},
+	},
+	"guard": {
+		{"As Claude Code's PreToolUse hook runs it, with the call's JSON on stdin", "aries guard --hook"},
+		{"Check the repository's policy file", "aries guard --check"},
+		{"Say whether a command is allowed in a headless run", `aries guard --check --headless "go test ./..."`},
 	},
 	"usage": {
 		{"As Claude Code's hooks run it, with the hook's JSON on stdin", "aries usage --hook"},
