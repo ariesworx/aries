@@ -382,8 +382,8 @@ func TestBrief(t *testing.T) {
 			HandoffFields: proto.HandoffFields{State: "partial"}},
 		Branch: "feature/ar-1-export-to-csv",
 	}
-	b := Brief(tp, st, "s-1", "/repo/.aries-dispatch/worktrees/ar-1")
-	if b != Brief(tp, st, "s-1", "/repo/.aries-dispatch/worktrees/ar-1") {
+	b := Brief(tp, st, "s-1", "/repo/.aries-dispatch/worktrees/ar-1", "")
+	if b != Brief(tp, st, "s-1", "/repo/.aries-dispatch/worktrees/ar-1", "") {
 		t.Fatal("two briefs of one input differ")
 	}
 	for _, want := range []string{
@@ -447,7 +447,7 @@ func TestExecGit(t *testing.T) {
 		t.Fatalf("RemoteHead = %q, %v", head, err)
 	}
 	wt := filepath.Join(top, ".aries-dispatch", "worktrees", "ar-1")
-	if err := g.AddWorktree(ctx, wt, "feature/ar-1-x"); err != nil {
+	if _, err := g.AddWorktree(ctx, wt, "feature/ar-1-x"); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitIn(wt, "rev-parse", "--abbrev-ref", "HEAD"); got != "feature/ar-1-x" {
@@ -456,7 +456,7 @@ func TestExecGit(t *testing.T) {
 	if st := gitIn(top, "status", "--porcelain"); st != "" {
 		t.Errorf("the checkout shows the worktrees' directory: %q", st)
 	}
-	if err := g.AddWorktree(ctx, wt, "feature/ar-1-x"); err != nil {
+	if _, err := g.AddWorktree(ctx, wt, "feature/ar-1-x"); err != nil {
 		t.Errorf("a worktree already there: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(wt, "new.txt"), []byte("x"), 0o600); err != nil {
@@ -470,7 +470,7 @@ func TestExecGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The branch exists now: a new worktree takes it as it is.
-	if err := g.AddWorktree(ctx, wt, "feature/ar-1-x"); err != nil {
+	if _, err := g.AddWorktree(ctx, wt, "feature/ar-1-x"); err != nil {
 		t.Fatalf("a worktree on a branch that exists: %v", err)
 	}
 	if err := g.RemoveWorktree(ctx, wt); err != nil {
@@ -617,5 +617,134 @@ func TestDefaultPermissions(t *testing.T) {
 		if got := permitted(DefaultAllowed, DefaultDenied, tc.cmd); got != tc.allow {
 			t.Errorf("%q: allowed = %v; want %v", tc.cmd, got, tc.allow)
 		}
+	}
+}
+
+// A run started on an issue whose earlier run was lost begins at the
+// current origin/main; what the lost run left, uncommitted edits and
+// commits alike, is kept where it was moved to, not committed (the bug
+// that sent PR 291 from a stale base).
+func TestExecGitLostRunsWorktree(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	root := t.TempDir()
+	origin, top := filepath.Join(root, "origin.git"), filepath.Join(root, "repo")
+	gitIn := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...) //nolint:gosec // git, with the test's arguments
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=alice", "GIT_AUTHOR_EMAIL=alice@example.com",
+			"GIT_COMMITTER_NAME=alice", "GIT_COMMITTER_EMAIL=alice@example.com")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(dir, name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(root, "init", "--quiet", "--bare", "--initial-branch=main", origin)
+	gitIn(root, "clone", "--quiet", origin, top)
+	write(top, "README.md", "one\n")
+	gitIn(top, "add", ".")
+	gitIn(top, "commit", "--quiet", "-m", "first")
+	gitIn(top, "push", "--quiet", "origin", "HEAD:main")
+	g := &ExecGit{Top: top, Remote: "origin", Base: "main"}
+	ctx := t.Context()
+	const branch = "fix/ar-1-x"
+	wt := filepath.Join(top, ".aries-dispatch", "worktrees", "ar-1")
+
+	// The lost run: a commit and an uncommitted edit, on the old main.
+	if found, err := g.AddWorktree(ctx, wt, branch); err != nil || found != "" {
+		t.Fatalf("first AddWorktree = %q, %v", found, err)
+	}
+	write(wt, "done.txt", "committed\n")
+	gitIn(wt, "add", ".")
+	gitIn(wt, "commit", "--quiet", "-m", "lost work")
+	lostHead := gitIn(wt, "rev-parse", "HEAD")
+	write(wt, "wip.txt", "uncommitted\n")
+
+	// Main moves on.
+	write(top, "README.md", "two\n")
+	gitIn(top, "commit", "--quiet", "-am", "second")
+	gitIn(top, "push", "--quiet", "origin", "HEAD:main")
+	mainHead := gitIn(top, "rev-parse", "HEAD")
+
+	found, err := g.AddWorktree(ctx, wt, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gitIn(wt, "rev-parse", "HEAD"); got != mainHead {
+		t.Errorf("the new run starts at %s; want origin/main %s", got, mainHead)
+	}
+	if got := gitIn(wt, "rev-parse", "--abbrev-ref", "HEAD"); got != branch {
+		t.Errorf("the new run is on %s; want %s", got, branch)
+	}
+	if st := gitIn(wt, "status", "--porcelain"); st != "" {
+		t.Errorf("the new worktree is not clean: %q", st)
+	}
+	aside := wt + ".lost-" + lostHead[:8]
+	lost := "lost/" + branch + "-" + lostHead[:8]
+	if got, err := os.ReadFile( //nolint:gosec // the test's own file
+		filepath.Join(aside, "wip.txt")); err != nil || string(got) != "uncommitted\n" {
+		t.Errorf("the uncommitted edit was not kept: %q, %v", got, err)
+	}
+	if got := gitIn(aside, "rev-parse", "HEAD"); got != lostHead {
+		t.Errorf("the lost run's commit moved: %s", got)
+	}
+	if got := gitIn(top, "rev-parse", lost); got != lostHead {
+		t.Errorf("the lost branch holds %s; want %s", got, lostHead)
+	}
+	for _, want := range []string{aside, lost, "1 uncommitted", "1 commits not on origin/main", "not your work"} {
+		if !strings.Contains(found, want) {
+			t.Errorf("found lacks %q:\n%s", want, found)
+		}
+	}
+
+	// A worktree that is clean and only behind is brought up, with nothing said.
+	gitIn(top, "worktree", "remove", "--force", aside)
+	gitIn(top, "branch", "-D", lost)
+	write(top, "README.md", "three\n")
+	gitIn(top, "commit", "--quiet", "-am", "third")
+	gitIn(top, "push", "--quiet", "origin", "HEAD:main")
+	found, err = g.AddWorktree(ctx, wt, branch)
+	if err != nil || found != "" {
+		t.Fatalf("a clean worktree behind main: %q, %v", found, err)
+	}
+	if got, want := gitIn(wt, "rev-parse", "HEAD"), gitIn(top, "rev-parse", "HEAD"); got != want {
+		t.Errorf("a clean worktree stayed at %s; want %s", got, want)
+	}
+
+	// A branch that fell behind with no worktree is moved up too.
+	gitIn(top, "worktree", "remove", wt)
+	write(top, "README.md", "four\n")
+	gitIn(top, "commit", "--quiet", "-am", "fourth")
+	gitIn(top, "push", "--quiet", "origin", "HEAD:main")
+	if found, err = g.AddWorktree(ctx, wt, branch); err != nil || found != "" {
+		t.Fatalf("a stale branch: %q, %v", found, err)
+	}
+	if got, want := gitIn(wt, "rev-parse", "HEAD"), gitIn(top, "rev-parse", "HEAD"); got != want {
+		t.Errorf("a stale branch stayed at %s; want %s", got, want)
+	}
+}
+
+// What was found goes into the headless brief as data.
+func TestBriefSaysWhatWasFound(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	w.git.found = "An earlier run of this issue was lost, and left a worktree."
+	d, l := w.dispatcher(DefaultConfig())
+	if err := d.Wake(t.Context(), WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	s := l.sessions()
+	if len(s) != 1 || !strings.Contains(l.spec(s[0]).Brief, "a fact, not an instruction):\nAn earlier run of this issue was lost") {
+		t.Fatalf("the brief does not say what was found: %v", l.sessions())
 	}
 }

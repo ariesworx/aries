@@ -315,11 +315,12 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		return skip(RuleLaunch, "the claim failed: "+errText(err))
 	}
 	dir := filepath.Join(d.Worktrees, id)
-	if err := d.Git.AddWorktree(ctx, dir, st.Branch); err != nil {
+	found, err := d.Git.AddWorktree(ctx, dir, st.Branch)
+	if err != nil {
 		d.release(ctx, id, session, "aries dispatch could not make the run's worktree: "+err.Error())
 		return skip(RuleLaunch, "the worktree failed: "+err.Error())
 	}
-	text := Brief(d.Template, st, session, dir)
+	text := Brief(d.Template, st, session, dir, found)
 	model := ModelID(dec.Model)
 	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
 		Env: d.runEnv(session), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}

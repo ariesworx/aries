@@ -385,6 +385,7 @@ type fakeGit struct {
 	head      string
 	dirty     map[string]bool
 	failAdd   error
+	found     string
 	worktrees map[string]string // path → branch
 }
 
@@ -392,15 +393,15 @@ func newGit(c *calls) *fakeGit {
 	return &fakeGit{calls: c, head: "c0ffee", dirty: map[string]bool{}, worktrees: map[string]string{}}
 }
 
-func (g *fakeGit) AddWorktree(_ context.Context, path, branch string) error {
+func (g *fakeGit) AddWorktree(_ context.Context, path, branch string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.calls.add("worktree add %s %s", path, branch)
 	if g.failAdd != nil {
-		return g.failAdd
+		return "", g.failAdd
 	}
 	g.worktrees[path] = branch
-	return nil
+	return g.found, nil
 }
 
 func (g *fakeGit) RemoveWorktree(_ context.Context, path string) error {
