@@ -82,6 +82,42 @@ func TestRecordCI(t *testing.T) {
 	}
 }
 
+// Two runs on one branch share its PR: a lost run and its replacement both
+// read the failing checks of the same commit, and that is one failure. A
+// failure on a new commit of the PR is another.
+func TestReconcileCountsPRsNotRuns(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		heads    []string
+		failures int
+	}{
+		{name: "two runs, one PR and commit", heads: []string{"abc", "abc"}, failures: 1},
+		{name: "a new commit fails again", heads: []string{"abc", "def"}, failures: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			d, _ := w.dispatcher(DefaultConfig())
+			d.State = &State{}
+			for _, head := range tc.heads {
+				// Each run ends, then is read with the PR as it stood then.
+				d.State.Runs = append(d.State.Runs, &Run{Issue: "ar-1", Session: "s1", Branch: "fix/ar-1",
+					Started: w.now, Ended: w.now, Outcome: OutcomeFailed, Worktree: "/elsewhere"})
+				w.forge.set("fix/ar-1", PR{Number: 7, URL: "https://example.com/pr/7", State: "OPEN", Checks: ChecksFail, Head: head})
+				d.reconcile(t.Context())
+				if last := d.State.Runs[len(d.State.Runs)-1]; last.CI != ChecksFail {
+					t.Fatalf("CI %q; want %q", last.CI, ChecksFail)
+				}
+			}
+			if d.State.Failures != tc.failures {
+				t.Errorf("failures = %d; want %d", d.State.Failures, tc.failures)
+			}
+		})
+	}
+}
+
 // Clear clears the stops that wait on a person, and lets an issue a run
 // failed on be started again; a live run is left as it is.
 func TestClear(t *testing.T) {

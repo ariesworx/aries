@@ -132,7 +132,9 @@ Checked before every start, never mid-run:
   reports. The figure lags by at most one turn per run, since usage
   lands at each turn's end.
 - **Two CI failures in a row** on PRs its runs opened: it stops starting
-  work and reports. A green run resets the count. A run that failed for
+  work and reports. A green run resets the count. The count is per PR and
+  commit, not per run: a lost run and its replacement on one branch that
+  read the same checks count once (`State.Counted`). A run that failed for
   its own reasons (auth, the API, a timeout) is not a CI failure; the
   first auth failure stops the dispatcher at once, since every later run
   would fail the same way.

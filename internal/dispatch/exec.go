@@ -289,7 +289,7 @@ type GH struct {
 
 // PR runs `gh pr view BRANCH --json number,url,state,statusCheckRollup`.
 func (g *GH) PR(ctx context.Context, branch string) (*PR, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", branch, "--json", "number,url,state,statusCheckRollup") //nolint:gosec // gh, with a branch start named
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", branch, "--json", "number,url,state,headRefOid,statusCheckRollup") //nolint:gosec // gh, with a branch start named
 	cmd.Dir = g.Dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -315,12 +315,13 @@ func parsePR(b []byte) (*PR, error) {
 		Number int       `json:"number"`
 		URL    string    `json:"url"`
 		State  string    `json:"state"`
+		Head   string    `json:"headRefOid"`
 		Checks []ghCheck `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal(b, &v); err != nil {
 		return nil, fmt.Errorf("gh pr view printed what is not its JSON: %w", err)
 	}
-	return &PR{Number: v.Number, URL: v.URL, State: v.State, Checks: rollup(v.Checks)}, nil
+	return &PR{Number: v.Number, URL: v.URL, State: v.State, Head: v.Head, Checks: rollup(v.Checks)}, nil
 }
 
 // rollup sums a PR's checks up: a failure of any is ChecksFail; one not

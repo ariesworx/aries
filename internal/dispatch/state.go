@@ -73,6 +73,8 @@ type Run struct {
 	// once.
 	PR string `json:"pr,omitempty"`
 	CI string `json:"ci,omitempty"`
+	// Head is the commit of PR that CI is the result for.
+	Head string `json:"head,omitempty"`
 	// Cleaned: its worktree was removed after its issue closed. Left: a
 	// removal was refused and reported, and is tried again.
 	Cleaned bool `json:"cleaned,omitempty"`

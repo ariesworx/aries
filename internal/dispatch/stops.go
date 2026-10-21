@@ -58,6 +58,18 @@ func RecordCI(cfg Config, s *State, pass bool) (tripped bool) {
 	return s.Failures == cfg.MaxFailures
 }
 
+// Counted reports whether another of the runs already counted the CI result
+// of r's PR at r's commit. Two runs on one branch share a PR: the lost run
+// and its replacement read the same checks, and that is one result.
+func (s *State) Counted(r *Run) bool {
+	for _, o := range s.Runs {
+		if o != r && o.CI != "" && o.PR == r.PR && o.Head == r.Head {
+			return true
+		}
+	}
+	return false
+}
+
 // RecordExit counts how a run ended: an auth failure stops the
 // dispatcher at once; nothing else that ends a run is a CI failure.
 func RecordExit(s *State, outcome string) {

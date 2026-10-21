@@ -521,7 +521,9 @@ the issue `waiting:maintainer`.
 **What stops it.** Before each start it reads `aries cost` for the UTC
 day: past the cap, it starts nothing more that day and lets runs end.
 Two CI failures in a row on PRs its runs opened stop it, and a green
-one between resets the count; the first run that fails to authenticate
+one between resets the count. Each PR's result counts once per commit:
+a lost run and its replacement on one branch that read the same failing
+checks are one failure, not two. The first run that fails to authenticate
 stops it at once. A run past 90 minutes is interrupted. Each stop is
 logged once and shown by `status`. The cap is an alert before the
 provider's own: set a spend limit on the key in the provider's console.

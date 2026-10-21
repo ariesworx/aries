@@ -282,8 +282,8 @@ func TestRollup(t *testing.T) {
 			}
 		})
 	}
-	pr, err := parsePR([]byte(`{"number":7,"url":"https://example.com/pr/7","state":"OPEN","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]}`))
-	if err != nil || pr.Number != 7 || pr.State != "OPEN" || pr.Checks != ChecksPass {
+	pr, err := parsePR([]byte(`{"number":7,"url":"https://example.com/pr/7","state":"OPEN","headRefOid":"abc","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]}`))
+	if err != nil || pr.Number != 7 || pr.State != "OPEN" || pr.Head != "abc" || pr.Checks != ChecksPass {
 		t.Errorf("parsePR = %+v, %v", pr, err)
 	}
 }

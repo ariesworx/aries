@@ -431,8 +431,9 @@ func (d *Dispatcher) ended(ctx context.Context, r *Run, e Exit) {
 	}
 }
 
-// reconcile reads each ended run's PR, counting its CI result once, and
-// cleans up after the runs whose issue closed (dispatcher.md §6, §9).
+// reconcile reads each ended run's PR, counting its CI result once per PR
+// and commit, and cleans up after the runs whose issue closed (dispatcher.md
+// §6, §9).
 func (d *Dispatcher) reconcile(ctx context.Context) {
 	for _, r := range d.State.Runs {
 		if r.Live() || r.Cleaned {
@@ -445,12 +446,14 @@ func (d *Dispatcher) reconcile(ctx context.Context) {
 		if pr != nil {
 			r.PR = pr.URL
 			if pr.Checks == ChecksPass || pr.Checks == ChecksFail {
-				r.CI = pr.Checks
-				tripped := RecordCI(d.Cfg, d.State, pr.Checks == ChecksPass)
-				d.log(record{Event: "ci", Issue: r.Issue, Session: r.Session, PR: r.PR, Checks: r.CI, Failures: d.State.Failures})
-				if tripped {
-					d.held(Hold(d.Cfg, d.State, Inputs{Free: 1}))
+				r.CI, r.Head = pr.Checks, pr.Head
+				if !d.State.Counted(r) {
+					tripped := RecordCI(d.Cfg, d.State, pr.Checks == ChecksPass)
+					if tripped {
+						d.held(Hold(d.Cfg, d.State, Inputs{Free: 1}))
+					}
 				}
+				d.log(record{Event: "ci", Issue: r.Issue, Session: r.Session, PR: r.PR, Checks: r.CI, Failures: d.State.Failures})
 			}
 		}
 		d.cleanup(ctx, r, pr)
