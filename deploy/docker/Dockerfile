@@ -7,8 +7,8 @@
 # Behind a TLS-intercepting proxy, pass its CA as a build secret, which is
 # never stored in the image: --secret id=ca,src=/path/to/ca.pem
 
-# golang:1.27.2-trixie
-FROM --platform=$BUILDPLATFORM golang:1.27-trixie@sha256:2f84bc93ecfb2689f782b153fdcd368b5a7ab96c1386c65cdaccf35e726d6a44 AS build
+# golang:1.27.3-trixie
+FROM --platform=$BUILDPLATFORM golang:1.27-trixie@sha256:1896654cfc5c2b5ad74c07f29cb36f5d2d1cbed42e3054070fbfe444e521e83c AS build
 ENV GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./
