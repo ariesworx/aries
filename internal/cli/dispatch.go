@@ -151,11 +151,16 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 			_ = os.Remove(paths.Stop)
 		}()
 	}
-	logf, err := openLog(paths)
-	if err != nil {
-		return err
+	// A dry run opens no log file: it writes nothing, not even an empty file.
+	logf := io.Discard
+	if !cfg.DryRun {
+		f, err := openLog(paths)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		logf = f
 	}
-	defer func() { _ = logf.Close() }()
 	env := r.env.Environ()
 	d := &dispatch.Dispatcher{
 		Cfg: cfg,

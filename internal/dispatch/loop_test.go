@@ -2,7 +2,6 @@ package dispatch
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -53,18 +52,10 @@ func TestDryRunStartsNothing(t *testing.T) {
 			t.Errorf("the dry run's output lacks %q:\n%s", want, out)
 		}
 	}
-	// The log has the same decisions, as ids and rules alone.
-	for _, line := range strings.Split(strings.TrimSpace(w.log.String()), "\n") {
-		var rec map[string]any
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
-			t.Fatalf("log line %q: %v", line, err)
-		}
-		if strings.Contains(line, "Title of") || strings.Contains(line, "Body of") {
-			t.Errorf("the log holds an issue's text: %s", line)
-		}
-	}
-	if !strings.Contains(w.log.String(), `"rule":"human"`) || !strings.Contains(w.log.String(), `"dry_run":true`) {
-		t.Errorf("the log lacks a skip's rule or the dry run:\n%s", w.log.String())
+	// The log is a record of what happened, and a dry run makes nothing
+	// happen: it writes no line, not even a marked one.
+	if w.log.String() != "" {
+		t.Errorf("a dry run wrote to the log:\n%s", w.log.String())
 	}
 }
 

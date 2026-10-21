@@ -412,7 +412,8 @@ It departs from or settles the design here:
   acts on a stale copy, and starts nothing while it cannot read.
 - **`--dry-run`** reads and judges as a real wake does and prints
   `would start`, `skip ID [RULE]` and `queue ID [slots]`, with why; it
-  claims, makes, launches and saves nothing, and needs no key. Every
+  claims, makes, launches, saves and logs nothing (it opens no log file,
+  and writes no line to one), and needs no key. Every
   test of the loop begins there, against stand-ins for aries, git, gh
   and the runner; none starts a harness.
 - **Picking** applies §4's rules in a fixed order, each named in the

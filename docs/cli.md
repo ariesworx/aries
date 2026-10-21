@@ -538,7 +538,8 @@ with `--force`) and the branch deleted when its PR merged.
 **Where it keeps its files.** In aries's data directory, under
 `dispatch/PROJECT`: `state.json` (0600), `log.jsonl` (one line per
 decision: ids, rules, numbers and paths, a brief's SHA-256, never its
-text, a key or an issue's text), and each run's output under `runs/`.
+text, a key or an issue's text; a `--dry-run` creates no log and writes
+no line), and each run's output under `runs/`.
 
 ### See what is happening
 

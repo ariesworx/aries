@@ -85,12 +85,15 @@ type record struct {
 	Output   int64     `json:"output,omitempty"`
 	Cap      int64     `json:"cap,omitempty"`
 	Brief    string    `json:"brief_sha256,omitempty"`
-	DryRun   bool      `json:"dry_run,omitempty"`
 }
 
+// log appends one record to the log, unless it is a dry run: a dry run
+// makes nothing happen, so it writes no line (docs/cli.md, dispatcher.md).
 func (d *Dispatcher) log(r record) {
+	if d.Cfg.DryRun {
+		return
+	}
 	r.At = d.Now().UTC()
-	r.DryRun = d.Cfg.DryRun
 	b, err := json.Marshal(r)
 	if err == nil {
 		_, _ = fmt.Fprintf(d.Log, "%s\n", b)
