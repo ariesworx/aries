@@ -91,8 +91,9 @@ type Exit struct {
 // default branch's ref. [ExecGit] runs git.
 type Git interface {
 	// AddWorktree makes a worktree at path on branch, from the remote's
-	// default branch, or on the branch where it already exists.
-	AddWorktree(ctx context.Context, path, branch string) error
+	// default branch. What an earlier run left there or on the branch is
+	// kept aside, never committed, and described in found for the brief.
+	AddWorktree(ctx context.Context, path, branch string) (found string, err error)
 	// RemoveWorktree removes it without --force: one with changes is
 	// refused.
 	RemoveWorktree(ctx context.Context, path string) error
