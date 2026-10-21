@@ -841,8 +841,10 @@ https:
 - **`refuse_key_proof_v1`** refuses the key proof of `aries` of
   protocol 8 (v0.5.0), which binds nothing of the TLS session (below).
   Off by default, so that those clients keep working until `ProtoMin`
-  moves to 9; set it once every client is v0.6.0 or later. A client it
-  refuses is told, with code `version`, to run `aries upgrade`.
+  moves to 9, which v0.7.0 did: a v0.7.0 server refuses protocol 8's
+  clients at the handshake whatever this says, so the setting matters
+  only to a v0.6.0 server. A client it refuses is told, with code
+  `version`, to run `aries upgrade`.
 
 ### How aries signs in over HTTPS
 
@@ -2486,6 +2488,39 @@ never guessed; until the first price is set, `show` and `digest` show no
 cost at all. Setting the same model and date again replaces the rates;
 setting them to what they are changes nothing. Each change is a
 `price.set` event. Anyone may list prices.
+
+**Prices by prompt length.** Some models charge more for a request whose
+prompt is long: Claude Haiku 5.5 pays $0.50 input, $0.625 five-minute
+write, $1 one-hour write, $0.05 cache read and $2.50 output per million
+tokens when the prompt is over 100,000 tokens, against $0.10, $0.125,
+$0.20, $0.01 and $0.50 up to it ([Anthropic's pricing
+page](https://platform.claude.com/docs/en/about-claude/pricing), "Long
+context pricing"). A price takes that as a **tier**: `--over TOKENS` and a
+second set of the five rates, all required together (0 for what is not
+charged), with the base rates given as before. For example, with invented
+rates:
+
+```sh
+aries admin price set example-small --from 2026-01-01 \
+  --input 0.1 --output 0.5 --cache-write 0.125 --cache-write-1h 0.2 --cache-read 0.01 \
+  --over 100000 --over-input 0.5 --over-output 2.5 --over-cache-write 0.625 \
+  --over-cache-write-1h 1 --over-cache-read 0.05
+```
+
+A usage record is priced at the tier when its **prompt**, its input plus
+cache-write plus cache-read tokens (a count the harness did not report
+counts as none), is *over* `--over`; exactly `--over` tokens is not. Each
+record is priced on its own, as the provider bills a request, and an issue's
+part of a record shared by time is priced at the tier its whole record falls
+in. Only a record of one request (granularity `request`, which is what
+`aries usage --hook` sends for Claude Code, one per response) has a prompt
+length: a record that sums a turn or a session is priced at the base rates,
+so a harness that reports only totals is priced low for such a model.
+Setting a price without `--over` clears a tier it had. The tier is part of
+the price row (migration 3), of the `price.set` event, and of `aries admin
+price list`, which shows it under its price. `price.set` takes `tier` from
+protocol 10; a server of protocol 9 refuses it. The 1.1x of `inference_geo`
+(US-only inference) is not priced.
 
 ## Plans
 

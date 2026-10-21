@@ -22,7 +22,13 @@ import (
 // 10). TestReleasedClients pins which clients are refused, and what each
 // is told.
 //
-// Protocol 9 is v0.6.0's, the first bump since v0.5.0; a release raises
+// Protocol 10 is v0.7.0's: price.set takes tier, the rates of a model
+// priced by prompt length (PriceSetArgs), which a protocol 9 server
+// refuses as an unknown field and a protocol 9 client never sends. It
+// moves ProtoMin to 9, v0.6.0's: v0.5.0's clients, and the key proof they
+// sign (refuse_key_proof_v1), are no longer served.
+//
+// Protocol 9 was v0.6.0's, the first bump since v0.5.0; a release raises
 // the protocol once, and later changes before it ships join it. Two
 // changes make it: handoff takes ticked and waived (HandoffArgs), which
 // a protocol 8 server refuses as unknown fields and a protocol 8 client
@@ -46,9 +52,9 @@ import (
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 9
-	ProtoMin = 8
-	ProtoMax = 9
+	Proto    = 10
+	ProtoMin = 9
+	ProtoMax = 10
 )
 
 // CheckProto returns nil when the client protocol version p is in

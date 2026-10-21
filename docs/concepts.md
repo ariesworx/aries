@@ -666,7 +666,8 @@ issues' tokens plus the unattributed ones are the total.
 each model's API rates, whatever plan pays for them. An admin records the
 rates ([Prices](server.md#prices)); a token is priced by its model's
 rate in effect at the record's time, so a price change never rewrites a
-past cost. Cost is worked out when read, like attribution, and exactly:
+past cost; for a model priced by prompt length, a request with a long
+prompt is priced at the rates for it ([Prices](server.md#prices)). Cost is worked out when read, like attribution, and exactly:
 an issue's share of a split record is priced as the tokens it got, so the
 issues' costs add up to the record's. A model with no price is shown with
 its tokens and marked unpriced, never guessed at. A server with no

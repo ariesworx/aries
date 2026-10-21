@@ -598,8 +598,9 @@ it:
   - **Not covered: a client of protocol 8**, v0.5.0's `aries`, signs a
     proof that binds nothing, and a server of protocol 9 still takes it,
     so that those clients keep working: a relay can still take theirs.
-    This window stays open until `ProtoMin` moves to 9; an operator
-    whose clients have all upgraded closes it sooner with `https:
+    This window stays open until `ProtoMin` moves to 9, which v0.7.0
+    did; on a v0.6.0 server an operator whose clients have all
+    upgraded closes it sooner with `https:
     refuse_key_proof_v1: true` ([Settings](server.md#settings)).
   - **Not covered: behind a proxy** (`tls: proxy`), ariesd never sees
     the client's TLS session, and nginx exports no channel binding, so

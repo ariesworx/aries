@@ -159,3 +159,64 @@ func TestSetPriceLimit(t *testing.T) {
 		t.Errorf("replace at the cap = %q, want %q", got, PriceReplaced)
 	}
 }
+
+// A price's tier is part of what it is: setting the same rates with a
+// different tier replaces the price, the same tier changes nothing, and
+// setting it with none clears the tier. A tier with no threshold, or a
+// rate out of range, is refused.
+func TestSetPriceTier(t *testing.T) {
+	t.Parallel()
+	s, clk := clockStore(t)
+	ctx := t.Context()
+	base, high := rates(1, 2, 3, 4, 5), rates(10, 20, 30, 40, 50)
+	tier := func(over int64, r Rates) *PromptTier { return &PromptTier{Over: over, Rates: r} }
+	steps := []struct {
+		name string
+		tier *PromptTier
+		want PriceChange
+		text string // Prices() after
+	}{
+		{"added with a tier", tier(100, high), PriceAdded, "m@2026-01-01 1/2/3/4/5 over 100 10/20/30/40/50"},
+		{"the same again", tier(100, high), PriceUnchanged, "m@2026-01-01 1/2/3/4/5 over 100 10/20/30/40/50"},
+		{"another threshold", tier(200, high), PriceReplaced, "m@2026-01-01 1/2/3/4/5 over 200 10/20/30/40/50"},
+		{"other tier rates", tier(200, rates(11, 20, 30, 40, 50)), PriceReplaced, "m@2026-01-01 1/2/3/4/5 over 200 11/20/30/40/50"},
+		{"tier cleared", nil, PriceReplaced, "m@2026-01-01 1/2/3/4/5"},
+		{"none again", nil, PriceUnchanged, "m@2026-01-01 1/2/3/4/5"},
+	}
+	for _, st := range steps {
+		clk.add(time.Minute)
+		got, err := s.SetPriceTier(ctx, dana, "m", day("2026-01-01"), base, st.tier)
+		if err != nil || got != st.want {
+			t.Fatalf("%s: SetPriceTier = %q, %v; want %q", st.name, got, err, st.want)
+		}
+		ps, err := s.Prices(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text []string
+		for _, p := range ps {
+			x := fmt.Sprintf("%s@%s %d/%d/%d/%d/%d", p.Model, p.From.Format(time.DateOnly), p.Input, p.Output, p.CacheWrite, p.CacheWrite1h, p.CacheRead)
+			if p.Tier != nil {
+				x += fmt.Sprintf(" over %d %d/%d/%d/%d/%d", p.Tier.Over, p.Tier.Input, p.Tier.Output, p.Tier.CacheWrite, p.Tier.CacheWrite1h, p.Tier.CacheRead)
+			}
+			text = append(text, x)
+		}
+		if got := strings.Join(text, "; "); got != st.text {
+			t.Errorf("%s: Prices() = %s, want %s", st.name, got, st.text)
+		}
+	}
+	for _, bad := range []struct {
+		name string
+		tier *PromptTier
+		text string
+	}{
+		{"no threshold", tier(0, high), "over"},
+		{"negative threshold", tier(-1, high), "over"},
+		{"threshold too large", tier(MaxPromptOver+1, high), "over"},
+		{"tier rate too large", tier(100, rates(1, 1, 1, 1, MaxRate+1)), "cache_read"},
+	} {
+		if _, err := s.SetPriceTier(ctx, dana, "m", day("2026-02-01"), base, bad.tier); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), bad.text) {
+			t.Errorf("SetPriceTier with %s = %v, want ErrInvalid naming %q", bad.name, err, bad.text)
+		}
+	}
+}

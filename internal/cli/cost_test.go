@@ -29,6 +29,16 @@ func TestPrintPrices(t *testing.T) {
 				"MODEL                 FROM              INPUT  OUTPUT  CACHE WRITE  CACHE WRITE 1H  CACHE READ  SET BY\n" +
 				"example-large         2026-01-01        4      20      5            8               0.4         dana\n" +
 				"example-small\\x1b[2J  2026-06-01 09:30  0.25   1.25    0            0               0           erin\n"},
+		{"a tier", proto.PricesResult{Prices: []proto.Price{
+			{Model: "example-small", From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+				Rates: proto.Rates{Input: 100_000, Output: 500_000, CacheWrite: 125_000, CacheWrite1h: 200_000, CacheRead: 10_000},
+				Tier:  &proto.PromptTier{Over: 100_000, Rates: proto.Rates{Input: 500_000, Output: 2_500_000, CacheWrite: 625_000, CacheWrite1h: 1_000_000, CacheRead: 50_000}},
+				SetBy: "dana", SetAt: at},
+		}},
+			"USD per million tokens\n" +
+				"MODEL                 FROM        INPUT  OUTPUT  CACHE WRITE  CACHE WRITE 1H  CACHE READ  SET BY\n" +
+				"example-small         2026-01-01  0.1    0.5     0.125        0.2             0.01        dana\n" +
+				"  prompt over 100000              0.5    2.5     0.625        1               0.05\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

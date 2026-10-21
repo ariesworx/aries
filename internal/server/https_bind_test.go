@@ -171,7 +171,7 @@ func TestHTTPSProofRelayed(t *testing.T) {
 	})
 	t.Run("a v1 proof", func(t *testing.T) {
 		t.Parallel()
-		_, u, pool := httpsServer(t, nil)
+		_, u, pool := httpsServerMin(t, 8, nil)
 		via, viaPool := relayTLS(t, u, pool, nil)
 		c := dialVia(t, via, viaPool)
 		if f := proveV1(t, c, u, alice); f != nil {
@@ -252,7 +252,7 @@ func TestHTTPSProofV1(t *testing.T) {
 	alice := signerOf(t, "alice")
 	t.Run("served", func(t *testing.T) {
 		t.Parallel()
-		_, u, pool := httpsServer(t, nil)
+		_, u, pool := httpsServerMin(t, 8, nil)
 		c := dialVia(t, u, pool)
 		if f := proveV1(t, c, u, alice); f != nil {
 			t.Fatalf("alice's v1 proof: %+v", f.Err)
@@ -299,7 +299,7 @@ func TestHTTPSProxyBindsNothing(t *testing.T) {
 	t.Parallel()
 	const public = "https://aries.example.com"
 	setup := func(t *testing.T) func() *wsconn.Conn {
-		cfg := Config{AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))}
+		cfg := Config{ProtoMin: 8, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"))} // 8's clients sign the v1 proof
 		listenHTTPS(t, &cfg, func(h *HTTPS) {
 			h.TLS, h.Trusted, h.URLs = nil, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, []string{public}
 		})

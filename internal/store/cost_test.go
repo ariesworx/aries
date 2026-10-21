@@ -804,3 +804,56 @@ func TestCostReportAmortizedLargeMonth(t *testing.T) {
 		}
 	})
 }
+
+// A price may name a prompt length past which another set of rates
+// applies. Each request record is priced on its own prompt (input, cache
+// writes and cache reads); a count equal to the threshold is not past it;
+// a record that sums a span has no prompt length and is priced at the
+// base rates; a price with no tier prices as before.
+func TestCostByPromptLength(t *testing.T) {
+	t.Parallel()
+	base, high := rates(100, 500, 125, 200, 10), rates(500, 2500, 625, 1000, 50)
+	cases := []struct {
+		name  string
+		model string
+		rec   func(at time.Time) UsageRecord
+		want  string // picodollars
+	}{
+		{"prompt at the threshold", "tiered", func(at time.Time) UsageRecord {
+			return cacheRec("r", "tiered", at, 100, 10, 0, nil, 900)
+		}, "24000"}, // 100×100 + 10×500 + 900×10
+		{"prompt past the threshold", "tiered", func(at time.Time) UsageRecord {
+			return cacheRec("r", "tiered", at, 1, 10, 0, nil, 1000)
+		}, "75500"}, // 1×500 + 10×2500 + 1000×50
+		{"cache writes count", "tiered", func(at time.Time) UsageRecord {
+			return cacheRec("r", "tiered", at, 10, 0, 600, n64(100), 500)
+		}, "442500"}, // 10×500 + (600-100)×625 + 100×1000 + 500×50
+		{"a span has no prompt length", "tiered", func(at time.Time) UsageRecord {
+			start := at.Add(-time.Minute)
+			return UsageRecord{Harness: "codex", RequestID: "r", Model: "tiered", At: at, Granularity: GranularityTurn,
+				SpanStart: &start, Tokens: Tokens{Input: n64(5000)}}
+		}, "500000"}, // 5000×100
+		{"no tier", "flat", func(at time.Time) UsageRecord {
+			return cacheRec("r", "flat", at, 1, 10, 0, nil, 1000_000)
+		}, "10005100"}, // 1×100 + 10×500 + 1000000×10
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, clk := clockStore(t)
+			t0 := clk.now()
+			if _, err := s.SetPriceTier(t.Context(), dana, "tiered", day("2026-01-01"), base, &PromptTier{Over: 1000, Rates: high}); err != nil {
+				t.Fatal(err)
+			}
+			mustSetPrice(t, s, "flat", day("2026-01-01"), base)
+			mustAddUsage(t, s, alice, tc.rec(t0.Add(-time.Minute)))
+			rep, err := s.CostReport(t.Context(), CostFilter{By: CostByModel, Since: t0.Add(-time.Hour), Until: t0})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := picos(rep.Total.Cost); got != tc.want {
+				t.Errorf("cost of %s = %s picodollars, want %s", tc.name, got, tc.want)
+			}
+		})
+	}
+}

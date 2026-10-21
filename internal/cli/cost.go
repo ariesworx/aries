@@ -219,7 +219,11 @@ func cmdAdmin(ctx context.Context, r *runner, args []string) error {
 	return adminMember(ctx, r, rest)
 }
 
-const priceUsage = "admin price list | set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD"
+// tierFlags are the rate flags of a long prompt's tier, in rateFlags'
+// order; --over names the prompt length they apply past.
+var tierFlags = []string{"over-input", "over-output", "over-cache-write", "over-cache-write-1h", "over-cache-read"}
+
+const priceUsage = "admin price list | set MODEL --from DATE|TIME --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD [--over TOKENS --over-input USD --over-output USD --over-cache-write USD --over-cache-write-1h USD --over-cache-read USD]"
 
 func adminPrice(ctx context.Context, r *runner, args []string) error {
 	const usage = priceUsage
@@ -230,10 +234,17 @@ func adminPrice(ctx context.Context, r *runner, args []string) error {
 	for _, f := range rateFlags {
 		rates[f] = fs.String(f, "", "US dollars per million tokens")
 	}
+	var over int64
+	fs.Int64Var(&over, "over", 0, "prompt length in tokens past which the --over-* rates apply")
+	tier := map[string]*string{}
+	for _, f := range tierFlags {
+		tier[f] = fs.String(f, "", "US dollars per million tokens, for a request whose prompt is over --over tokens")
+	}
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
 	}
+	tierSet := set(fs, "over") || slices.ContainsFunc(tierFlags, func(f string) bool { return set(fs, f) })
 	switch {
 	case len(pos) == 0:
 		return usagef(usage, "admin price needs list or set")
@@ -241,7 +252,7 @@ func adminPrice(ctx context.Context, r *runner, args []string) error {
 		if len(pos) > 1 {
 			return usagef(usage, "price list takes no arguments")
 		}
-		if set(fs, "from") || slices.ContainsFunc(rateFlags, func(f string) bool { return set(fs, f) }) {
+		if set(fs, "from") || tierSet || slices.ContainsFunc(rateFlags, func(f string) bool { return set(fs, f) }) {
 			return usagef(usage, "only price set takes rates and --from")
 		}
 		return listPrices(ctx, r)
@@ -266,6 +277,26 @@ func adminPrice(ctx context.Context, r *runner, args []string) error {
 	for i, dst := range []*int64{&in.Input, &in.Output, &in.CacheWrite, &in.CacheWrite1h, &in.CacheRead} { // rateFlags' order
 		if *dst, err = proto.ParseRate(*rates[rateFlags[i]]); err != nil {
 			return usagef(usage, "--%s: %v", rateFlags[i], err)
+		}
+	}
+	if tierSet {
+		var missing []string
+		if over <= 0 {
+			missing = append(missing, "--over (a positive number of tokens)")
+		}
+		for _, f := range tierFlags {
+			if !set(fs, f) {
+				missing = append(missing, "--"+f)
+			}
+		}
+		if len(missing) > 0 {
+			return usagef(usage, "a price for long prompts needs %s; give 0 for what the model does not charge", strings.Join(missing, ", "))
+		}
+		in.Tier = &proto.PromptTier{Over: over}
+		for i, dst := range []*int64{&in.Tier.Input, &in.Tier.Output, &in.Tier.CacheWrite, &in.Tier.CacheWrite1h, &in.Tier.CacheRead} {
+			if *dst, err = proto.ParseRate(*tier[tierFlags[i]]); err != nil {
+				return usagef(usage, "--%s: %v", tierFlags[i], err)
+			}
 		}
 	}
 	var out proto.PriceSetResult
@@ -311,6 +342,10 @@ func printPrices(w io.Writer, res proto.PricesResult) {
 		r := p.Rates
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", esc(p.Model), from, proto.FormatRate(r.Input), proto.FormatRate(r.Output),
 			proto.FormatRate(r.CacheWrite), proto.FormatRate(r.CacheWrite1h), proto.FormatRate(r.CacheRead), esc(p.SetBy))
+		if t := p.Tier; t != nil { // the rates past a prompt length, under the price they replace
+			_, _ = fmt.Fprintf(tw, "  prompt over %d\t\t%s\t%s\t%s\t%s\t%s\n", t.Over, proto.FormatRate(t.Input), proto.FormatRate(t.Output),
+				proto.FormatRate(t.CacheWrite), proto.FormatRate(t.CacheWrite1h), proto.FormatRate(t.CacheRead))
+		}
 	}
 	_ = tw.Flush()
 }
