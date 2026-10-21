@@ -104,7 +104,7 @@ type Memory interface {
 type Cost interface {
 	AddUsage(ctx context.Context, actor store.Actor, recs []store.UsageRecord, idem string) (store.UsageAdded, error)
 	CostReport(ctx context.Context, f store.CostFilter) (store.CostReport, error)
-	SetPrice(ctx context.Context, actor store.Actor, model string, from time.Time, r store.Rates) (store.PriceChange, error)
+	SetPriceTier(ctx context.Context, actor store.Actor, model string, from time.Time, r store.Rates, tier *store.PromptTier) (store.PriceChange, error)
 	Prices(ctx context.Context) ([]store.Price, error)
 	SetPlan(ctx context.Context, actor store.Actor, p store.NewPlan) (store.PlanChange, error)
 	Plans(ctx context.Context) ([]store.Plan, error)

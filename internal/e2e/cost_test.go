@@ -39,6 +39,20 @@ func TestCostCLI(t *testing.T) {
 		t.Fatalf("admin price list:\n%s", got)
 	}
 
+	// A price for long prompts: all its rates go with the threshold.
+	tier := append([]string{"admin", "price", "set", "example-tiered", "--from", "2026-01-01"}, rates...)
+	if r := dana.run("v0.2.0", append(tier, "--over", "100000")...); r.code != cli.ExitUsage || !strings.Contains(r.stderr, "--over-input") {
+		t.Fatalf("admin price set --over alone: exit %d\n%s, want usage naming the rates it lacks", r.code, r.stderr)
+	}
+	tier = append(tier, "--over", "100000", "--over-input", "20", "--over-output", "100", "--over-cache-write", "25",
+		"--over-cache-write-1h", "40", "--over-cache-read", "2")
+	if got := dana.ok(tier...); got != "example-tiered from 2026-01-01: added\n" {
+		t.Fatalf("admin price set with a tier: %q", got)
+	}
+	if got := alice.ok("admin", "price", "list"); !strings.Contains(got, "  prompt over 100000              20     100     25           40              2\n") {
+		t.Fatalf("admin price list after a tier:\n%s", got)
+	}
+
 	at := time.Now().UTC()
 	in, out, cw, cw1h, cr := int64(1_000_000), int64(100_000), int64(200_000), int64(50_000), int64(3_000_000)
 	unknown := int64(42)

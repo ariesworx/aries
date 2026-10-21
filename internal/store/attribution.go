@@ -119,6 +119,23 @@ type usageRow struct {
 	Tokens
 }
 
+// prompt is the length of the prompt of the request r records: its input,
+// cache writes and cache reads, an unknown count as none. A record that
+// sums a span (from before to) holds many requests, whose prompts it
+// cannot tell, so it is -1.
+func (r usageRow) prompt() int64 {
+	if !r.from.Equal(r.to) {
+		return -1
+	}
+	var n int64
+	for _, v := range []*int64{r.Input, r.CacheWrite, r.CacheRead} {
+		if v != nil {
+			n += *v
+		}
+	}
+	return n
+}
+
 // IssueUsage returns the time the issue was held, the tokens attributed
 // to it and its account, from one snapshot. An issue that does not exist
 // is ErrNotFound.
@@ -202,7 +219,7 @@ func issueUsage(ctx context.Context, q querier, id IssueID, now time.Time) (Issu
 		}
 		part := d.share(r.Tokens, p)
 		sum.add(r.model, part)
-		cost.add(book, r.model, r.to, part)
+		cost.add(book, r, part)
 		out.Split = out.Split || d.split()
 	}
 	out.Models, out.Cost = sum.models(), book.costOf(cost)
@@ -1029,7 +1046,7 @@ func (q *digestQuery) usage(ctx context.Context, d *Digest) error {
 		d := divide(r, bySession[r.key])
 		if q.f.Label == "" {
 			total.add(r.model, r.Tokens)
-			cost.add(book, r.model, r.to, r.Tokens)
+			cost.add(book, r, r.Tokens)
 			if un := d.unheld(); d.weights[un] > 0 {
 				loose.add(r.model, d.share(r.Tokens, un))
 			}
@@ -1047,7 +1064,7 @@ func (q *digestQuery) usage(ctx context.Context, d *Digest) error {
 		}
 		part := d.share(r.Tokens, in...)
 		total.add(r.model, part)
-		cost.add(book, r.model, r.to, part)
+		cost.add(book, r, part)
 		u.Split = u.Split || d.positive() > len(in)
 	}
 	u.Models, u.Unattributed, u.Cost = total.models(), loose.models(), book.costOf(cost)

@@ -169,8 +169,8 @@ func TestCheckProto(t *testing.T) {
 // reads, with exit code 3: which side is too old, the version the server
 // needs, and that the client is the one to upgrade. From v0.5.0 on, rule
 // 10's bump keeps ProtoMin at the version before, and a client that is
-// then refused must be added here deliberately. Protocol 9 (v0.6.0)
-// keeps serving v0.5.0's clients, of protocol 8.
+// then refused must be added here deliberately. Protocol 10 (v0.7.0)
+// keeps serving v0.5.0's and v0.6.0's clients, of protocols 8 and 9.
 func TestReleasedClients(t *testing.T) {
 	t.Parallel()
 	const fix = "upgrade this client: run `aries upgrade`, or install the latest release (docs/install.md), then restart any agent that runs `aries mcp`"
@@ -179,14 +179,15 @@ func TestReleasedClients(t *testing.T) {
 		proto   int
 		want    string // the refusal's message, or "" when the client is served
 	}{
-		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocols 8 to 9"},
-		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocols 8 to 9"},
-		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocols 8 to 9"},
-		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocols 8 to 9"},
-		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocols 8 to 9"},
-		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocols 8 to 9"},
-		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v0.5.0) needs protocols 8 to 9"},
+		{"a v0.1.x client", 1, "aries speaks protocol 1; the server (v0.5.0) needs protocols 8 to 10"},
+		{"a v0.2.x client", 2, "aries speaks protocol 2; the server (v0.5.0) needs protocols 8 to 10"},
+		{"a v0.3.x client", 3, "aries speaks protocol 3; the server (v0.5.0) needs protocols 8 to 10"},
+		{"a v0.4.x client", 4, "aries speaks protocol 4; the server (v0.5.0) needs protocols 8 to 10"},
+		{"a build of protocol 5", 5, "aries speaks protocol 5; the server (v0.5.0) needs protocols 8 to 10"},
+		{"a build of protocol 6", 6, "aries speaks protocol 6; the server (v0.5.0) needs protocols 8 to 10"},
+		{"a build of protocol 7", 7, "aries speaks protocol 7; the server (v0.5.0) needs protocols 8 to 10"},
 		{"a v0.5.0 client", 8, ""},
+		{"a v0.6.0 client", 9, ""},
 		{"this build", Proto, ""},
 	}
 	for _, tc := range tests {
@@ -200,8 +201,8 @@ func TestReleasedClients(t *testing.T) {
 			}
 		})
 	}
-	if Proto != 9 || ProtoMin != 8 || ProtoMax != 9 {
-		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 9, 8, 9: protocol 9, v0.6.0's, added ticked and waived to handoff and bound the key proof to the TLS session, and ProtoMin stays at v0.5.0's 8. One bump per release raises Proto and ProtoMax and keeps ProtoMin at the last released version: update this test with it", Proto, ProtoMin, ProtoMax)
+	if Proto != 10 || ProtoMin != 8 || ProtoMax != 10 {
+		t.Errorf("Proto, ProtoMin, ProtoMax = %d, %d, %d; want 10, 8, 10: protocol 10, v0.7.0's, added tier to price.set, and ProtoMin stays at v0.5.0's 8 until its own decision moves it. One bump per release raises Proto and ProtoMax and keeps ProtoMin at the last released version: update this test with it", Proto, ProtoMin, ProtoMax)
 	}
 }
 
@@ -213,21 +214,21 @@ func TestCheckProtoBothDirections(t *testing.T) {
 	t.Parallel()
 	old := CheckProto(ProtoMin-1, ProtoMin, ProtoMax, "v1.0.0")
 	if old == nil || old.Code != CodeVersion || !strings.HasPrefix(old.Fix, "upgrade this client: run `aries upgrade`") ||
-		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocols 8 to 9") {
+		strings.Contains(old.Fix, "ariesd upgrade") || !strings.Contains(old.Message, "needs protocols 8 to 10") {
 		t.Errorf("an older client against this server = %+v; want it told to upgrade the client, and the version the server needs", old)
 	}
-	const want = "aries speaks protocol 9; the server (v0.4.0) is older and accepts protocols 2 to 4"
+	const want = "aries speaks protocol 10; the server (v0.4.0) is older and accepts protocols 2 to 4"
 	const fix = "ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server"
 	if e := CheckProto(Proto, 2, 4, "v0.4.0"); e == nil || e.Code != CodeVersion || e.Message != want || e.Fix != fix {
 		t.Errorf("this client against a v0.4.0 server = %+v\nwant %q\nfix %q", e, want, fix)
 	}
 	// A v0.5.0 server accepts 8 alone: this client is refused at the
 	// handshake with code version, whose fix is the server's upgrade.
-	const want5 = "aries speaks protocol 9; the server (v0.5.0) is older and accepts protocol 8"
+	const want5 = "aries speaks protocol 10; the server (v0.5.0) is older and accepts protocol 8"
 	if e := CheckProto(Proto, 8, 8, "v0.5.0"); e == nil || e.Code != CodeVersion || e.Message != want5 || e.Fix != fix {
 		t.Errorf("this client against a v0.5.0 server = %+v\nwant code version, %q\nfix %q", e, want5, fix)
 	}
-	const want7 = "aries speaks protocol 9; the server (dev) is older and accepts protocol 7"
+	const want7 = "aries speaks protocol 10; the server (dev) is older and accepts protocol 7"
 	if e := CheckProto(Proto, 7, 7, "dev"); e == nil || e.Code != CodeVersion || e.Message != want7 || e.Fix != fix {
 		t.Errorf("this client against a server of protocol 7 alone = %+v\nwant %q\nfix %q", e, want7, fix)
 	}

@@ -411,7 +411,8 @@ and what a test that passes there does not do.
     the protocol is raised once per release: the first change after a
     release raises `Proto` and `ProtoMax`, and later changes before that
     release ships join it, with `ProtoMin` at the last released version.
-    Protocol 9 is v0.6.0's (`Proto = ProtoMax = 9`, `ProtoMin = 8`):
+    Protocol 10 is v0.7.0's (`Proto = ProtoMax = 10`, `ProtoMin = 8`):
+    `price.set` takes `tier`. Protocol 9 was v0.6.0's:
     `handoff` takes `ticked` and `waived`, and the HTTPS key proof is
     bound to the TLS session. v1.0.0 is held
     as long as possible, and the releases before it are minor versions.

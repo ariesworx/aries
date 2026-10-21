@@ -52,8 +52,10 @@ func (b priceBook) costOf(c costSum) *Cost {
 }
 
 // at returns the rates of the newest price for model whose effective time
-// is no later than t, or nil when there is none.
-func (b priceBook) at(model string, t time.Time) *Rates {
+// is no later than t, or nil when there is none. When the price has a
+// tier and prompt is past its threshold, they are the tier's. A prompt
+// of -1 is unknown, and takes the price's own rates.
+func (b priceBook) at(model string, t time.Time, prompt int64) *Rates {
 	ps := b[model]
 	n, _ := slices.BinarySearchFunc(ps, t, func(p Price, t time.Time) int {
 		if p.From.After(t) {
@@ -63,6 +65,9 @@ func (b priceBook) at(model string, t time.Time) *Rates {
 	})
 	if n == 0 {
 		return nil
+	}
+	if p := &ps[n-1]; p.Tier != nil && prompt > p.Tier.Over {
+		return &p.Tier.Rates
 	}
 	return &ps[n-1].Rates
 }
@@ -75,11 +80,13 @@ type costSum struct {
 	unpriced map[string]bool
 }
 
-// add prices t, tokens of model at time at, by book. A count is priced
+// add prices t, tokens of the record r, by book: its model's rates at
+// its time, and a tier's when the whole record's prompt is past it, even
+// when t is only a part of the record. A count is priced
 // at its own rate; the five-minute part of a cache write is CacheWrite
 // less CacheWrite1h, and all of it when the one-hour part is unknown.
 // Unknown counts add nothing.
-func (c *costSum) add(book priceBook, model string, at time.Time, t Tokens) {
+func (c *costSum) add(book priceBook, r usageRow, t Tokens) {
 	var n [5]int64
 	for i, v := range []*int64{t.Input, t.Output, t.CacheWrite, t.CacheWrite1h, t.CacheRead} {
 		if v != nil {
@@ -87,17 +94,17 @@ func (c *costSum) add(book priceBook, model string, at time.Time, t Tokens) {
 		}
 	}
 	n[2] -= n[3]
-	r := book.at(model, at)
-	if r == nil {
+	rates := book.at(r.model, r.to, r.prompt())
+	if rates == nil {
 		if n != [5]int64{} {
 			if c.unpriced == nil {
 				c.unpriced = map[string]bool{}
 			}
-			c.unpriced[model] = true
+			c.unpriced[r.model] = true
 		}
 		return
 	}
-	c.addAt(r, n)
+	c.addAt(rates, n)
 }
 
 // addAt adds n to the sums priced by r.
@@ -257,9 +264,9 @@ type costAcc struct {
 	amortized  *big.Int
 }
 
-func (a *costAcc) add(book priceBook, model string, at time.Time, t Tokens) {
+func (a *costAcc) add(book priceBook, r usageRow, t Tokens) {
 	a.tokens.add(t)
-	a.cost.add(book, model, at, t)
+	a.cost.add(book, r, t)
 }
 
 func (a *costAcc) merge(b *costAcc) {
@@ -356,7 +363,7 @@ func (s *Store) CostReport(ctx context.Context, f CostFilter) (CostReport, error
 
 	var total costAcc
 	for _, r := range ur.rows {
-		total.add(book, r.model, r.to, r.Tokens)
+		total.add(book, r, r.Tokens)
 	}
 	for _, h := range hours {
 		total.logged += h.d
@@ -413,7 +420,7 @@ func costGroups(ctx context.Context, q querier, f CostFilter, rows []usageRow, h
 				key = r.model
 			}
 			a := acc(key)
-			a.add(book, r.model, r.to, r.Tokens)
+			a.add(book, r, r.Tokens)
 			z.note(a, r, r.Tokens)
 		}
 		for _, h := range hours {
@@ -490,7 +497,7 @@ func costGroups(ctx context.Context, q querier, f CostFilter, rows []usageRow, h
 		}
 		for k, b := range buckets {
 			a, part := acc(k), d.share(r.Tokens, b...)
-			a.add(book, r.model, r.to, part)
+			a.add(book, r, part)
 			z.note(a, r, part)
 			a.split = a.split || len(buckets) > 1
 			if oc != nil {

@@ -89,6 +89,11 @@ func TestMigrateInboxKinds(t *testing.T) {
 	if _, err := s.w.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version >= 2`); err != nil {
 		t.Fatal(err)
 	}
+	// Migration 3 added columns to prices; take them back too.
+	if _, err := s.w.ExecContext(ctx, `ALTER TABLE prices DROP COLUMN over_prompt, DROP COLUMN tier_input, DROP COLUMN tier_output,
+  DROP COLUMN tier_cache_write, DROP COLUMN tier_cache_write_1h, DROP COLUMN tier_cache_read`); err != nil {
+		t.Fatal(err)
+	}
 	before := []string{"assigned", "mention", "handoff", "conflict", "claim.lost", "lock.granted"}
 	for i, k := range before {
 		if _, err := s.w.ExecContext(ctx, `INSERT INTO inbox (id, to_principal, kind, body, from_principal, at)

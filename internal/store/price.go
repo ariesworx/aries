@@ -27,11 +27,21 @@ type Rates struct {
 	CacheRead    int64 `json:"cache_read"`
 }
 
-// Price is a model's rates from From on, and who last set them.
+// PromptTier is the rates that price a request whose prompt is longer
+// than Over tokens: its input, cache writes and cache reads together. A
+// request of exactly Over tokens is not past it.
+type PromptTier struct {
+	Over int64
+	Rates
+}
+
+// Price is a model's rates from From on, and who last set them. Tier,
+// when set, replaces the rates for a request with a long prompt.
 type Price struct {
 	Model string
 	From  time.Time
 	Rates
+	Tier  *PromptTier
 	SetBy string
 	SetAt time.Time
 }
@@ -60,6 +70,9 @@ const (
 	// MaxRate bounds a rate: a million US dollars per million tokens, far
 	// past any list price, so an extra digit is refused.
 	MaxRate = proto.MaxRate
+	// MaxPromptOver bounds a tier's threshold, as MaxUsageCount bounds a
+	// record's counts: no request has a longer prompt.
+	MaxPromptOver = MaxUsageCount
 	// PriceLead is how far ahead of the server's clock a price may take
 	// effect, so an announced change can be entered early.
 	PriceLead = 366 * 24 * time.Hour
@@ -92,15 +105,31 @@ func (r Rates) validate() error {
 	return nil
 }
 
-// SetPrice records model's rates from from on, which is kept to the
+// validate refuses, with ErrInvalid, a tier with no threshold or one out
+// of range, or a rate out of range.
+func (t PromptTier) validate() error {
+	if t.Over < 1 || t.Over > MaxPromptOver {
+		return fmt.Errorf("%w: over must be from 1 to %d prompt tokens", ErrInvalid, int64(MaxPromptOver))
+	}
+	return t.Rates.validate()
+}
+
+// SetPrice is SetPriceTier with no tier.
+func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from time.Time, r Rates) (PriceChange, error) {
+	return s.SetPriceTier(ctx, actor, model, from, r, nil)
+}
+
+// SetPriceTier records model's rates from from on, which is kept to the
 // microsecond, and says whether it added a price, replaced the one with
 // the same model and time, or found it already so. A change records a
 // price.set event; an unchanged price writes nothing. Only an admin may
 // set a price: anyone else is refused with a [*ForbiddenError]. A model
 // out of proto.UsageModel's shape, a time before 2020-01-01 or more than
 // PriceLead ahead, and a rate out of range are refused with ErrInvalid,
-// and a new price past Limits.Prices with a [*PriceLimitError].
-func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from time.Time, r Rates) (PriceChange, error) {
+// and a new price past Limits.Prices with a [*PriceLimitError]. A tier
+// is a second set of rates for requests whose prompt is over tier.Over
+// tokens; nil is none, and replaces a tier the price had.
+func (s *Store) SetPriceTier(ctx context.Context, actor Actor, model string, from time.Time, r Rates, tier *PromptTier) (PriceChange, error) {
 	if !s.IsAdmin(actor.Principal) {
 		return "", &ForbiddenError{Action: "prices set"}
 	}
@@ -116,29 +145,49 @@ func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from ti
 	if err := r.validate(); err != nil {
 		return "", err
 	}
+	if tier != nil {
+		if err := tier.validate(); err != nil {
+			return "", err
+		}
+	}
 	var out PriceChange
 	err := s.write(ctx, actor, func(w *wtx) error {
 		out = ""
 		var cur Rates
-		err := w.tx.QueryRowContext(ctx, `SELECT input, output, cache_write, cache_write_1h, cache_read FROM prices
-  WHERE model = $1 AND effective_at = $2`, model, from).Scan(&cur.Input, &cur.Output, &cur.CacheWrite, &cur.CacheWrite1h, &cur.CacheRead)
+		var curTier PromptTier
+		err := w.tx.QueryRowContext(ctx, `SELECT input, output, cache_write, cache_write_1h, cache_read,
+  over_prompt, tier_input, tier_output, tier_cache_write, tier_cache_write_1h, tier_cache_read FROM prices
+  WHERE model = $1 AND effective_at = $2`, model, from).Scan(&cur.Input, &cur.Output, &cur.CacheWrite, &cur.CacheWrite1h, &cur.CacheRead,
+			&curTier.Over, &curTier.Input, &curTier.Output, &curTier.CacheWrite, &curTier.CacheWrite1h, &curTier.CacheRead)
 		exists := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("read price: %w", err)
 		}
+		var t PromptTier // the zero tier is none
 		after := map[string]any{"model": model, "from": from, "rates": r}
+		if tier != nil {
+			t = *tier
+			after["tier"] = t
+		}
 		switch {
-		case exists && cur == r:
+		case exists && cur == r && curTier == t:
 			out = PriceUnchanged
 			return nil
 		case exists:
 			if _, err := w.exec(ctx, `UPDATE prices SET input = $1, output = $2, cache_write = $3, cache_write_1h = $4, cache_read = $5,
-  set_by = $6, set_at = $7 WHERE model = $8 AND effective_at = $9`,
-				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.actor.Principal, w.now, model, from); err != nil {
+  over_prompt = $6, tier_input = $7, tier_output = $8, tier_cache_write = $9, tier_cache_write_1h = $10, tier_cache_read = $11,
+  set_by = $12, set_at = $13 WHERE model = $14 AND effective_at = $15`,
+				r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead,
+				t.Over, t.Input, t.Output, t.CacheWrite, t.CacheWrite1h, t.CacheRead,
+				w.actor.Principal, w.now, model, from); err != nil {
 				return fmt.Errorf("replace price: %w", err)
 			}
 			out = PriceReplaced
-			return w.event(ctx, OpPriceSet, PriceTarget, map[string]any{"rates": cur}, after)
+			before := map[string]any{"rates": cur}
+			if curTier.Over > 0 {
+				before["tier"] = curTier
+			}
+			return w.event(ctx, OpPriceSet, PriceTarget, before, after)
 		}
 		var n int
 		if err := w.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM prices`).Scan(&n); err != nil {
@@ -148,9 +197,11 @@ func (s *Store) SetPrice(ctx context.Context, actor Actor, model string, from ti
 			return &PriceLimitError{Max: w.lim.Prices}
 		}
 		if _, err := w.exec(ctx, `INSERT INTO prices
-  (model, effective_at, input, output, cache_write, cache_write_1h, cache_read, set_by, set_at)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			model, from, r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead, w.actor.Principal, w.now); err != nil {
+  (model, effective_at, input, output, cache_write, cache_write_1h, cache_read,
+   over_prompt, tier_input, tier_output, tier_cache_write, tier_cache_write_1h, tier_cache_read, set_by, set_at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			model, from, r.Input, r.Output, r.CacheWrite, r.CacheWrite1h, r.CacheRead,
+			t.Over, t.Input, t.Output, t.CacheWrite, t.CacheWrite1h, t.CacheRead, w.actor.Principal, w.now); err != nil {
 			return fmt.Errorf("add price: %w", err)
 		}
 		out = PriceAdded
@@ -171,11 +222,17 @@ func (s *Store) Prices(ctx context.Context) ([]Price, error) {
 // loadPrices reads every price on q, by model and then effective time.
 func loadPrices(ctx context.Context, q querier) ([]Price, error) {
 	var out []Price
-	err := scanAll(ctx, q, "prices", `SELECT model, effective_at, input, output, cache_write, cache_write_1h, cache_read, set_by, set_at
+	err := scanAll(ctx, q, "prices", `SELECT model, effective_at, input, output, cache_write, cache_write_1h, cache_read,
+  over_prompt, tier_input, tier_output, tier_cache_write, tier_cache_write_1h, tier_cache_read, set_by, set_at
   FROM prices ORDER BY model, effective_at`, nil, func(rs *sql.Rows) error {
 		var p Price
-		if err := rs.Scan(&p.Model, &p.From, &p.Input, &p.Output, &p.CacheWrite, &p.CacheWrite1h, &p.CacheRead, &p.SetBy, &p.SetAt); err != nil {
+		var t PromptTier
+		if err := rs.Scan(&p.Model, &p.From, &p.Input, &p.Output, &p.CacheWrite, &p.CacheWrite1h, &p.CacheRead,
+			&t.Over, &t.Input, &t.Output, &t.CacheWrite, &t.CacheWrite1h, &t.CacheRead, &p.SetBy, &p.SetAt); err != nil {
 			return err
+		}
+		if t.Over > 0 {
+			p.Tier = &t
 		}
 		p.From, p.SetAt = p.From.UTC(), p.SetAt.UTC()
 		out = append(out, p)

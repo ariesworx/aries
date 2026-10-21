@@ -27,7 +27,11 @@ func priceSet(ctx context.Context, pr *served, a store.Actor, in proto.PriceSetA
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpPriceSet, "", 0, err)
 	}
-	c, err := pr.store.SetPrice(ctx, a, in.Model, from, store.Rates(in.Rates))
+	var tier *store.PromptTier
+	if in.Tier != nil {
+		tier = &store.PromptTier{Over: in.Tier.Over, Rates: store.Rates(in.Tier.Rates)}
+	}
+	c, err := pr.store.SetPriceTier(ctx, a, in.Model, from, store.Rates(in.Rates), tier)
 	if err != nil {
 		return nil, pr.mapErr(ctx, proto.OpPriceSet, "", 0, err)
 	}
@@ -41,7 +45,11 @@ func prices(ctx context.Context, pr *served, _ store.Actor, _ proto.PricesArgs) 
 	}
 	out := proto.PricesResult{Prices: []proto.Price{}}
 	for _, p := range ps {
-		out.Prices = append(out.Prices, proto.Price{Model: p.Model, From: p.From, Rates: proto.Rates(p.Rates), SetBy: p.SetBy, SetAt: p.SetAt})
+		pp := proto.Price{Model: p.Model, From: p.From, Rates: proto.Rates(p.Rates), SetBy: p.SetBy, SetAt: p.SetAt}
+		if p.Tier != nil {
+			pp.Tier = &proto.PromptTier{Over: p.Tier.Over, Rates: proto.Rates(p.Tier.Rates)}
+		}
+		out.Prices = append(out.Prices, pp)
 	}
 	return out, nil
 }

@@ -179,11 +179,11 @@ func (o *outcomes) note(book priceBook, id IssueID, r usageRow, part Tokens, spl
 		o.issues[id] = s
 	}
 	s.tokens.add(part)
-	s.cost.add(book, r.model, r.to, part)
+	s.cost.add(book, r, part)
 	s.split = s.split || split
 	if fc := o.states[id].firstClose; !fc.IsZero() && r.to.After(fc) {
 		s.reworkTokens.add(part)
-		s.rework.add(book, r.model, r.to, part)
+		s.rework.add(book, r, part)
 	}
 }
 

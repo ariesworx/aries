@@ -46,12 +46,26 @@ type Rates struct {
 	CacheRead    int64 `json:"cache_read"`
 }
 
+// PromptTier is the rates for a request whose prompt (its input, cache
+// writes and cache reads) is longer than Over tokens, which a model that
+// is priced by prompt length charges (protocol 10). A request of exactly
+// Over tokens is not past it. Only a record of one request has a prompt
+// length: a record that sums a turn or a session is priced at the base
+// rates.
+type PromptTier struct {
+	Over int64 `json:"over"`
+	Rates
+}
+
 // PriceSetArgs sets Model's rates from From on: a date (2006-01-02,
 // midnight UTC) or an RFC 3339 time. Model is spelled as the harness
-// reports it.
+// reports it. Tier, when set, is the rates for a long prompt; setting a
+// price without it clears a tier the price had. A server of protocol 9
+// refuses Tier as an unknown field, which a protocol 9 client never sends.
 type PriceSetArgs struct {
-	Model string `json:"model"`
-	From  string `json:"from"`
+	Model string      `json:"model"`
+	From  string      `json:"from"`
+	Tier  *PromptTier `json:"tier,omitempty"`
 	Rates
 }
 
@@ -69,8 +83,9 @@ type Price struct {
 	Model string    `json:"model"`
 	From  time.Time `json:"from"`
 	Rates
-	SetBy string    `json:"set_by"`
-	SetAt time.Time `json:"set_at"`
+	Tier  *PromptTier `json:"tier,omitempty"`
+	SetBy string      `json:"set_by"`
+	SetAt time.Time   `json:"set_at"`
 }
 
 // PricesResult lists prices by model, then from.
