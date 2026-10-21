@@ -1,11 +1,10 @@
 # The guard: one permission policy for every agent session
 
-Status: design, 21 October 2026, proposed (aries-kqoyjyft). Nothing in
-it is built, and nothing here is decided: §12 lists the questions for
-the maintainer, and where the text below says what the guard does, it
-says what this design proposes until they are answered. It changes what
-an unattended agent may run, so it is held for the maintainer's review
-under the memory `merges`.
+Status: design, 21 October 2026 (aries-kqoyjyft), decided the same day:
+the maintainer accepted the ten recommendations, recorded in §12, and
+the sections below state what was chosen. Nothing in it is built; §13
+is the plan. It changes what an unattended agent may run, so it is held
+for the maintainer's review under the memory `merges`.
 
 ## 1. Why
 
@@ -122,30 +121,44 @@ the SessionStart and usage hooks:
 ```
 
 For each call it reads the hook's input, finds the repository from
-`cwd`, reads the policy file (§4) and gives one of three answers:
+`cwd`, reads the session's snapshot of the policy (§8) and gives one of
+four answers:
 
 | Answer | Output | When |
 |---|---|---|
-| Deny | `permissionDecision: "deny"` with the reason and fix (§7), exit 0 | Any part of the command, read through its wrappers (§5), matches a deny rule; or a file tool's path matches a path rule |
-| Allow | `permissionDecision: "allow"`, exit 0 | Every part of the command matches an allow rule after the guard's own reading (Q2) |
-| No decision | Nothing, exit 0 | Neither: Claude Code's own rules and the session's mode decide, as they do today |
+| Deny | `permissionDecision: "deny"` with the reason and fix (§7), exit 0 | Any part of the command, read through its wrappers (§5), matches a deny rule; or a file tool's path matches a path rule; or, in a headless run, a part cannot be read |
+| Ask | `permissionDecision: "ask"` with the reason, exit 0 | In a Desktop session, a part of the command cannot be read (§5): the person answers |
+| Allow | `permissionDecision: "allow"`, exit 0 | Every part of the command matches an allow rule after the guard's own reading |
+| No decision | Nothing, exit 0 | None of these: Claude Code's own rules and the session's mode decide, as they do today |
 
-An `allow` is what fixes the denials of §1 without a brief line about
-`VAR=value`: `GOTOOLCHAIN=local go test ./...` and
-`scripts/leftovers.sh go test ./...` are allowed because the guard reads
-the assignment and the wrapper, while Claude Code's deny rules, which
-the dispatcher still passes (§8), stay in force under it.
+The guard both allows and denies (decision 2): the policy file is the
+allow list as well as the deny list. An `allow` is what fixes the
+denials of §1 without a brief line about `VAR=value`:
+`GOTOOLCHAIN=local go test ./...` and `scripts/leftovers.sh go test
+./...` are allowed because the guard reads the assignment and the
+wrapper, while Claude Code's deny rules, which keep a coarse copy of the
+policy's (§8), stay in force under it.
+
+A headless run is told apart from a Desktop session by the snapshot's
+origin: the dispatcher writes the run's and marks it headless (§8).
+`permission_mode` alone would not do, since a person may run a Desktop
+session in `dontAsk`.
 
 It never calls the server, reads no `.aries.yaml`, opens no network
-connection and writes no file. Outside a repository with a policy file
-it prints nothing, as `aries prime --hook` does outside an Aries
-repository (Q4).
+connection and starts no git process. The one file it writes is the
+denial count (§7). With no policy file, it applies its built-in denies
+(decision 4): `gh pr merge`, `gh api`, force pushes and pushes to
+`main`, each with its fix, and decides nothing else. Outside a git
+repository it prints nothing, as `aries prime --hook` does outside an
+Aries repository.
 
 ## 4. The policy file
 
-`.aries/guard.yaml`, beside `.aries/workflow.yaml` and
-`.aries/brief.txt` (factory review, step 4). It is the repository's, is
-changed by pull request, and is read with the YAML module `aries`
+`.aries/guard.yaml`, a file of its own beside `.aries/workflow.yaml` and
+`.aries/brief.txt` (factory review, step 4; decision 8: the workflow
+setting may point at it later, once aries-zxxoccdq settles where
+project rules live). It is the repository's, is changed by pull request
+with the maintainer's review (a CODEOWNERS entry, §13), and is read with the YAML module `aries`
 already links (`go.yaml.in/yaml/v3`), so it needs no new dependency. The
 starting file holds this repository's `DefaultAllowed` and
 `DefaultDenied` as they stand on `main`, with a fix on every deny:
@@ -234,14 +247,19 @@ The rules, as the code session would build them:
 - **Deny first.** A call that matches a deny rule is denied whatever
   else it matches. The file is checked on load: an unknown key, a rule
   with no fix, or a version the binary does not know is an error (§6).
-- **Built in, always.** Whatever the file says, edits to the policy file
-  itself are denied (Q6).
+- **Built in, always.** Whatever the file says, edits to the policy
+  file and to the guard's snapshot directory (§8) are denied, through
+  the file tools and through Bash's redirections and `tee`, and so are
+  the built-in denies of §3.
 
 ## 5. How a command is read
 
 The guard parses the command as POSIX `sh` (with bash's `[[`, `|&` and
-`$'…'`), in its own small parser on the standard library, and checks
-every simple command it finds. No `sh` runs, and nothing is expanded
+`$'…'`), in Aries's own small parser on the standard library, and checks
+every simple command it finds (decision 9: no new dependency). The
+parser is conservative: what it is not sure of, it calls unreadable. It
+is fuzzed as `internal/jose` is, with a target that holds it never to
+call readable a command whose words it got wrong. No `sh` runs, and nothing is expanded
 that needs the environment beyond the session's own variables.
 
 **Compound commands.** The command is split at `&&`, `||`, `;`, `|`,
@@ -278,10 +296,11 @@ at most, then unreadable):
 **What it cannot read.** `eval`, `source` or `.` of a file, a
 here-document piped to a shell (`sh <<EOF`), a program named by a
 variable, a command over the parser's limits (64 KiB, nesting of eight)
-or one it fails to parse. Such a command is denied with the fix "write
-it as plain commands, one program each" when any part of it is
-unreadable, in both kinds of session (Q3), since an unreadable part
-could be anything.
+or one it fails to parse. When any part of a command is unreadable,
+since that part could be anything (decision 3), a headless run's
+command is denied with the fix "write it as plain commands, one program
+each", and a Desktop session's gets `ask`, with the same text as the
+reason, so the person decides.
 
 **Arguments it cannot see.** `xargs` and `find -exec` add arguments the
 guard does not know. A deny rule with `flags:` or `refs:` reads
@@ -311,7 +330,8 @@ issue, to the starting file:
 | `echo 1 \| xargs gh pr merge`, `echo main \| xargs git push origin` | deny |
 | `git -C . push origin main`, `git 'push' origin main`, `git push origin HEAD:refs/heads/main`, `git push origin :main`, `git push origin +fix/x` | deny: pushes |
 | `git -c alias.m='!gh pr merge 1' m` | deny: aliases |
-| `eval "gh pr merge 1"`, `$CMD pr merge 1`, `sh <<EOF` | deny: unreadable |
+| `eval "gh pr merge 1"`, `$CMD pr merge 1`, `sh <<EOF` | headless: deny, unreadable; Desktop: ask |
+| Any command, with no policy file | `gh pr merge`, `gh api`, force and `main` pushes denied; the rest no decision |
 | Edit or Write of `.claude/settings.json`, `.mcp.json`, `.aries/guard.yaml`; `echo x > .mcp.json` | deny: the maintainer's |
 
 ## 6. Failing open or closed
@@ -322,23 +342,26 @@ Three things can go wrong, and the design treats them apart:
    it crashes, or it passes its timeout. Claude Code lets the call go
    ahead with a `hook error` notice, unless the hook sets
    `"onFailure": "block"` (§2).
-2. **The guard runs and cannot decide**: the policy file is missing
-   (with the hook written), unreadable, invalid or of a newer version,
-   or the hook's input is not the JSON it expects.
+2. **The guard runs and cannot decide**: the session's snapshot is
+   missing, unreadable, invalid or of a newer version, or the hook's
+   input is not the JSON it expects. (No policy file on `origin/main` is
+   not this case: the built-in denies apply, §3.)
 3. **The command cannot be read** (§5). This is not an error: it is
-   denied, with a fix.
+   denied headless and asked in a Desktop session, with a fix.
 
-For 1 and 2 the design proposes failing **open in a Desktop session and
-closed for a headless run** (Q1):
+For 1 and 2 the guard fails **open in a Desktop session and closed for
+a headless run** (decision 1):
 
 - A Desktop session has a person who sees the notice, and Claude Code's
   own rules and mode still apply. Failing closed there would let one bad
   merge to `.aries/guard.yaml` refuse every Bash and Edit call in every
   session of the repository, the session sent to fix it included. The
-  guard exits 0 and prints a `systemMessage` of one line, `aries guard:
-  policy not applied: .aries/guard.yaml: line 12: unknown key "alow"`,
-  which the person reads, as `prime --hook` turns its errors into one
-  line (CLAUDE.md). It holds no command text.
+  guard applies its built-in denies, exits 0 and prints a
+  `systemMessage` of one line, `aries guard: policy not applied:
+  .aries/guard.yaml: line 12: unknown key "alow"`, which the person
+  reads, as `prime --hook` turns its errors into one line (CLAUDE.md).
+  It holds no command text. `prime --hook` checks the snapshot it takes
+  (§8) and says the same at the session's start.
 - A headless run has no one to read a notice, and its claim and branch
   run unattended. Before it starts a run, the dispatcher runs
   `aries guard --check` in the run's worktree, which loads the policy
@@ -346,8 +369,9 @@ closed for a headless run** (Q1):
   starts no run, with the check's fix in the dispatcher's log and
   status. The run then gets `--settings` with the same hook and
   `"onFailure": "block"`, so a guard that breaks mid-run blocks rather
-  than waves through (Q1: this needs Claude Code 2.1.295 or later on the
-  dispatcher's machine, which `--check` can test).
+  than waves through. That needs Claude Code 2.1.295 or later on the
+  dispatcher's machine, which `--check` tests, refusing an older one
+  with a fix.
 
 Either way, Claude Code's deny rules and branch protection hold: a guard
 that fails open leaves a session where it is today, never below it.
@@ -373,44 +397,67 @@ Only this command was refused; other commands, Bash included, still run.
 - It goes out as `permissionDecisionReason` with exit 0, not exit 2's
   stderr, so the agent reads the guard's text and not a `hook error`
   prefix.
-- The guard keeps no log of what it denied. Counting denials for the
-  outcome record (outcome-record.md) is a later choice (Q7).
+- Each denial appends one line to `guard/denials.jsonl` in aries's data
+  directory (0600, in a 0700 directory, as the dispatcher's log is):
+  the time, the session, the policy's rule number (or `builtin` or
+  `unreadable`) and the tool, never the command, a path or a value
+  (decision 7). A failed write is ignored and changes no answer. The
+  file is bounded like the dispatcher's log, and the outcome record
+  (outcome-record.md) counts each run's denials from it by session.
+  An allow, an ask or no decision writes nothing.
 
 ## 8. One policy file, two readers
 
-**The dispatcher** reads `.aries/guard.yaml` from the run's worktree, a
-fresh branch from `origin/main`, and builds the run's lists from it:
+**Which copy is read** (decision 6). Never a file the agent can edit,
+and no git process per call: each session reads a snapshot of
+`.aries/guard.yaml` taken from `origin/main` once, at its start, with
+one `git show origin/main:.aries/guard.yaml`. The snapshot is kept
+under aries's data directory, in `guard/SESSION.yaml` (0600), outside
+every worktree, and the built-in rule of §4 denies writes to it:
+
+- A headless run's snapshot is taken by the dispatcher at launch,
+  marked headless, and named in the run's environment by
+  `ARIES_GUARD_POLICY`, which a tool call cannot change for the harness.
+- A Desktop session's is taken by `prime --hook` at session start, by
+  the session id the hook's input carries; the guard finds it by the
+  same id.
+- A change to the policy reaches a session only through a merge to
+  `main`, which the CODEOWNERS entry (§13) puts under the maintainer's
+  review, and only at the session's next start. A session that began
+  before the merge keeps its snapshot.
+- A worker's edits to `.aries/guard.yaml` in its own branch change
+  nothing it may run; they are a pull request like any other.
+
+**The dispatcher** reads the run's snapshot and builds the run's lists
+from it:
 
 - `--allowedTools`: the `tools:` names, and each `run:` allow rule as
   Claude Code's `Bash(words *)`, for the forms Claude Code matches
   itself (the guard's `allow` covers the rest).
-- `--disallowedTools`: each word-only deny rule as `Bash(words *)`, and
-  each `path:` as `Edit(path)`. Rules with `flags:`, `refs:` or `config:`
-  have no faithful prefix form and are the guard's alone; the coarse
-  forms of today (`Bash(git push --force:*)`, `Bash(find*-exec*)`) may
-  stay as a second layer (Q5).
+- `--disallowedTools`: the coarse copy of the policy's denies (decision
+  5): each word-only deny rule as `Bash(words *)`, each `path:` as
+  `Edit(path)`, and for rules with `flags:`, `refs:` or `config:`, which
+  have no faithful prefix form, the nearest coarse form, as today's
+  `Bash(git push --force:*)` and `Bash(find*-exec*)` are. The guard
+  remains the exact check; the copy is the layer that holds when the
+  guard does not run.
 - `DefaultAllowed` and `DefaultDenied` go from `claude.go`. A
   repository with no policy file gets no run, with the fix "add
-  .aries/guard.yaml (`aries guard init` writes a starting one)" (Q4).
+  .aries/guard.yaml (`aries guard init` writes a starting one)", as the
+  dispatcher refuses without `.aries/brief.txt` (decision 4).
   `TestDefaultPermissions` becomes the guard's table test, and its
   `matches` helper, a model of Claude Code's matching, stays to check
   the rendered lists.
 
-**`aries setup claude-code`** writes the PreToolUse hook of §3, and
-`--check` reports it missing like the others. It does not copy the
-rules into `.claude/settings.json`'s `permissions`: one copy is the
-point, and a `-p` run in a folder never trusted would not use them
-anyway (§2). Whether it should mirror the deny rules there, as a layer
-that holds when `aries` is not on `PATH`, is Q5.
-
-**Which copy is read.** A worker edits its own worktree, the policy
-file in it included. The built-in path rule denies the file tools and
-redirections there, but a program the worker wrote and ran could still
-rewrite it (§10). The design proposes that a headless run's hook read
-the policy the dispatcher copied, at launch, into the run's directory
-under aries's data directory, named by `ARIES_GUARD_POLICY` in the run's
-environment, which a tool call cannot change for the harness; a Desktop
-session reads its worktree's file (Q6).
+**`aries setup claude-code`** writes the PreToolUse hook of §3 and the
+same coarse copy of the denies into `.claude/settings.json`'s
+`permissions.deny` (decision 5); `--check` reports either missing or out
+of step. Deny rules need no workspace trust, so they hold in a `-p` run
+in a folder never trusted (§2). It writes no `permissions.allow`: the
+guard's `allow` is the one allow list. One function renders the coarse
+copy for both, and a test holds the dispatcher's `--disallowedTools`
+and the repository's `permissions.deny` to the policy file, so the two
+copies cannot drift.
 
 **The preflight** of aries-vhbljxmz's lesson becomes `aries guard
 --check`: it runs the brief template's commands and the gate's lines
@@ -437,9 +484,11 @@ for both (`internal/agentsetup/hook.go`).
 | Project hooks run | when the folder is trusted; always under `-p` | once the `.codex/` layer is trusted and each hook trusted by hash in `/hooks` | in a trusted folder |
 | Form `aries setup` writes | `aries guard --hook` | `aries guard --hook=codex` in `.codex/hooks.json` | `aries guard --hook=gemini` in `.gemini/settings.json` |
 
-So both get a deny-only guard through `aries setup codex` and
-`aries setup gemini`, with the same policy and fixes in each harness's
-shape. Neither gets the guard's `allow`: a Codex or Gemini session's
+Claude Code comes first (decision 10). Codex and Gemini get their
+guards when the dispatcher drives them, and until then `aries setup
+codex` and `aries setup gemini` write only their SessionStart hooks and
+say the guard is not installed. When they come, both get a deny-only
+guard, with the same policy and fixes in each harness's shape. Neither gets the guard's `allow`: a Codex or Gemini session's
 approvals stay its own sandbox and approval policy (dispatcher.md §10).
 Neither has a documented way to fail closed, so for them the guard is a
 guardrail only. Codex's trust by hash means a changed hook command is
@@ -482,9 +531,11 @@ for each, and parallel tool calls start one each. The budget:
   Apple-silicon Mac (21 October 2026), so start-up leaves room for
   reading a file of a few kilobytes and parsing a short command.
 - **Nothing slow on the path**: no server, no `.aries.yaml`, no outbox,
-  no git process, no DNS. The repository's top is found by walking up
-  from `cwd` to `.git`; the policy is parsed fresh each call, since a
-  cache would be one more file to keep and to trust.
+  no git process, no DNS (decision 6: the one `git show` is at the
+  session's start, §8). The repository's top is found by walking up
+  from `cwd` to `.git`; the session's snapshot is parsed fresh each
+  call, since a parsed cache would be one more file to keep and to
+  trust. Only a denial writes, one appended line (§7).
 - **A 5 s timeout** in the hook entry, far above the budget and far
   below Claude Code's 600 s default, so a guard that hangs fails in the
   way §6 chooses, not after ten minutes.
@@ -493,53 +544,48 @@ for each, and parallel tool calls start one each. The budget:
   `TestInitAllocations`-style checks, as `cmd/ariesd` has, can hold it.
   A benchmark in the code session's PR records the number.
 
-## 12. Questions for the maintainer
+## 12. Decisions (maintainer, 21 October 2026)
 
-None is decided here.
+The maintainer accepted the ten recommendations of the questions this
+section first held (a comment on aries-kqoyjyft, 21 October 2026):
 
-1. **Fail open or closed.** Should a guard that cannot run or cannot
-   read its policy fail open in Desktop sessions and closed for headless
-   runs (§6), closed everywhere (every session of the repository blocked
-   by one bad policy file), or open everywhere (headless runs fall back
-   to Claude Code's rules alone)?
-2. **Allow, or deny only.** Should the guard return `allow` for a
-   command whose every part its own reading allows (§3), which fixes
-   `VAR=value` and wrapper denials and makes the policy file the allow
-   list too, or only deny, leaving every approval to Claude Code's
-   prefix rules and the brief's "issue commands bare"?
-3. **Unreadable commands.** Deny in both kinds of session (§5), or deny
-   headless and `ask` in a Desktop session, where a person can answer?
-4. **No policy file.** With the hook written and no
-   `.aries/guard.yaml`, should the guard do nothing (as proposed), or
-   apply built-in deny rules (merges, `gh api`, force and `main`
-   pushes)? And should the dispatcher refuse to run without the file, or
-   fall back to the same built-in rules?
-5. **A second layer.** Should Claude Code's own deny rules be kept as a
-   coarse copy of the policy's, in the dispatcher's
-   `--disallowedTools` and, through `aries setup`, in
-   `.claude/settings.json`'s `permissions.deny`, so that they hold when
-   `aries` is missing, at the price of a second copy that a test must
-   keep in step?
-6. **Which copy of the policy.** Should a headless run's guard read a
-   copy the dispatcher made at launch, outside the worktree (§8), and a
-   Desktop session the file in its worktree? Or should every session
-   read the file at `origin/main` through git, which costs a git process
-   per call and trusts a ref the agent can move? And is the policy file,
-   like `.claude/`, a path only the maintainer changes (a CODEOWNERS
-   entry), so that widening what agents may run is always a person's
-   review?
-7. **Counting denials.** Should the guard record denials (rule number
-   and session, never the command) for the outcome record, which means
-   it writes a file on the hot path, or stay write-free?
-8. **Where the rules live.** A file of its own, `.aries/guard.yaml`, as
-   proposed, or a section of `.aries/workflow.yaml`, which the server
-   applies and versions (factory-review.md question 3)? A file read
-   locally works offline and needs no admin; the workflow setting is the
-   project's one record of its rules.
-9. **The parser.** The design proposes a small `sh` parser of aries's
-   own (§5), on the standard library, fuzzed like `internal/jose`.
-   Should the code session instead propose `mvdan.cc/sh`, a full and
-   maintained parser (BSD-3-Clause), as a new dependency under rule 4,
-   for a person to admit or refuse?
-10. **Codex and Gemini.** Ship the deny-only guard for both in the same
-    slice as Claude Code's, or after the dispatcher drives them?
+1. **Fail open or closed:** open in Desktop sessions, closed in headless runs (§6).
+2. **Allow and deny:** the guard allows a command whose every part it reads and allows, and denies; the policy file is the allow list too (§3).
+3. **Unreadable commands:** denied in headless runs, `ask` in Desktop sessions (§5).
+4. **No policy file:** built-in denies (merges, `gh api`, force pushes, pushes to `main`); the dispatcher refuses to start without the file, as without `.aries/brief.txt` (§3, §8).
+5. **A second layer:** a coarse copy of the denies in the dispatcher's `--disallowedTools` and, through `aries setup`, in `.claude/settings.json`'s `permissions.deny`, held in step by a test (§8).
+6. **Which copy:** a snapshot from `origin/main` once at session start, by the dispatcher at launch and by `prime --hook` for Desktop sessions; never a file the agent can edit, no git process per call; CODEOWNERS entries for `.aries/guard.yaml` and `.aries/brief.txt` (§8, §13).
+7. **Denials counted:** one appended line per denial with the rule number and the session, never the command; write errors ignored; the count feeds the outcome record (§7).
+8. **Where the rules live:** `.aries/guard.yaml`, a file of its own; the workflow setting may point at it once aries-zxxoccdq settles where project rules live (§4).
+9. **The parser:** Aries's own small `sh` parser on the standard library, conservative and fuzzed like `internal/jose`; what it cannot read falls under decision 3; no new dependency (§5).
+10. **Harnesses:** Claude Code first; Codex and Gemini get their guards when the dispatcher drives them (§9).
+
+## 13. Plan
+
+The code is a separate issue the coordinator files; these slices are
+its suggested order, each a pull request of its own.
+
+1. **For the maintainer, before G1 merges:** add `.github/CODEOWNERS`
+   (the repository has none) with entries that require the
+   maintainer's review for `.aries/guard.yaml` and `.aries/brief.txt`,
+   and turn on "Require review from Code Owners" for `main` if it is
+   not on. `.github/` is the maintainer's to change, so no agent edits
+   it.
+2. **G1, the guard.** `aries guard --hook` and `--check`: the parser
+   (§5) with its fuzz target, the policy file's loader (§4), the
+   built-in denies, the four answers (§3), the reasons (§7), the denial
+   line, and the starting `.aries/guard.yaml` holding today's
+   `DefaultAllowed` and `DefaultDenied` with fixes. The table test of
+   §5 and the latency benchmark of §11. `docs/cli.md` gains the command.
+3. **G2, the snapshot and setup.** `prime --hook` takes the Desktop
+   snapshot (§8); `aries setup claude-code` writes the PreToolUse hook
+   and the coarse `permissions.deny`, and `--check` reports both; the
+   test that holds the coarse copy to the file.
+4. **G3, the dispatcher.** It takes the headless snapshot at launch,
+   refuses a repository without the file, runs `aries guard --check`
+   before each run, passes `--settings` with `"onFailure": "block"`,
+   renders its lists from the snapshot, and drops `DefaultAllowed` and
+   `DefaultDenied`; the brief template's line about `VAR=value` can then
+   go, raising its version.
+5. **Later.** The outcome record counts denials by session; Codex's and
+   Gemini's guards when the dispatcher drives them (§9).
