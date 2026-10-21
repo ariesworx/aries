@@ -82,8 +82,15 @@ type Run struct {
 	Cleared bool `json:"cleared,omitempty"`
 }
 
-// Live reports whether the run has not ended.
+// Live reports whether the run has not ended. It is what the state
+// records, which can be out of date: a run whose process ended while no
+// dispatcher watched it is still unended until one adopts it.
 func (r *Run) Live() bool { return r.Ended.IsZero() }
+
+// Alive reports whether the run has not ended and its process still runs
+// with its session in its command line, as Adopt checks it. A pid the
+// system reused is not the run's.
+func (r *Run) Alive() bool { return r.Live() && alive(r.PID, r.Session) }
 
 // Clear clears what waits on a person: the stop an auth failure left,
 // the CI failures in a row, and the hold on issues a run failed on.

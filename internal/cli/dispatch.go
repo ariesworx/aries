@@ -374,14 +374,19 @@ func printDispatchStatus(w io.Writer, s *dispatch.State, running bool, stop stri
 	}
 	live := 0
 	for _, run := range s.Runs {
-		if run.Live() {
+		if run.Alive() {
 			live++
 		}
 	}
 	p("runs: %d live, %d ended", live, len(s.Runs)-live)
 	for _, run := range s.Runs {
 		state := "live"
-		if !run.Live() {
+		switch {
+		case run.Alive():
+		case run.Live():
+			// Unended, and no process: it ended while no dispatcher watched.
+			state = "ended unknown"
+		default:
 			state = "ended " + run.Outcome
 		}
 		line := fmt.Sprintf("  %s  %s  %s  session %s  pid %d  started %s", esc(run.Issue), esc(run.Model), esc(state),

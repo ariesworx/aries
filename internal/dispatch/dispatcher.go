@@ -705,7 +705,13 @@ func (d *Dispatcher) lockFreed(ctx context.Context) bool {
 // left says what a loop that ends by ctx leaves running.
 func (d *Dispatcher) left(err error) error {
 	if errors.Is(err, context.Canceled) || err == nil {
-		if n := d.Live(); n > 0 {
+		n := 0
+		for _, r := range d.State.Runs {
+			if r.Alive() {
+				n++
+			}
+		}
+		if n > 0 {
 			d.say("interrupted: %d runs keep running; the next aries dispatch run adopts them", n)
 		}
 		d.log(record{Event: "exit-loop"})
