@@ -2,14 +2,13 @@ package outcome
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	briefpkg "github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/gitx"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -234,45 +233,32 @@ func kind(session string) string {
 // brief is one `brief:` comment: its first line's fields and the hash of
 // the brief after it.
 type brief struct {
-	at                     time.Time
-	harness, model, effort string
-	sha                    string
+	at                              time.Time
+	harness, model, effort, session string
+	sha                             string
 }
 
 // briefs reads the `brief:` comments made by cutoff (dispatcher.md §7):
-// a first line of key=value fields, then the brief as given.
+// a first line of key=value fields, then the brief as given, hashed by
+// the rule the dispatcher's log uses (brief.Hash).
 func briefs(comments []proto.Comment, cutoff time.Time) []brief {
 	var out []brief
 	for _, cm := range comments {
-		if !strings.HasPrefix(cm.Body, "brief:") || cm.CreatedAt.After(cutoff) {
+		if cm.CreatedAt.After(cutoff) {
 			continue
 		}
-		first, rest, _ := strings.Cut(cm.Body, "\n")
-		b := brief{at: cm.CreatedAt}
-		for _, f := range strings.Fields(strings.TrimPrefix(first, "brief:")) {
-			k, v, ok := strings.Cut(f, "=")
-			if !ok {
-				continue
-			}
-			switch k {
-			case "harness":
-				b.harness = v
-			case "model":
-				b.model = v
-			case "effort":
-				b.effort = v
-			}
+		r, text, ok := briefpkg.ParseComment(cm.Body)
+		if !ok {
+			continue
 		}
-		sum := sha256.Sum256([]byte(strings.TrimSpace(rest)))
-		b.sha = hex.EncodeToString(sum[:])
-		out = append(out, b)
+		out = append(out, brief{at: cm.CreatedAt, harness: r.Harness, model: r.Model, effort: r.Effort,
+			session: r.Session, sha: briefpkg.Hash(text)})
 	}
 	return out
 }
 
 // runs groups holds by session, in the order each session first took
-// the claim, with the handoffs each made and the brief each was given:
-// briefs go to the agents' runs in order.
+// the claim, with the handoffs each made and the brief each was given.
 func runs(hs []hold, events []proto.Event, bs []brief, cutoff time.Time) []RunRecord {
 	var out []RunRecord
 	index := map[string]int{}
@@ -295,19 +281,39 @@ func runs(hs []hold, events []proto.Event, bs []brief, cutoff time.Time) []RunRe
 			}
 		}
 	}
-	n := 0
-	for i := range out {
-		if out[i].Kind != "agent" || n >= len(bs) {
-			continue
-		}
-		b := bs[n]
-		n++
-		out[i].Harness, out[i].Effort = b.harness, b.effort
-		if b.model != "" {
-			out[i].Models = []string{b.model}
+	// A brief naming a run's session goes to that run, the first such
+	// for each; another for the same session goes nowhere. The briefs
+	// left, naming no run's session, go to the agents' runs left, in
+	// order.
+	given := make([]bool, len(out))
+	var rest []brief
+	for _, b := range bs {
+		i, ok := index[b.session]
+		switch {
+		case ok && out[i].Kind == "agent" && !given[i]:
+			given[i] = true
+			out[i].give(b)
+		case !ok:
+			rest = append(rest, b)
 		}
 	}
+	for i := range out {
+		if out[i].Kind != "agent" || given[i] || len(rest) == 0 {
+			continue
+		}
+		given[i] = true
+		out[i].give(rest[0])
+		rest = rest[1:]
+	}
 	return out
+}
+
+// give records b as the brief r's run was given.
+func (r *RunRecord) give(b brief) {
+	r.Harness, r.Effort = b.harness, b.effort
+	if b.model != "" {
+		r.Models = []string{b.model}
+	}
 }
 
 // handoffState is the state of a handoff event: its own, or done for a

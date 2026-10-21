@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/credential"
 	"github.com/ariesworx/aries/internal/dispatch"
@@ -19,7 +20,8 @@ import (
 )
 
 const dispatchUsage = "dispatch run [--dry-run] [--once] [--capacity N] [--cap TOKENS] [--max-budget-usd USD] [--models M[,M]] [--labels L[,L]] [--clear]" +
-	" | dispatch status | dispatch stop [--now] | dispatch key set|remove"
+	" | dispatch status | dispatch stop [--now] | dispatch key set|remove" +
+	" | dispatch brief ID [--harness claude-code-desktop|claude-code] [--note TEXT] [--session S] [--worktree DIR] [--record --model M [--effort E]]"
 
 // cmdDispatch is the client-side dispatcher (docs/design/dispatcher.md,
 // decision 96): internal and experimental, removed when Bearings' B0
@@ -27,7 +29,7 @@ const dispatchUsage = "dispatch run [--dry-run] [--once] [--capacity N] [--cap T
 // wiring to the process. CLI only (rule 12).
 func cmdDispatch(ctx context.Context, r *runner, args []string) error {
 	if len(args) == 0 {
-		return usagef(dispatchUsage, "dispatch needs run, status, stop or key")
+		return usagef(dispatchUsage, "dispatch needs run, status, stop, key or brief")
 	}
 	switch args[0] {
 	case "run":
@@ -38,6 +40,8 @@ func cmdDispatch(ctx context.Context, r *runner, args []string) error {
 		return dispatchStop(r, args[1:])
 	case "key":
 		return dispatchKey(ctx, r, args[1:])
+	case "brief":
+		return dispatchBrief(ctx, r, args[1:])
 	}
 	return usagef(dispatchUsage, "unknown dispatch action %q", args[0])
 }
@@ -108,6 +112,10 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 	top, err := dispatch.RepoTop(ctx, r.dir)
 	if err != nil {
 		return proto.Errf(proto.CodeInvalid, "run it in a git checkout of the project", "dispatch run: "+err.Error())
+	}
+	tmpl, err := brief.Load(top)
+	if err != nil {
+		return err
 	}
 	base, err := gitx.DefaultBranch(ctx, top)
 	if err != nil || base == "" {
@@ -180,6 +188,7 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 		State:       state,
 		Save:        save,
 		StopRequest: func() string { return dispatch.ReadStop(paths.Stop) },
+		Template:    tmpl,
 	}
 	if cfg.DryRun {
 		r.notef("dry run: it starts, claims and writes nothing")
@@ -408,4 +417,67 @@ func newUUID() string {
 	b[6] = b[6]&0x0f | 0x40
 	b[8] = b[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// dispatchBrief prints the brief for an issue, rendered from the
+// project's template as the dispatcher renders its runs' (dispatcher.md
+// §7, As built: the brief template), for a coordinator to send to a
+// session: a Desktop brief by default, with its hand-written section.
+// It reads the issue and writes nothing. With --record it prints the
+// whole brief: comment, its first line as the memory `briefs` fixes it.
+func dispatchBrief(ctx context.Context, r *runner, args []string) error {
+	fs := r.newFlags("dispatch brief")
+	harness := fs.String("harness", brief.Desktop, "the harness the brief is for: "+brief.Desktop+" (a Desktop session) or "+brief.Headless+" (a headless run)")
+	note := fs.String("note", "", "a Desktop brief's hand-written section: what this session needs that the issue and the steps do not say")
+	session := fs.String("session", "", "the session the brief is for, as the record names it: the desktop's local_… id, or a headless run's session")
+	worktree := fs.String("worktree", "", "a headless brief's worktree")
+	record := fs.Bool("record", false, "print the whole brief: comment, its first line from --model, --effort and --session")
+	model := fs.String("model", "", "the record's full model id, such as claude-sonnet-5-5")
+	effort := fs.String("effort", "default", "the record's effort: low, medium, high, xhigh, max or default")
+	pos, err := parse(fs, args, dispatchUsage)
+	if err != nil {
+		return err
+	}
+	switch {
+	case len(pos) != 1:
+		return usagef(dispatchUsage, "dispatch brief takes one issue id")
+	case *harness != brief.Desktop && *harness != brief.Headless:
+		return usagef(dispatchUsage, "--harness must be %s or %s", brief.Desktop, brief.Headless)
+	case *note != "" && *harness != brief.Desktop:
+		return usagef(dispatchUsage, "--note is for a Desktop brief; a headless brief has no hand-written section")
+	case *record && (*model == "" || *session == ""):
+		return usagef(dispatchUsage, "--record needs --model and --session, which its first line names")
+	}
+	top, err := dispatch.RepoTop(ctx, r.dir)
+	if err != nil {
+		return proto.Errf(proto.CodeInvalid, "run it in a git checkout of the project", "dispatch brief: "+err.Error())
+	}
+	tmpl, err := brief.Load(top)
+	if err != nil {
+		return err
+	}
+	var show proto.ShowResult
+	if err := r.call(ctx, proto.OpShow, proto.ShowArgs{ID: pos[0], Full: true}, &show); err != nil {
+		return err
+	}
+	is := show.Issue
+	text := tmpl.Render(brief.Input{Harness: *harness, Issue: is, Items: show.Items, Handoff: show.Handoff,
+		Session: *session, Worktree: *worktree, Branch: gitx.Branch(is.Type, is.ID, is.Title), Note: *note})
+	out := text
+	if *record {
+		out = brief.Comment(brief.Record{Harness: *harness, Model: *model, Effort: *effort, Session: *session, Template: tmpl.Name()}, text)
+	}
+	if r.json {
+		r.emit(struct {
+			Issue    string `json:"issue"`
+			Harness  string `json:"harness"`
+			Template string `json:"template"`
+			SHA256   string `json:"sha256"`
+			Brief    string `json:"brief"`
+			Comment  string `json:"comment,omitempty"`
+		}{is.ID, *harness, tmpl.Name(), brief.Hash(text), text, map[bool]string{true: out}[*record]})
+		return nil
+	}
+	_, _ = io.WriteString(r.env.Stdout, out)
+	return nil
 }

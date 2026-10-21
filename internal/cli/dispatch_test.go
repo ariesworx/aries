@@ -106,6 +106,8 @@ func TestDispatchUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{"dispatch"}, {"dispatch", "go"}, {"dispatch", "run", "--json"}, {"dispatch", "run", "--capacity", "0"}, {"dispatch", "run", "--models", "gpt"}, {"dispatch", "run", "--labels", "a,,b"},
 		{"dispatch", "run", "extra"}, {"dispatch", "key"}, {"dispatch", "key", "show"},
+		{"dispatch", "brief"}, {"dispatch", "brief", "ar-1", "ar-2"}, {"dispatch", "brief", "ar-1", "--harness", "codex"},
+		{"dispatch", "brief", "ar-1", "--harness", "claude-code", "--note", "x"}, {"dispatch", "brief", "ar-1", "--record", "--model", "m"},
 	} {
 		// With --json the refusal is the one document on stdout.
 		if code, out, errb := e.run(t, args...); code != ExitUsage || !strings.Contains(out+errb, "usage: aries dispatch") {
@@ -258,6 +260,15 @@ func TestDispatchDryRun(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
+	// Without the brief template it refuses before it reads anything.
+	if code, out, errb := e.run(t, "dispatch", "run", "--dry-run", "--once"); code != ExitFailure || !strings.Contains(out+errb, ".aries/brief.txt is missing") {
+		t.Errorf("no template: exit %d, %q %q", code, out, errb)
+	}
+	tmpl, err := os.ReadFile(filepath.Join("..", "..", ".aries", "brief.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(e.dir, ".aries", "brief.txt"), string(tmpl))
 	bin := t.TempDir()
 	e.aries = filepath.Join(bin, "aries")
 	if err := os.WriteFile(e.aries, []byte(standinAries), 0o700); err != nil { //nolint:gosec // a script the test runs

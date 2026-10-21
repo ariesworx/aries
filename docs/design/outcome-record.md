@@ -575,9 +575,15 @@ Where the build departs from, or settles, the design:
   closing pass could not tick items, workflow step 5).
 - **Runs' kind** is read from the session: `cli` is a person's, `ci` a
   service's, any other an agent's; no principal is read.
-- **Briefs** go to agents' runs in the order both were made; a run
+- **Briefs** go to the agents' run whose session their `session=`
+  field names, the first such for each run; the briefs that name no
+  run's session go to the agents' runs left, in the order both were
+  made (aries-pk72yzeh, 20 October 2026; before it, all went by order,
+  so a second brief for one session shifted every later run's). A run
   without one makes `harness` missing. A brief's hash is of its text
-  after the first line.
+  after the first line, trimmed (`brief.Hash`), the rule the
+  dispatcher's log uses too, so the two join (dispatcher.md §7, As
+  built: the brief template).
 - **Tokens by model** come from `show`, which covers the issue's whole
   life, so only the latest record of a closed issue has them.
 - **Missing reasons:** `nohost` (no `gh`), `host` (the host's read

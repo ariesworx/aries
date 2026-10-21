@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -481,10 +483,11 @@ func (w *world) dispatcher(cfg Config) (*Dispatcher, *fakeLauncher) {
 		Cfg: cfg, Tracker: w.tracker, Launcher: l, Git: w.git, Forge: w.forge,
 		Out: w.out, Log: w.log, Now: func() time.Time { return w.now },
 		Worktrees: "/repo/.aries-dispatch/worktrees", RunLogs: "/data/runs", Key: "sk-test-not-a-key",
-		Environ:     []string{"PATH=/usr/bin", "ARIES_SESSION=outer", "ANTHROPIC_API_KEY=outer-key", "CLAUDE_CODE_SESSION_ID=outer", "CLAUDECODE=1"},
+		Environ:     []string{"PATH=/usr/bin", "ARIES_SESSION=outer", "ANTHROPIC_API_KEY=outer-key", "CLAUDE_CODE_SESSION_ID=outer", "CLAUDECODE=1", "GOFLAGS=-mod=mod"},
 		State:       &State{},
 		Save:        func(*State) error { w.saved.Add(1); return nil },
 		StopRequest: func() string { return w.stop },
+		Template:    repoTemplate(w.t),
 	}
 	d.NewSession = func() string {
 		n++
@@ -509,4 +512,15 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.b.String()
+}
+
+// repoTemplate is the repository's own brief template, so that the
+// dispatcher's tests run the text its runs get.
+func repoTemplate(t *testing.T) *brief.Template {
+	t.Helper()
+	tp, err := brief.Load(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tp
 }
