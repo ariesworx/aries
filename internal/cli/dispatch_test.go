@@ -169,6 +169,8 @@ func TestDispatchStatusAndStop(t *testing.T) {
 	}
 	paths := dispatch.PathsFor(e.data, "0f6e5c1a-1111-4222-8333-444455556666")
 	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	// PID 7 names no process of this session: the run is unended in the
+	// state, but its process is gone, so status says it ended unknown.
 	s := &dispatch.State{Failures: 1, Hold: dispatch.HoldBudget, HoldWhy: "past the cap",
 		Budget: dispatch.Budget{Day: "2026-10-20", Output: 1400000, Cap: 1300000, At: at},
 		Runs: []*dispatch.Run{
@@ -181,7 +183,7 @@ func TestDispatchStatusAndStop(t *testing.T) {
 	}
 	_, out, _ = e.run(t, "dispatch", "status")
 	for _, want := range []string{"hold: budget: past the cap", "budget: 1400000 of 1300000 Opus output tokens on 2026-10-20",
-		"CI failures in a row: 1", "runs: 1 live, 1 ended", "ar-1  opus  live  session s-1  pid 7", "ar-2  sonnet  ended ok",
+		"CI failures in a row: 1", "runs: 0 live, 2 ended", "ar-1  opus  ended unknown  session s-1  pid 7", "ar-2  sonnet  ended ok",
 		"https://example.com/pr/9  ci pass  cleaned"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)

@@ -444,7 +444,10 @@ months. What the loop calls is permanent (§1).
 - **How a person sees it:** `aries dispatch status` reads the state
   file: the runs, the slots, today's Opus output against the cap, the
   failure count, the last sweep's held PRs and merged-but-open issues.
-  A stop, a held batch and a merged-but-open issue are also posted as a
+  A run counts as live only while its process still runs with its
+  session in its command line; one whose process is gone shows as
+  `ended unknown`, since the state records no end until a dispatcher
+  adopts it, and the ^C message counts only live runs. A stop, a held batch and a merged-but-open issue are also posted as a
   comment on a standing issue that mentions the maintainer, so the
   inbox and `prime` carry them to any machine (Q7). That reaches a
   person only when they open a session; reaching one away from every
