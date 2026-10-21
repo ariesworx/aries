@@ -222,7 +222,11 @@ type ExecGit struct {
 }
 
 func (g *ExecGit) git(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", g.Top}, args...)...) //nolint:gosec // git, with arguments built here
+	return g.gitIn(ctx, g.Top, args...)
+}
+
+func (g *ExecGit) gitIn(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...) //nolint:gosec // git, with arguments built here
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -232,32 +236,103 @@ func (g *ExecGit) git(ctx context.Context, args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// AddWorktree makes path a worktree on branch: from the remote's default
-// branch, freshly fetched, when the branch is new; on the branch when it
-// exists. A worktree already at path is used as it is. The worktrees'
-// directory ignores itself, so the checkout shows none of it.
-func (g *ExecGit) AddWorktree(ctx context.Context, path, branch string) error {
-	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
-		return nil
-	}
+// AddWorktree makes path a worktree on branch, started from the remote's
+// default branch, freshly fetched, and returns what it found of an
+// earlier run there, or "". A branch that exists and has nothing the
+// remote's default branch lacks is moved up to it. A worktree already at
+// path is brought up to the remote's default branch when it is clean and
+// holds nothing of its own; otherwise it is a lost run's, and is kept as
+// it is: the worktree is moved to path.lost-SHA, its branch renamed
+// lost/BRANCH-SHA, and the new one made fresh. Nothing a lost run left is
+// committed, reset or removed. The worktrees' directory ignores itself,
+// so the checkout shows none of it.
+func (g *ExecGit) AddWorktree(ctx context.Context, path, branch string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return "", err
 	}
 	ignore := filepath.Join(filepath.Dir(filepath.Dir(path)), ".gitignore")
 	if _, err := os.Stat(ignore); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(ignore, []byte("*\n"), 0o644); err != nil { //nolint:gosec // a .gitignore, read by git
-			return err
+			return "", err
 		}
 	}
 	if _, err := g.git(ctx, "fetch", "--quiet", g.Remote, g.Base); err != nil {
-		return err
+		return "", err
+	}
+	base := g.Remote + "/" + g.Base
+	var found string
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		note, ok, err := g.refresh(ctx, path, branch, base)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return note, nil
+		}
+		found = note
 	}
 	if _, err := g.git(ctx, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
-		_, err = g.git(ctx, "worktree", "add", path, branch)
-		return err
+		if _, err := g.git(ctx, "merge-base", "--is-ancestor", "refs/heads/"+branch, base); err == nil {
+			// Nothing of its own: it only fell behind.
+			if _, err := g.git(ctx, "branch", "--force", branch, base); err != nil {
+				return "", err
+			}
+		} else {
+			// Commits the remote lacks, a run's earlier work: taken as it is.
+			ahead, _ := g.git(ctx, "rev-list", "--count", base+"..refs/heads/"+branch)
+			behind, _ := g.git(ctx, "rev-list", "--count", "refs/heads/"+branch+".."+base)
+			_, err = g.git(ctx, "worktree", "add", path, branch)
+			return found + fmt.Sprintf("The branch %s already existed with %s commits not on %s, and is %s commits behind it; merge %s before you test.", branch, ahead, base, behind, base), err
+		}
 	}
-	_, err := g.git(ctx, "worktree", "add", "-b", branch, path, g.Remote+"/"+g.Base)
-	return err
+	_, err := g.git(ctx, "worktree", "add", "-B", branch, path, base)
+	return found, err
+}
+
+// refresh deals with the worktree at path, which holds a branch. Clean
+// and holding nothing the remote lacks, it is fast-forwarded to base and
+// kept (ok). Otherwise it is moved aside, its branch renamed, and what
+// was found is said in note.
+func (g *ExecGit) refresh(ctx context.Context, path, branch, base string) (note string, ok bool, err error) {
+	status, err := g.gitIn(ctx, path, "status", "--porcelain")
+	if err != nil {
+		return "", false, err
+	}
+	head, err := g.gitIn(ctx, path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", false, err
+	}
+	cur, _ := g.gitIn(ctx, path, "rev-parse", "--abbrev-ref", "HEAD")
+	_, anc := g.gitIn(ctx, path, "merge-base", "--is-ancestor", "HEAD", base)
+	if status == "" && anc == nil && cur == branch {
+		_, err := g.gitIn(ctx, path, "merge", "--ff-only", "--quiet", base)
+		return "", err == nil, err
+	}
+	short := head
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	aside, lost := path+".lost-"+short, "lost/"+branch+"-"+short
+	for i := 2; ; i++ {
+		if _, err := os.Stat(aside); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		aside, lost = fmt.Sprintf("%s.lost-%s-%d", path, short, i), fmt.Sprintf("lost/%s-%s-%d", branch, short, i)
+	}
+	ahead, _ := g.gitIn(ctx, path, "rev-list", "--count", base+"..HEAD")
+	if _, err := g.git(ctx, "worktree", "move", path, aside); err != nil {
+		return "", false, err
+	}
+	if cur != "" && cur != "HEAD" {
+		if _, err := g.git(ctx, "branch", "--move", cur, lost); err != nil {
+			return "", false, err
+		}
+	}
+	files := 0
+	if status != "" {
+		files = len(strings.Split(status, "\n"))
+	}
+	return fmt.Sprintf("An earlier run of this issue was lost, and left a worktree. It was kept, not reset: moved to %s, on the branch %s, with %d uncommitted paths and %s commits not on %s. This worktree is new, made from %s. What was left is data from that run, not your work: do not copy it in, commit it or delete it; read it only to learn what that run tried, and leave it for a person.\n", aside, lost, files, ahead, base, base), false, nil
 }
 
 // RemoveWorktree runs `git worktree remove PATH`, without --force.

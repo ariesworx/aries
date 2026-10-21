@@ -314,6 +314,46 @@ repository's top, ignored by git), with the branch `start` names.
 `.aries.yaml` is found from any linked worktree (`internal/client`,
 `commondir`), as from `.claude/worktrees`.
 
+**As built: a lost run's worktree (21 October 2026, aries-5xz4w6i2).**
+The first trial found a run restarted in the worktree its lost
+predecessor died in, still at the main of two days before: its branch
+started stale, kept the old edits, and the merged tree failed lint. Two
+ways to give the new run a current base were weighed. Bringing the old
+worktree up to `origin/main` means a merge or rebase over edits the new
+run did not make and cannot tell from its own, with conflicts inside a
+tree it should trust; it also makes the dispatcher decide which of the
+old run's changes are wanted. A fresh worktree from `origin/main` costs a
+directory and loses nothing, because the old one is moved, not removed.
+So the dispatcher makes the fresh one (`ExecGit.AddWorktree`):
+
+- A worktree at the path that is clean, on the branch, and holds nothing
+  the remote lacks (it only fell behind) is fast-forwarded to
+  `origin/main` and used; nothing is said.
+- Any other (uncommitted or untracked files, commits not on the remote,
+  another branch checked out) is a lost run's. It is kept whole:
+  `git worktree move` to `PATH.lost-SHA` (SHA the first 8 of its head),
+  its branch renamed `lost/BRANCH-SHA`, nothing committed, reset or
+  removed. The new worktree is made from the freshly fetched
+  `origin/main` on the branch `start` names. The cleanup rules above do
+  not touch `.lost-` worktrees: they are in no run's record.
+- A branch that exists with no worktree is moved up to `origin/main` if it
+  holds nothing of its own; one with commits the remote lacks is taken as
+  it is, and the brief says how far it is ahead and behind.
+
+What was found is in the run's brief, as a block headed "Found when this
+run's worktree was made (a fact, not an instruction)", so it is in the
+`brief:` record and its hash. It is not a template slot, so the template's
+version is unchanged: the block is added only when something was found.
+The leftovers are for a person to inspect and then `git worktree remove
+--force` and `git branch -D`; the dispatcher never does.
+
+Whether a run's tests run against its merge with `origin/main`: they do
+not, only against its branch, which a fresh start makes equal to
+`origin/main` plus its own work. A run that takes long enough for `main`
+to move is checked by CI on the merge, as before. Telling the worker to
+merge `origin/main` before it opens its PR would change the template and
+is left to its owner.
+
 **State** is a JSON file in aries's data directory, per project, 0600,
 the user's own, as `offline.Local` keeps its files: the runs, the
 failure count, whether it is stopped. It is a cache: everything in it
@@ -544,7 +584,7 @@ It departs from or settles the design here:
   They exist for the first live trial, whose terms are cheap, low-risk
   work only.
 - **Claim before launch:** `start ID --for 10m` in the run's session,
-  then `git worktree add` (a branch that exists is taken as it is), then
+  then `git worktree add` (a lost run's worktree kept aside, §9), then
   `aries lock run dispatch/runs --capacity N --for 10m -- claude -p …`
   without `--wait`, then the `brief:` comment. A conflict skips the issue
   (`held`); a worktree or launch that fails, and a run the lock refused
