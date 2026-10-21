@@ -179,6 +179,7 @@ func init() {
 		{"unpin", "unpin KEY [--scope S]", "unpin a memory", cmdUnpin},
 		{"prime", "prime [--hook[=AGENT]]", "orient a session: your in-progress issues, top ready work, memories, notices", cmdPrime},
 		{"usage", "usage --hook[=AGENT]", "send the session's token counts from the agent's transcript (run by its hooks)", cmdUsage},
+		{"guard", guardUsage, "check an agent's tool call against the repository's .aries/guard.yaml, as Claude Code's PreToolUse hook; or say whether commands are allowed", cmdGuard},
 		{"conflicts", conflictsUsage, "list the fields of replayed updates parked against others' changes, or show one whole", cmdConflicts},
 		{"resolve", resolveUsage, "resolve a conflict: the replayed update's value, the server's, new text, or as proposed", cmdResolve},
 		{"outbox", outboxUsage, "list the writes that wait for the server and the ones it refused; retry or drop one; show the counts", cmdOutbox},

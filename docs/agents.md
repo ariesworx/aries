@@ -190,6 +190,50 @@ An older setup upgrades with `aries setup claude-code --write`. One from
 before these hooks has the session-start hook alone, and one from their
 first release runs SessionEnd async; `--check` names the hooks to fix.
 
+## The guard (Claude Code)
+
+`aries guard --hook` is a PreToolUse hook that checks each Bash, Edit and
+Write call an agent makes against one policy file, the repository's
+`.aries/guard.yaml`, in headless runs and Desktop sessions alike
+([design](design/guard.md)). It reads a Bash command as `sh` with its own
+parser, through `VAR=value`, wrappers (`env`, `timeout`, `xargs`,
+`sh -c`, `find -exec`, the policy's own `wrappers:` and others),
+pipelines, lists, compound commands and command substitutions, and
+checks every simple command in it:
+
+| Decision | When |
+|---|---|
+| Deny, with the rule and its fix | Any part matches a deny rule, or a file the call writes matches a `path:` rule; or, in a headless run, a part cannot be read |
+| Ask | In a Desktop session, a part cannot be read (`eval`, a program named by a variable, `sh` reading standard input, `case`, an unclosed quote) |
+| Allow | Every part matches an allow rule |
+| No decision | Anything else: Claude Code's own rules and the session's mode decide |
+
+A denial says which rule refused it and what to do instead, never the
+command's arguments, and that only that call was refused. Each denial
+adds one line to `guard/denials.jsonl` in aries's data directory: the
+time, the session, its mode, the tool and the rule, never the command.
+
+The guard never reads the policy in the agent's worktree, which the
+agent could edit. It reads a snapshot of the file on `origin/main`,
+taken once at the session's start: a change reaches sessions only once
+it is merged, which puts it under the maintainer's review. Without a
+policy file, it applies its built-in denies (`gh pr merge`, `gh api`,
+force pushes, pushes to `main`) and decides nothing else. When it
+cannot read its snapshot, it applies the built-in denies and says so in
+a Desktop session, and denies every call in a headless run.
+
+`aries guard --check` loads the policy and reports a mistake in one
+line; with commands, it prints what the guard would decide for each:
+
+```sh
+aries guard --check --headless "go test ./..." "gh pr merge 1"
+```
+
+The guard and the policy file are built; `aries setup claude-code` does
+not install the hook yet, and nothing takes the session's snapshot, so
+the hook is not yet run by any session ([guard.md](design/guard.md),
+As built).
+
 ## Tools
 
 The MCP server offers 24 tools: `prime`, `start`, `finish`, `handoff`,
