@@ -841,8 +841,10 @@ https:
 - **`refuse_key_proof_v1`** refuses the key proof of `aries` of
   protocol 8 (v0.5.0), which binds nothing of the TLS session (below).
   Off by default, so that those clients keep working until `ProtoMin`
-  moves to 9; set it once every client is v0.6.0 or later. A client it
-  refuses is told, with code `version`, to run `aries upgrade`.
+  moves to 9, which v0.7.0 did: a v0.7.0 server refuses protocol 8's
+  clients at the handshake whatever this says, so the setting matters
+  only to a v0.6.0 server. A client it refuses is told, with code
+  `version`, to run `aries upgrade`.
 
 ### How aries signs in over HTTPS
 

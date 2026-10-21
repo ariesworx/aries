@@ -274,7 +274,15 @@ func helloProto(t *testing.T, c *wsconn.Conn, proj string, p int) *proto.Frame {
 // hand-kept authorized_keys gives alice her key, served over HTTPS.
 func httpsServer(t *testing.T, edit func(*HTTPS)) (*Server, string, *x509.CertPool) {
 	t.Helper()
-	cfg := Config{AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"),
+	return httpsServerMin(t, 0, edit)
+}
+
+// httpsServerMin is httpsServer for a server that still takes clients of
+// protocol protoMin (0 takes this build's ProtoMin): the tests of the v1
+// key proof, which only protocol 8's clients sign, need one.
+func httpsServerMin(t *testing.T, protoMin int, edit func(*HTTPS)) (*Server, string, *x509.CertPool) {
+	t.Helper()
+	cfg := Config{ProtoMin: protoMin, AuthorizedKeys: handFile(t, bridgeLine(t, "alice", "alice"),
 		`command="/bin/sh -c 'echo --principal bob'" `+strings.Join(strings.Fields(keyLine(t, "bob"))[:2], " "),
 		bridgeLine(t, "importer", "import"))}
 	u, pool := listenHTTPS(t, &cfg, edit)

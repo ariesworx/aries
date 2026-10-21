@@ -25,8 +25,8 @@ import (
 // Protocol 10 is v0.7.0's: price.set takes tier, the rates of a model
 // priced by prompt length (PriceSetArgs), which a protocol 9 server
 // refuses as an unknown field and a protocol 9 client never sends. It
-// keeps ProtoMin at 8: moving it to 9, which ends v0.5.0's clients and the
-// key proof they sign (refuse_key_proof_v1), is its own decision.
+// moves ProtoMin to 9, v0.6.0's: v0.5.0's clients, and the key proof they
+// sign (refuse_key_proof_v1), are no longer served.
 //
 // Protocol 9 was v0.6.0's, the first bump since v0.5.0; a release raises
 // the protocol once, and later changes before it ships join it. Two
@@ -53,7 +53,7 @@ import (
 // against the daemon after it, and the reverse.
 const (
 	Proto    = 10
-	ProtoMin = 8
+	ProtoMin = 9
 	ProtoMax = 10
 )
 
