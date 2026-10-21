@@ -317,6 +317,9 @@ func TestDispatchDryRun(t *testing.T) {
 	if _, err := os.Stat(paths.State); err == nil {
 		t.Error("a dry run wrote the state file")
 	}
+	if _, err := os.Stat(paths.Log); err == nil {
+		t.Error("a dry run created the log")
+	}
 	if _, err := os.Stat(filepath.Join(e.dir, ".aries-dispatch")); err == nil {
 		t.Error("a dry run made the worktrees' directory")
 	}
