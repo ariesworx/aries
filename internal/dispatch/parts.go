@@ -117,6 +117,8 @@ type PR struct {
 	State string
 	// Checks is ChecksPass, ChecksFail, ChecksPending, or "" with none.
 	Checks string
+	// Head is the commit the PR's branch is at, which its checks ran on.
+	Head string
 }
 
 // Forge finds a branch's pull request. [GH] runs gh.
