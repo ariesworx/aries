@@ -404,7 +404,10 @@ each run's session, so each run is told apart by its session and no
 principal is made per run (decision 97). Their tool lists deny
 `gh pr merge`, `gh api`, force pushes and pushes to `main`, and edits to
 `.claude/`, `.mcp.json` and `internal/release/keys.go`; branch protection
-is the backstop.
+is the backstop. [guard.md](guard.md) (proposed, 21 October 2026) moves
+these lists into a policy file in the repository and adds a PreToolUse
+hook that reads every command through its wrappers, for headless runs
+and Desktop sessions alike.
 
 **As built (19 October 2026).** The store is `internal/credential`
 (aries-rf37kpcm), for an API key, as Q1 recommends. macOS keeps it in
