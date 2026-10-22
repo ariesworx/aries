@@ -949,6 +949,11 @@ func setStatus(ctx context.Context, w *wtx, before Issue, op Op, args []any, ext
 	if err != nil {
 		return Issue{}, err
 	}
+	if op == OpIssueClose {
+		if err := w.cycled(ctx, out); err != nil {
+			return Issue{}, err
+		}
+	}
 	return out, w.issueEvent(ctx, op, before, out, extra)
 }
 

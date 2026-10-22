@@ -60,6 +60,8 @@ func (f *fakeStore) EndLocks(context.Context, store.Actor, func(string) string) 
 
 func (f *fakeStore) WriteStats() store.WriteStats { return store.WriteStats{} }
 
+func (f *fakeStore) StatusCounts(context.Context) (map[store.Status]int, error) { return nil, nil }
+
 func (f *fakeStore) SessionsSeen(context.Context, time.Duration) (int, error) { return 0, nil }
 
 func (f *fakeStore) Prune(context.Context, time.Duration, time.Duration) (store.Pruned, error) {

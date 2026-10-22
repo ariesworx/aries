@@ -14,6 +14,10 @@ attribute aries.https.key_proofs result
 attribute aries.https.tokens result
 attribute aries.https.upgrades reason
 attribute aries.https.upgrades result
+attribute aries.issue.cycle.duration project
+attribute aries.issue.cycle.duration type
+attribute aries.issues project
+attribute aries.issues status
 attribute aries.keys_file.writes result
 attribute aries.limit.refusals limit
 attribute aries.locks event
@@ -46,6 +50,8 @@ instrument aries.https.key_proofs aries_https_key_proofs_total
 instrument aries.https.tls_handshakes.failed aries_https_tls_handshakes_failed_total
 instrument aries.https.tokens aries_https_tokens_total
 instrument aries.https.upgrades aries_https_upgrades_total
+instrument aries.issue.cycle.duration aries_issue_cycle_duration_seconds
+instrument aries.issues aries_issues
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
 instrument aries.limit.refusals aries_limit_refusals_total
@@ -170,6 +176,17 @@ value aries.https.upgrades reason origin
 value aries.https.upgrades reason token
 value aries.https.upgrades result ok
 value aries.https.upgrades result refused
+value aries.issue.cycle.duration type bug
+value aries.issue.cycle.duration type chore
+value aries.issue.cycle.duration type epic
+value aries.issue.cycle.duration type feature
+value aries.issue.cycle.duration type gate
+value aries.issue.cycle.duration type task
+value aries.issues status blocked
+value aries.issues status closed
+value aries.issues status deferred
+value aries.issues status in_progress
+value aries.issues status open
 value aries.keys_file.writes result failed
 value aries.keys_file.writes result ok
 value aries.limit.refusals limit auth_failures_per_minute

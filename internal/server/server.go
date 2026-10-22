@@ -334,6 +334,7 @@ func New(cfg Config) (*Server, error) {
 			conflictAge: cfg.ConflictAge, dueSoon: cfg.DueSoon}
 		s.single.used.Store(s.now().UnixNano()) // opened now, as openProject notes for a project of many
 		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
+		s.watchIssues()
 		if err := s.startClock([]*behindLog{s.startBehind(s.single.logName(), cfg.Store.ClockState())}); err != nil {
 			return nil, err
 		}
@@ -349,6 +350,7 @@ func New(cfg Config) (*Server, error) {
 	// write is bounded by RequestTimeout.
 	s.stores.retiring = func(pr *served) { s.sweep(context.Background(), pr) }
 	cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
+	s.watchIssues()
 	// The audit stream starts at the newest event there is now.
 	s.auditStart(context.Background())
 	return s, nil
@@ -413,6 +415,32 @@ func (s *Server) eachAtOnce(fn func(*served)) {
 		return
 	}
 	s.stores.atOnce(fn)
+}
+
+// issueCountTimeout bounds one store's count of its issues at a
+// collection, so that a slow database cannot hold a scrape past its own
+// timeout.
+const issueCountTimeout = 3 * time.Second
+
+// watchIssues has the telemetry read aries.issues at each collection:
+// one grouped count of the statuses of each open project's issues, run
+// one store after another and never opening a store, so a scrape costs
+// one indexed count for each open project. A store whose count fails is
+// left out of that collection.
+func (s *Server) watchIssues() {
+	s.cfg.Telemetry.WatchSeries(telemetry.Issues, func(observe func(float64, ...string)) {
+		s.each(func(pr *served) {
+			ctx, cancel := context.WithTimeout(context.Background(), issueCountTimeout)
+			defer cancel()
+			counts, err := pr.store.StatusCounts(ctx)
+			if err != nil {
+				return // no log line: a scrape would write one for each failure; the series is simply absent
+			}
+			for st, n := range counts {
+				observe(float64(n), pr.id, string(st))
+			}
+		})
+	})
 }
 
 // CloseIdleStores closes the store of every project that has had no

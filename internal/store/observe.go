@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -40,6 +42,11 @@ type Observer interface {
 	// unless the model has a price in the store, so its values are
 	// bounded by the table and not by what clients report.
 	UsageAdded(ctx context.Context, actor Actor, u []UsageTokens)
+	// IssueCycled reports a close that committed of an issue of the
+	// given type that had been started, with how long it took from the
+	// issue's first start since it was last opened to the close, on the
+	// store's clock. A close of an issue never started is not reported.
+	IssueCycled(issueType IssueType, took time.Duration)
 }
 
 // Tracer is told where a write's time goes, as it goes, under the
@@ -209,4 +216,47 @@ type UsageTokens struct {
 	Input, Output, CacheWrite, CacheRead int64
 	// CacheWrite1h is the part of CacheWrite written for an hour.
 	CacheWrite1h int64
+}
+
+// cycle is one start-to-close time an attempt found, reported once the
+// attempt commits.
+type cycle struct {
+	typ  IssueType
+	took time.Duration
+}
+
+// cycled notes, for the store's observer, how long the issue just closed
+// took from its first start since its last reopening: the first
+// claim.take after the latest issue.reopen, which the events_target
+// index serves. An issue closed without ever being started has none and
+// notes nothing.
+func (w *wtx) cycled(ctx context.Context, is Issue) error {
+	var start sql.NullTime
+	err := w.tx.QueryRowContext(ctx, `SELECT min(at) FROM events WHERE target = $1 AND op = $2
+  AND seq > COALESCE((SELECT max(seq) FROM events WHERE target = $1 AND op = $3), 0)`,
+		string(is.ID), string(OpClaimTake), string(OpIssueReopen)).Scan(&start)
+	if err != nil {
+		return fmt.Errorf("start of an issue: %w", err)
+	}
+	if start.Valid {
+		w.cycles = append(w.cycles, cycle{is.Type, max(w.now.Sub(start.Time), 0)})
+	}
+	return nil
+}
+
+// StatusCounts returns how many issues the project has in each status,
+// from one grouped count that the status index serves: at most one row a
+// status, whatever the number of issues, and no text.
+func (s *Store) StatusCounts(ctx context.Context) (map[Status]int, error) {
+	out := map[Status]int{}
+	err := scanAll(ctx, s.r, "issue counts", `SELECT status, count(*) FROM issues GROUP BY status`, nil, func(rs *sql.Rows) error {
+		var st Status
+		var n int
+		if err := rs.Scan(&st, &n); err != nil {
+			return err
+		}
+		out[st] = n
+		return nil
+	})
+	return out, err
 }

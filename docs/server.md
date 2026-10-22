@@ -3851,6 +3851,8 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.lock.wait.duration` | `aries_lock_wait_duration_seconds` | histogram, seconds | none |
 | `aries.gates` | `aries_gates_total` | counter | `kind`, `event` |
 | `aries.usage.tokens` | `aries_usage_tokens_total` | counter | `project`, `kind`, `model` |
+| `aries.issue.cycle.duration` | `aries_issue_cycle_duration_seconds` | histogram, seconds | `project`, `type` |
+| `aries.issues` | `aries_issues` | gauge | `project`, `status` |
 | `aries.control.writes` | `aries_control_writes_total` | counter | `op`, `result` |
 | `aries.keys_file.writes` | `aries_keys_file_writes_total` | counter | `result` |
 | `aries.keys_file.last_write.time` | `aries_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |
@@ -3888,6 +3890,8 @@ What each counts:
 | `locks` | Changes of a [lock](concepts.md#locks)'s holds and queue, as the event log records them, and renewals of a hold or a place. A lock's name is no attribute: it is a person's text |
 | `gates` | Changes of a [gate](concepts.md#gates), as the event log records them: added, passed (by a person or a CI job's report), failed (a CI job's report), waived, rearmed. A report or a decision that changed nothing, such as a pass of a passed gate or a report of an older run, is not counted |
 | `usage.tokens` | The tokens of each usage record the server stored, once: a batch sent again, or replayed under its idempotency key, adds nothing. Harnesses report usage through `aries usage --hook` (Claude Code today). Tokens only: cost is computed on read from prices that change, so it is no counter and stays with `aries cost`. The `model` is the name of a model with a price in the project's table, and `(other)` for every other, however many a client reports. A model priced later is counted by name from then on |
+| `issue.cycle.duration` | Recorded once when an issue closes: the time from its first start (its first `claim.take` event) since it was last opened, to the close, on the server's clock, by the issue's `type` (`bug`, `feature`, `task`, `epic`, `chore` or `gate`). A close of an issue that was never started records nothing. An issue that is reopened and closed again records again, from its next start after the reopen, so a start before the reopen does not count. Every way an issue closes is one: a close, a finish, a gate's pass, a CI report. The buckets run from 1 minute to 14 days, not to 10 seconds like the others |
+| `issues` | Issues by `status` (`open`, `in_progress`, `blocked`, `deferred` or `closed`), counted when the metrics are collected: one grouped count of the project's `issues` table for each project whose store is open, which a scrape never opens, so a project with no connection lately has no series. It is counted rather than kept as a counter the writes adjust, because the table is the truth, so a count can drift from nothing and needs no rebuilding at open; the cost is one indexed scan of the status column for each open project at each scrape, which at the limits of a project is a few milliseconds. A count that fails or takes over 3 seconds leaves that project out of that collection |
 | `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
 | `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
 | `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |
@@ -4224,6 +4228,7 @@ them names a vendor.
 | `prometheus.yaml` | A Prometheus configuration that scrapes ariesd and loads the rules, for a server that runs Prometheus and no collector |
 | `dashboard.json` | The server's dashboard, in Grafana's format: headline numbers, then requests, latency, writes, connections, claims, the server's own health, ariesd's memory, and its pool of connections to Postgres |
 | `dashboard-requests.json` | Requests by op: traffic, latency, refusals and failures by code, by project, handshakes, and write latency by project |
+| `dashboard-work.json` | The work: issues in progress, open and blocked by project, closes a day, the mean and 50th and 90th percentile of start to close by type over the dashboard's window, and tokens by model, which read `(other)` until the server has prices |
 | `dashboard-traces-logs.json` | Traces and logs, for a Grafana with Tempo and Loki: recent and slow traces, log events by name, warnings and errors, and the audit stream |
 | `grafana-dashboards.yaml` | Grafana's provisioning of the three, as the Docker test server's `observe` profile loads them |
 

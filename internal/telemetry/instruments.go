@@ -110,6 +110,15 @@ const (
 	// HTTPSCertReloads counts reads of the TLS certificate's files after
 	// they changed: result.
 	HTTPSCertReloads
+	// IssueCycleDuration is how long an issue took from its first start,
+	// since it was last opened, to its close, on the store's clock,
+	// recorded once at the close: project, type. A close of an issue never
+	// started is not recorded. Its buckets are [CycleBuckets].
+	IssueCycleDuration
+	// Issues is how many issues each project has in each status: project,
+	// status. It is watched ([Telemetry.WatchSeries]), one count of the
+	// issues' statuses for each open project at each collection.
+	Issues
 
 	numInstruments
 )
@@ -139,6 +148,15 @@ const (
 	KeyDirection   = "direction"
 	KeyKind        = "kind"
 	KeyModel       = "model"
+	KeyType        = "type"
+	KeyStatus      = "status"
+)
+
+// The issue types and statuses of the work instruments' attributes: the
+// store's own, a closed list.
+var (
+	issueTypes    = []string{"bug", "feature", "task", "epic", "chore", "gate"}
+	issueStatuses = []string{"open", "in_progress", "blocked", "deferred", "closed"}
 )
 
 // Attribute values that are not a protocol code or an op.
@@ -326,6 +344,11 @@ const (
 // buckets: 5 ms to 10 s.
 var Buckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
+// CycleBuckets are the upper bounds, in seconds, of IssueCycleDuration's
+// buckets, which run to days: 1 minute, 5 minutes, 15 minutes, 30
+// minutes, then 1, 2, 4, 8 and 12 hours, then 1, 2, 4, 7 and 14 days.
+var CycleBuckets = []float64{60, 300, 900, 1800, 3600, 7200, 14400, 28800, 43200, 86400, 172800, 345600, 604800, 1209600}
+
 // results are the values of KeyResult: ok, failed, and each protocol
 // error code.
 var results = []string{ResultOK, ResultFailed,
@@ -365,6 +388,8 @@ var (
 	attrGateEvt  = attr{key: KeyEvent, values: []string{GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed}, fallback: Other}
 	attrTokenKnd = attr{key: KeyKind, values: []string{TokenInput, TokenOutput, TokenCacheWrite, TokenCacheRead, TokenCacheWrite1h}, fallback: Other}
 	attrModel    = attr{key: KeyModel, fallback: ModelOther}
+	attrType     = attr{key: KeyType, values: issueTypes, fallback: Other}
+	attrStatus   = attr{key: KeyStatus, values: issueStatuses, fallback: Other}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
 	attrWrote    = attr{key: KeyResult, values: []string{ResultOK, ResultFailed}, fallback: Other}
 	attrSignal   = attr{key: KeySignal, values: []string{SignalMetrics, SignalTraces, SignalLogs}, fallback: Other}
@@ -424,6 +449,9 @@ var specs = [numInstruments]spec{
 	HTTPSTokens:             {name: "aries.https.tokens", kind: Counter, attrs: []attr{attrToken}, desc: "Sign-ins' tokens presented to connect, by how their check ended."},
 	HTTPSTLSFailures:        {name: "aries.https.tls_handshakes.failed", kind: Counter, desc: "Connections to the HTTPS listener closed before their TLS handshake completed."},
 	HTTPSCertReloads:        {name: "aries.https.cert.reloads", kind: Counter, attrs: []attr{attrWrote}, desc: "Reads of the TLS certificate's files after they changed."},
+
+	IssueCycleDuration: {name: "aries.issue.cycle.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's first start since it was last opened to its close; an issue closed unstarted has none."},
+	Issues:             {name: "aries.issues", kind: Gauge, watched: true, attrs: []attr{attrProject, attrStatus}, desc: "Issues by project and status, counted at each collection from the open projects."},
 }
 
 // Description is one instrument as the documentation and the tests list

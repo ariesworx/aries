@@ -163,6 +163,9 @@ type Upkeep interface {
 	Ping(ctx context.Context) error
 	Writes() int
 	WriteStats() store.WriteStats
+	// StatusCounts is the project's issues counted by status, for the
+	// aries.issues gauge.
+	StatusCounts(ctx context.Context) (map[store.Status]int, error)
 	Migrated() int
 	ClockState() store.ClockState
 	Now() time.Time
