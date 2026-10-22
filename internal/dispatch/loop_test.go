@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // A dry run judges every ready issue and says what it would start, skip
@@ -134,6 +137,81 @@ func TestDryRunSaysWhatHolds(t *testing.T) {
 	out := w.out.String()
 	if !strings.Contains(out, "hold [budget]: ") || strings.Contains(out, "would start") {
 		t.Errorf("past the cap, the dry run printed:\n%s", out)
+	}
+}
+
+// A run's environment carries the Postgres the dispatcher found first on
+// PATH, and ARIES_REQUIRE_POSTGRES=1, so a test that needs Postgres fails
+// instead of skipping (aries-xphid6sx).
+func TestRunEnvCarriesPostgres(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	d.FindPostgres = func() string { return "/opt/pg/bin" }
+	if err := d.Wake(t.Context(), WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	sp := l.spec(l.sessions()[0])
+	for _, want := range []string{"PATH=/opt/pg/bin" + string(os.PathListSeparator) + "/usr/bin", "ARIES_REQUIRE_POSTGRES=1"} {
+		if !slices.Contains(sp.Env, want) {
+			t.Errorf("the run's environment lacks %s:\n%s", want, strings.Join(sp.Env, "\n"))
+		}
+	}
+	if strings.Contains(sp.Brief, NoPostgresNote) {
+		t.Errorf("the brief carries the no-Postgres note though Postgres was found")
+	}
+}
+
+// With no Postgres the run still starts, with a note in its brief and
+// ARIES_REQUIRE_POSTGRES=1 and its PATH unchanged, and the dispatcher says
+// so.
+func TestRunWithoutPostgresStartsWithANote(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	d.FindPostgres = func() string { return "" }
+	if err := d.Wake(t.Context(), WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	sessions := l.sessions()
+	if len(sessions) != 1 {
+		t.Fatalf("launched %d runs; want 1", len(sessions))
+	}
+	sp := l.spec(sessions[0])
+	if !strings.Contains(sp.Brief, NoPostgresNote) {
+		t.Errorf("the brief lacks the note:\n%s", sp.Brief)
+	}
+	for _, want := range []string{"PATH=/usr/bin", "ARIES_REQUIRE_POSTGRES=1"} {
+		if !slices.Contains(sp.Env, want) {
+			t.Errorf("the run's environment lacks %s", want)
+		}
+	}
+	if !strings.Contains(w.out.String(), "no Postgres found for ar-1") {
+		t.Errorf("the dispatcher did not say so:\n%s", w.out.String())
+	}
+}
+
+// FindPostgres looks where scripts/install-postgres.sh puts it.
+func TestFindPostgres(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	env := []string{"HOME=" + home, "ARIES_POSTGRES_PACKAGED=" + filepath.Join(home, "none")}
+	if got := FindPostgres(env); got != "" {
+		t.Fatalf("found %q in an empty home", got)
+	}
+	bin := filepath.Join(home, ".cache", "aries", "postgres-"+version.Postgres, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"postgres", "initdb"} {
+		if err := os.WriteFile(filepath.Join(bin, p), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // a stand-in program must be executable
+			t.Fatal(err)
+		}
+	}
+	if got := FindPostgres(env); got != bin {
+		t.Errorf("FindPostgres = %q; want %q", got, bin)
 	}
 }
 
