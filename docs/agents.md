@@ -424,7 +424,7 @@ window's in `digest`.
   after the agent's own, and `prime` says so in one line (`workflow rev
   4: bug, feature, task: 4 items, landed; …`). An agent ticks or waives
   them as any item, and cannot drop one; no tool sets or reads the
-  workflow, and `aries admin workflow set` refuses an agent's session.
+  workflow, and `aries workflow set` refuses an agent's session.
   Where the workflow requires a check such as `landed`, `finish` is
   refused (`acceptance`) until the check passes: the agent calls
   `handoff` with state `done`, the pull request's link and `ticked`
@@ -731,7 +731,7 @@ up:
    alone: `ssh-keygen -t ed25519 -N '' -f ~/.ssh/aries_agent`. Give it
    a name of its own, not a default one such as `id_ed25519`.
 2. Have an admin add a principal for it with the public half: `aries admin
-   principal add alice-agent --key ~/.ssh/aries_agent.pub`
+   principal add alice-agent --pubkey ~/.ssh/aries_agent.pub`
    ([Managing access](server.md#managing-access)).
 3. Start the agent with `ARIES_KEY_FILE` holding the private key's
    path:

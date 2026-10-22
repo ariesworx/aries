@@ -1279,7 +1279,7 @@ carol_fp=$(ssh-keygen -lf "$work/keys/carol.pub" | cut -d' ' -f2)
 carol_re=$(sed 's/[+/.]/[&]/g' <<<"$carol_fp")
 yaml_for "$project" >"$work/carol/.aries.yaml"
 refuse "a key nobody added" 'accepted no key: aries offered SHA256:' carol ready
-expect "principal add --key" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
+expect "principal add --key (deprecated, still works)" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
 if "${compose[@]}" exec -T aries grep -q carol /state/ssh/authorized_keys; then
   fail "carol has a line in authorized_keys; her key was to be in the control database alone"
 fi
@@ -1328,7 +1328,7 @@ echo "smoke: a CI job reports a check on the issue its branch names"
 mkdir -p "$work/ci-example"
 ssh-keygen -q -t ed25519 -N '' -C ci-example@example.com -f "$work/keys/ci-example"
 yaml_for "$project" >"$work/ci-example/.aries.yaml"
-expect "a principal for CI" ' added to ci-example$' alice admin principal add ci-example --key "$work/keys/ci-example.pub"
+expect "a principal for CI" ' added to ci-example$' alice admin principal add ci-example --pubkey "$work/keys/ci-example.pub"
 ci_subject=$(aries_as alice create "Parse the config" 2>/dev/null) || fail "aries create of the CI subject exited $?"
 ci_next=$(aries_as alice create "Use the parsed config" 2>/dev/null) || fail "aries create of the dependent exited $?"
 expect "a ci gate" '^[a-z0-9]+-[a-z0-9]+$' alice gate add --kind ci --check build --issue "$ci_subject" --approver ci-example --blocks "$ci_next"
@@ -1459,7 +1459,7 @@ expect "a key added by hand signs in as the admin its line names" '^alice +activ
 refuse "it cannot be given to another principal" 'is a line of the server.s authorized_keys file, for another principal' \
   alice admin key add bob "$work/keys/dave.pub"
 refuse "nor to a new principal" 'is a line of the server.s authorized_keys file, for another principal' \
-  alice admin principal add mallory --key "$work/keys/dave.pub"
+  alice admin principal add mallory --pubkey "$work/keys/dave.pub"
 dave_re=$(ssh-keygen -lf "$work/keys/dave.pub" | cut -d' ' -f2 | sed 's/[+/.]/[&]/g')
 not_in_keys_file "the refused key" "--key $dave_re\""
 expect "and it still signs its owner in as themselves" '^alice +active' dave admin principal list

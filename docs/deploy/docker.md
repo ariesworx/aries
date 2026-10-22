@@ -85,7 +85,7 @@ Aries test server ready (not for production)
   project     6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f
   principals  alice
   admins      alice
-  more        aries admin project add NAME; aries admin principal add NAME --key FILE
+  more        aries admin project add NAME; aries admin principal add NAME --pubkey FILE
 
 Save this as .aries.yaml in a scratch repository:
 
@@ -158,7 +158,7 @@ and add it as alice, the admin. Nothing restarts:
 
 ```sh
 ssh-keygen -q -t ed25519 -N '' -C bob@example.com -f ~/aries-scratch/bob
-cd ~/aries-scratch && ./aries admin principal add bob --key ~/aries-scratch/bob.pub
+cd ~/aries-scratch && ./aries admin principal add bob --pubkey ~/aries-scratch/bob.pub
 ```
 
 Then run `aries` as bob by naming his key:

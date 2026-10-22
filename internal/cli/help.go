@@ -71,7 +71,7 @@ var helpGroups = []helpGroup{
 	{"Gates", []helpLine{
 		{"gate", "hold issues for a gate; pass, waive, rearm (a person's)"},
 		{"land", "report landed for the default branch's commits, after a pull"},
-		{"workflow", "check that the server's workflow is the one in a file"},
+		{"workflow", "show, set (admins), diff or check the workflow"},
 	}},
 	{"Offline and cache", []helpLine{
 		{"outbox", "list, retry or drop the writes waiting for the server"},
@@ -136,7 +136,7 @@ var groupActions = map[string][]string{
 
 // hiddenFlags are flags that help does not list, by the flag set's name:
 // create's --id is for a script that imports issues (decision 88).
-var hiddenFlags = map[string][]string{"create": {"id"}}
+var hiddenFlags = map[string][]string{"create": {"id"}, "admin principal": {"key"}}
 
 // example is one example in a command's help: what it does, and the
 // command line. Examples name only example.com, alice and bob, and each
@@ -326,8 +326,9 @@ var examples = map[string][]example{
 		{"Start from a commit, on a branch of another name", "aries land --from a1b2c3d --branch trunk"},
 	},
 	"workflow": {
+		{"Show the workflow in force", "aries workflow show"},
+		{"Apply the file (an admin's)", "aries workflow set workflow.yaml"},
 		{"Check the server's workflow against the file", "aries workflow check workflow.yaml"},
-		{"The same, as one JSON document", "aries --json workflow check workflow.yaml"},
 	},
 	"outbox": {
 		{"What waits for the server, and what it refused", "aries outbox"},

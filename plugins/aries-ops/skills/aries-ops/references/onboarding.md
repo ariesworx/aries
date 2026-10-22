@@ -21,7 +21,7 @@ they are the operator.
 - **Check the fingerprint with its owner** over a channel other than the
   one the file came by, before you add it.
 - **Add it** as references/access.md says: `aries -C REPO admin principal
-  add NAME --key FILE.pub --project P` for someone new, or `aries -C REPO
+  add NAME --pubkey FILE.pub --project P` for someone new, or `aries -C REPO
   admin key add NAME FILE.pub` for a further machine of someone known.
 
 ## The repository
@@ -68,7 +68,7 @@ docs/deploy/team.md#build-it, steps 4 and 6).
   deleted. You run neither command and see neither private file. Never
   name the secret `ARIES_KEY_FILE`.
 - **You add the public half** under its own name, such as `ci-bot`:
-  `aries -C REPO admin principal add ci-bot --key ci-bot.pub --project P`.
+  `aries -C REPO admin principal add ci-bot --pubkey ci-bot.pub --project P`.
   Make it no admin.
 - **The agent names its key** with `ARIES_KEY_FILE`, which holds the
   key file's path, never the key; with `aries setup --global --key-file

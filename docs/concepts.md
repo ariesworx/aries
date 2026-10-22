@@ -391,7 +391,7 @@ imported with. Later edits to the text tick nothing.
 
 A project may have one workflow: a file in its repository, by
 convention `.aries/workflow.yaml`, that a project admin applies with
-`aries admin workflow set FILE` once the pull request that changed it
+`aries workflow set FILE` once the pull request that changed it
 merges. For each issue type it names a profile; `default` is the
 profile of every type not named, and a named type replaces it whole.
 
@@ -431,9 +431,9 @@ types:
   new rev applies to the next create. A create queued while the server
   could not be reached gets the workflow in force when it is sent.
 - **Who sets it.** A project admin, or a server admin, from their own
-  terminal: a set from an agent's session, `aries admin workflow set`
+  terminal: a set from an agent's session, `aries workflow set`
   run in an agent's shell included, is refused, as is a member's. No MCP
-  tool sets or reads it. `aries admin workflow show` prints it, `diff
+  tool sets or reads it. `aries workflow show` prints it, `diff
   FILE` what a set would change, and `aries workflow check FILE` exits 1
   when the server's differs from the file, for any member or a CI job.
   `set --rev N` refuses a set over a rev applied since.

@@ -17,28 +17,40 @@ import (
 
 // A project's workflow (design §21.3): a file in the repository,
 // `.aries/workflow.yaml` by convention, which a project admin applies
-// with `aries admin workflow set FILE` once the pull request that changed
+// with `aries workflow set FILE` once the pull request that changed
 // it merges. aries reads YAML or JSON, checks it as the server will, and
 // sends JSON, so ariesd parses no YAML. No MCP tool sets or reads it.
 
-const workflowUsage = "admin workflow show | set FILE [--rev N] | diff FILE"
+const workflowUsage = "admin workflow show | set FILE [--rev N] | diff FILE | check FILE"
 
-const workflowCheckUsage = "workflow check FILE"
+const workflowCmdUsage = "workflow show | set FILE [--rev N] | diff FILE | check FILE"
 
 // maxWorkflowFile bounds the file aries reads: the server keeps at most
 // 64 KiB of JSON, and YAML with its comments may be a few times that.
 const maxWorkflowFile = 1 << 18
 
 func adminWorkflow(ctx context.Context, r *runner, args []string) error {
-	const usage = workflowUsage
-	fs := r.newFlags("admin workflow")
+	return runWorkflow(ctx, r, args, "admin workflow", workflowUsage)
+}
+
+// cmdWorkflow is `aries workflow show | set | diff | check`. `aries admin
+// workflow` is the same command under its older name. show, diff and
+// check are for any member, a CI job among them (check exits 1 when the
+// server's workflow differs from the file); the server refuses set unless
+// the caller is an admin.
+func cmdWorkflow(ctx context.Context, r *runner, args []string) error {
+	return runWorkflow(ctx, r, args, "workflow", workflowCmdUsage)
+}
+
+func runWorkflow(ctx context.Context, r *runner, args []string, name, usage string) error {
+	fs := r.newFlags(name)
 	rev := fs.Int64("rev", 0, "the rev you read with show: refuse the set if another was applied since")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
 	}
 	if len(pos) == 0 {
-		return usagef(usage, "admin workflow needs show, set or diff")
+		return usagef(usage, "%s needs show, set, diff or check", name)
 	}
 	if set(fs, "rev") && pos[0] != "set" {
 		return usagef(usage, "only workflow set takes --rev")
@@ -49,37 +61,19 @@ func adminWorkflow(ctx context.Context, r *runner, args []string) error {
 			return usagef(usage, "workflow show takes no arguments")
 		}
 		return showWorkflow(ctx, r)
-	case "set", "diff":
+	case "set", "diff", "check":
 		if len(pos) != 2 {
 			return usagef(usage, "workflow %s needs one file, such as .aries/workflow.yaml", pos[0])
 		}
-		if pos[0] == "diff" {
+		switch pos[0] {
+		case "set":
+			return setWorkflow(ctx, r, pos[1], *rev)
+		case "diff":
 			return diffWorkflow(ctx, r, pos[1], false)
 		}
-		return setWorkflow(ctx, r, pos[1], *rev)
+		return diffWorkflow(ctx, r, pos[1], true)
 	}
 	return usagef(usage, "unknown workflow action %q", pos[0])
-}
-
-// cmdWorkflow is `aries workflow check FILE`, which any member may run,
-// a CI job among them: it exits 1 when the server's workflow differs from
-// the file.
-func cmdWorkflow(ctx context.Context, r *runner, args []string) error {
-	const usage = workflowCheckUsage
-	fs := r.newFlags("workflow")
-	pos, err := parse(fs, args, usage)
-	if err != nil {
-		return err
-	}
-	switch {
-	case len(pos) == 0:
-		return usagef(usage, "workflow needs check")
-	case pos[0] != "check":
-		return usagef(usage, "unknown workflow action %q; a project admin applies one with `aries admin workflow set FILE`", pos[0])
-	case len(pos) != 2:
-		return usagef(usage, "workflow check needs one file, such as .aries/workflow.yaml")
-	}
-	return diffWorkflow(ctx, r, pos[1], true)
 }
 
 // readWorkflow reads the workflow file at file, relative to -C, in YAML

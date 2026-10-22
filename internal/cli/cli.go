@@ -153,7 +153,7 @@ func init() {
 		{"reopen", "reopen ID [--rev N]", "reopen a closed issue", cmdReopen},
 		{"land", landUsage, "report landed for the commits of the default branch since the last reported, for a server CI cannot reach; run it after git pull", cmdLand},
 		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
-		{"workflow", workflowCheckUsage, "check that the server's workflow is the one in FILE; exits 1 when it differs", cmdWorkflow},
+		{"workflow", workflowCmdUsage, "show the project's workflow, set it from FILE (admins), diff or check FILE against it; check exits 1 when it differs", cmdWorkflow},
 		{"lock", lockUsage, "take, renew, release or list a lock, a leased mutex or semaphore for a deploy or a merge; run a command under one", cmdLock},
 		{"dispatch", dispatchUsage, "experimental, macOS and Linux: start headless agent runs on ready issues, within a budget, until stopped; status, stop, and the API key it gives them", cmdDispatch},
 		{"dep", depUsage, "add or remove a dependency: FROM depends on TO", cmdDep},
@@ -201,8 +201,9 @@ func init() {
 }
 
 // aliases are other names of commands, which help does not list: log,
-// hours's name before 1.0, which is kept through 1.x.
-var aliases = map[string]string{"log": "hours"}
+// hours's name before 1.0, and tick, accept's name in the MCP tools'
+// `ticked`; both are kept through 1.x.
+var aliases = map[string]string{"log": "hours", "tick": "accept"}
 
 // lookup returns the command named name, or by an alias name, or nil.
 func lookup(name string) *command {

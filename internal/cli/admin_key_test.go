@@ -55,7 +55,7 @@ func TestAdminKeyUsage(t *testing.T) {
 	}
 	help := helpText(t, "admin")
 	for _, want := range []string{"admin key add NAME FILE|- [--expires DURATION|TIME] | list NAME | list --added-by NAME | remove FINGERPRINT",
-		"admin principal add NAME [--key FILE]... [--project P | --no-project]"} {
+		"admin principal add NAME [--pubkey FILE]... [--project P | --no-project]"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("aries help admin lacks %q:\n%s", want, help)
 		}
@@ -170,6 +170,7 @@ func TestAdminKeyAddSendsNoPrivateKey(t *testing.T) {
 		{"admin", "key", "add", "bob", private},
 		{"admin", "key", "add", "bob", "id_ed25519"},
 		{"admin", "principal", "add", "bob", "--key", private},
+		{"admin", "principal", "add", "bob", "--pubkey", private},
 		{"--json", "admin", "key", "add", "bob", private},
 	} {
 		code, out, errb := runCLI(t, append([]string{"-C", empty}, args...)...)

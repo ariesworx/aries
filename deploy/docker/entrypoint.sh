@@ -423,7 +423,7 @@ Aries test server ready (not for production)
   project     $project
   principals  ${principals:-none}
   admins      ${admins}
-  more        aries admin project add NAME; aries admin principal add NAME --key FILE
+  more        aries admin project add NAME; aries admin principal add NAME --pubkey FILE
 
 Save this as .aries.yaml in a scratch repository:
 
