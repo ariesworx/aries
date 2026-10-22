@@ -14,7 +14,7 @@ Aries is for teams, and single developers, who run several agents on
 one codebase and need them to agree on who does what, what is ready,
 what was learned and what has really landed.
 
-> **Status: v0.5.0 is the current release; stage 5 of 7 done.** Not
+> **Status: v0.6.0 is the current release; stage 5 of 7 done.** Not
 > ready for production use yet: v1.0.0, the production release, is
 > held as long as possible, and until then releases are minor versions
 > ([decision 93](docs/design/aries.md#14-decisions)).
@@ -26,14 +26,14 @@ what was learned and what has really landed.
 >   server, observability, work while the server cannot be reached, and
 >   a project's workflow, where *closed* means *landed*. None of the
 >   offline work has run on Windows.
-> - v0.6.0 is in progress on `main`: protocol 9 binds the HTTPS key
->   proof to the TLS session, and lets an agent settle its acceptance
->   items at handoff ([draft notes](docs/releases/v0.6.0.md)).
+> - v0.7.0 is in progress on `main`: protocol 10, prices by prompt
+>   length, the guard, and the dispatcher and outcome record,
+>   experimental ([draft notes](docs/releases/v0.7.0.md)).
 > - HTTPS is the default transport; SSH is off until an operator turns
->   it on. v0.5.0 authenticates people and services by keys
+>   it on. Releases authenticate people and services by keys
 >   ([decision 91](docs/design/aries.md#14-decisions)). Sign-in at a
->   company's identity provider and CI sign-in by workload token are on
->   `main`, off unless configured, and not yet security-reviewed.
+>   company's identity provider and CI sign-in by workload token are
+>   built, off unless configured, and not yet security-reviewed.
 >
 > The [roadmap](#roadmap) has the detail.
 
@@ -121,7 +121,7 @@ binary, building from source and verifying a download by hand.
 | Check work against its acceptance items | `accept`, `finish --tick` | [Acceptance criteria](docs/concepts.md#acceptance-criteria) |
 | Set the acceptance items and required checks each issue type gets | `admin workflow`, `workflow check` | [The workflow](docs/concepts.md#the-workflow) |
 | Hold work until a person approves or CI reports a check | `gate` | [Gates](docs/concepts.md#gates), [CI gates](docs/ci.md) |
-| Report what merged, from a machine, for a server CI cannot reach | `land` | [A server CI cannot reach](docs/ci.md#a-server-ci-cannot-reach) |
+| Report what merged, from a machine or a scheduled job, for a server CI cannot reach | `land`, `setup pull-job` | [A server CI cannot reach](docs/ci.md#a-server-ci-cannot-reach) |
 | Hold a lock or a semaphore around a command | `lock run` | [Locks](docs/concepts.md#locks) |
 
 **Work together**
@@ -143,15 +143,18 @@ binary, building from source and verifying a download by hand.
 | See the time and tokens each issue took, by account (tokens from Claude Code so far) | `show`, `digest`, `usage --hook` | [Accounts, time and tokens](docs/concepts.md#accounts-time-and-tokens) |
 | Report token cost at list price, and amortized over subscription plans, by account, issue, epic, person, model or outcome | `cost`, `admin price`, `admin plan` | [Cost](docs/concepts.md#cost), [Prices](docs/server.md#prices), [Plans](docs/server.md#plans) |
 | Log the hours people spend on an issue | `hours` | [Human hours](docs/concepts.md#human-hours) |
-| Export each project's cost over time, by model, to Prometheus or an OTLP backend | `sextant` | [Running Sextant](docs/sextant.md) |
+| Export each project's cost by model and account, tokens, hours and unpriced tokens to Prometheus or an OTLP backend, with alert rules and a dashboard | `sextant` | [Running Sextant](docs/sextant.md) |
 
 **Set up and run**
 
 | You can | With | Read more |
 |---|---|---|
 | Set up Claude Code, Codex, Gemini CLI, Cursor, VS Code, Junie, JetBrains AI Assistant or Claude Desktop | `setup` | [Agents](docs/agents.md) |
+| Check each command and edit a Claude Code agent makes against one policy file | `guard` | [The guard](docs/agents.md#the-guard-claude-code) |
+| Keep agents at work on ready issues without a person starting each session (experimental; macOS and Linux) | `dispatch` | [The dispatcher](docs/cli.md#the-dispatcher-experimental) |
 | Serve many projects from one server, and manage projects, people, keys and memberships from any machine | `admin project`, `admin principal`, `admin key`, `admin member` | [Serving many projects](docs/server.md#serving-many-projects) |
 | Watch the server: metrics, traces, logs, health and a status report | `admin status`, `ariesd status` | [Observability](docs/server.md#observability) |
+| Send Claude Code's own metrics, without content, to the same Collector | settings, `ARIES_AGENT_OTLP_ENDPOINT` | [Agent metrics](docs/agents.md#agent-metrics-claude-code) |
 | Reach a server that has no public address, through Google Cloud IAP | `iap:` in `.aries.yaml` | [Servers without a public IP](docs/cli.md#servers-without-a-public-ip-google-cloud-iap) |
 | Move a bd (beads) backlog over, keeping its IDs | `ariesd import-bd` | [Moving from bd](docs/migrate-from-bd.md) |
 | Upgrade clients and the server from signed releases | `upgrade` | [Upgrade and roll back](docs/install.md#upgrade-and-roll-back) |
@@ -199,10 +202,10 @@ development.
 | Guide | Covers |
 |---|---|
 | [How Aries works](docs/concepts.md) | Identity, issues, dependencies, gates, locks, claims and leases, the workflow, handoffs, the inbox, memory, time and cost |
-| [Using `aries`](docs/cli.md) | Connecting a repository, signing in, every command, working offline, exit codes |
-| [Agents](docs/agents.md) | Setting agents up, session-start and usage hooks, MCP tools, sessions |
+| [Using `aries`](docs/cli.md) | Connecting a repository, signing in, every command, the dispatcher, working offline, exit codes |
+| [Agents](docs/agents.md) | Setting agents up, session-start and usage hooks, agent metrics, the guard, MCP tools, sessions |
 | [CI gates](docs/ci.md) | Holding work until CI reports a check, landing, `aries land`, the `Aries:` trailer check, and workflows for GitHub Actions and GitLab CI, with what they cost |
-| [Running Sextant](docs/sextant.md) | The exporter of agents' cost beside one `ariesd`: building it, its principal, its config and limits, and the metrics it exports over OTLP and to Prometheus |
+| [Running Sextant](docs/sextant.md) | The exporter of agents' cost beside one `ariesd`: building it, its principal, its config and limits, the metrics it exports over OTLP and to Prometheus, and its alert rules and dashboard |
 | [Moving from bd](docs/migrate-from-bd.md) | Importing a beads backlog, and exporting it back |
 
 **Running a server**
@@ -214,7 +217,7 @@ development.
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
 | [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server |
-| [Release notes](docs/releases/v0.5.0.md) | What v0.5.0 adds, breaks, removes and supports; [v0.6.0's draft](docs/releases/v0.6.0.md) grows as changes land |
+| [Release notes](docs/releases/v0.6.0.md) | What v0.6.0 adds, breaks, removes and supports; [v0.7.0's draft](docs/releases/v0.7.0.md) grows as changes land |
 | [Changelog](CHANGELOG.md) | One entry per release, newest first, each linking its full notes |
 | [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 
@@ -250,38 +253,27 @@ built, in v0.5.0; a server-wide default (W5) is not.
 
 **Releases.** Releases are minor versions, v0.5.0, v0.6.0 and on, until
 v1.0.0, which is held as long as possible
-([decision 93](docs/design/aries.md#14-decisions)).
+([decision 93](docs/design/aries.md#14-decisions)). From v0.5.0 on, a
+release that changes the protocol keeps accepting the one before it,
+and the names a dashboard or an alert relies on are kept.
 
-- **v0.5.0, the current release:** the rename to Aries, Postgres in
-  place of Dolt, many projects, observability, working offline, gates
-  and locks, a project's workflow, HTTPS as the primary transport,
-  authentication by keys, and a hardening pass with a security review
-  ([security-review-v1.md](docs/design/security-review-v1.md)). Its
-  ACME has run only against a test CA. The
-  [release notes](docs/releases/v0.5.0.md) have the full list.
-- **From v0.5.0 on:** a release that changes the protocol keeps
-  accepting the one before it, and the names a dashboard or an alert
-  relies on are kept.
-- **v0.6.0, in progress:** on `main`, protocol 9, which binds the key
-  proof to the TLS session where `ariesd` terminates TLS and lets
-  `handoff` settle acceptance items; still to come, ACME against a real
-  CA and the review's other deferred findings
-  ([Not in this release](docs/releases/v0.5.0.md#not-in-this-release)).
-  The [draft notes](docs/releases/v0.6.0.md) grow with each change.
-- **Before v1.0.0:** organization memory, the server-wide default
-  workflow (W5) that builds on it, and pseudonymous names in every log
-  ([decision 97](docs/design/aries.md#14-decisions)).
-- **In 1.x:** sign-in against a real identity provider, with its
-  security review; a remote MCP endpoint; GitHub's sign-in; a Claude
-  Desktop extension; and stage 6's G3 to G5
-  ([Coming in 1.x](docs/releases/v0.5.0.md#coming-in-1x)).
+| Release | State | Brings |
+|---|---|---|
+| [v0.5.0](docs/releases/v0.5.0.md) | Released 17 Oct 2026 | The rename to Aries, Postgres in place of Dolt, many projects, observability, working offline, gates and locks, a project's workflow, HTTPS as the primary transport, authentication by keys, and a hardening pass with a security review ([security-review-v1.md](docs/design/security-review-v1.md)) |
+| [v0.6.0](docs/releases/v0.6.0.md) | Current, released 20 Oct 2026 | Protocol 9: the key proof bound to the TLS session where `ariesd` terminates TLS, and `handoff` settling acceptance items; cost per outcome; Sextant's exporter, built from source |
+| [v0.7.0](docs/releases/v0.7.0.md) | In progress on `main` | Protocol 10, which no longer accepts v0.5.0's `aries`: prices by prompt length; the guard; and the dispatcher and outcome record, experimental |
+| A later minor release | Planned | ACME against a real CA (it has run only against a test CA) and the security review's other deferred findings ([Not in v0.6.0](docs/releases/v0.6.0.md#not-in-this-release)) |
+| Before v1.0.0 | Planned | Organization memory, the server-wide default workflow (W5) that builds on it, and pseudonymous names in every log ([decision 97](docs/design/aries.md#14-decisions)) |
+| 1.x | Planned | Sign-in against a real identity provider, with its security review; a remote MCP endpoint; GitHub's sign-in; a Claude Desktop extension; and stage 6's G3 to G5 ([Coming in 1.x](docs/releases/v0.5.0.md#coming-in-1x)) |
 
 **Sextant**, cost and flow of the agents' work as series a dashboard
 draws and an alert watches, starts before v1.0.0
-([decision 100](docs/design/aries.md#14-decisions)): its exporter
-(X0) is built; cost by account, tokens and hours (X1), flow (X2), a
-dashboard and alert rules (X3) and a release of its own (X5) are
-planned in [sextant.md](docs/design/sextant.md#5-slices).
+([decision 100](docs/design/aries.md#14-decisions)). Built: its
+exporter (X0); cost by account, tokens, hours and unpriced tokens (X1,
+without amortized cost); and alert rules and a dashboard (X3, without
+the rules that wait on flow). Planned in
+[sextant.md](docs/design/sextant.md#5-slices): flow (X2) and a release
+of its own (X5).
 
 **Bearings**, an orchestrator that runs and supervises many agents on
 top of Aries, is a design only; its stages B0 to B5 are planned in the
@@ -302,9 +294,10 @@ model, to fix where their work stands and chart the next step.
 - **Sextant** is observability of the agents' work: metrics,
   monitoring, tracing, and cost and usage reporting, a binary of its own
   in this repository ([decision 98](docs/design/aries.md#14-decisions)).
-  Its first slice, an exporter of each project's cost beside one
-  `ariesd`, is built ([Running Sextant](docs/sextant.md)); the rest is a
-  design ([sextant.md](docs/design/sextant.md)).
+  Its exporter of each project's cost, tokens and hours beside one
+  `ariesd` is built, with alert rules and a dashboard
+  ([Running Sextant](docs/sextant.md)); the rest is a design
+  ([sextant.md](docs/design/sextant.md)).
 
 ## Contributing
 
