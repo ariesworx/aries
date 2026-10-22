@@ -99,6 +99,9 @@ type Git interface {
 	RemoveWorktree(ctx context.Context, path string) error
 	// DeleteBranch deletes a local branch whose PR merged.
 	DeleteBranch(ctx context.Context, branch string) error
+	// OnRemote reports whether the remote has branch at the commit the
+	// local branch is at: deleting the local one loses nothing.
+	OnRemote(ctx context.Context, branch string) (bool, error)
 	// RemoteHead is the remote default branch's commit.
 	RemoteHead(ctx context.Context) (string, error)
 }

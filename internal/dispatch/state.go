@@ -76,9 +76,13 @@ type Run struct {
 	// Head is the commit of PR that CI is the result for.
 	Head string `json:"head,omitempty"`
 	// Cleaned: its worktree was removed after its issue closed. Left: a
-	// removal was refused and reported, and is tried again.
-	Cleaned bool `json:"cleaned,omitempty"`
-	Left    bool `json:"left,omitempty"`
+	// removal was refused and reported, and is tried again. BranchDone: its
+	// branch was deleted, or there was none to delete; until then the
+	// deletion is tried again at each wake, once its PR merged or its head
+	// is on the remote.
+	Cleaned    bool `json:"cleaned,omitempty"`
+	Left       bool `json:"left,omitempty"`
+	BranchDone bool `json:"branch_done,omitempty"`
 	// Cleared: a person cleared the stops (`run --clear`) since it
 	// failed, so its issue may be started again.
 	Cleared bool `json:"cleared,omitempty"`

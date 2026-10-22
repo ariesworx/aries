@@ -423,6 +423,7 @@ func (d *Dispatcher) ended(ctx context.Context, r *Run, e Exit) {
 		if err := d.Git.RemoveWorktree(ctx, r.Worktree); err == nil {
 			r.Cleaned = true
 		}
+		r.BranchDone = true
 		d.release(ctx, r.Issue, r.Session, "The lock "+RunsLock+" refused the run before it started; aries dispatch released the claim and tries again later.")
 		return
 	}
@@ -437,7 +438,7 @@ func (d *Dispatcher) ended(ctx context.Context, r *Run, e Exit) {
 // §6, §9).
 func (d *Dispatcher) reconcile(ctx context.Context) {
 	for _, r := range d.State.Runs {
-		if r.Live() || r.Cleaned {
+		if r.Live() || (r.Cleaned && r.BranchDone) {
 			continue
 		}
 		var pr *PR
@@ -476,8 +477,9 @@ func (d *Dispatcher) pr(ctx context.Context, r *Run) *PR {
 }
 
 // cleanup removes the worktree of an ended run of its own whose issue is
-// closed, without --force, and its branch only when its PR merged
-// (dispatcher.md §9).
+// closed, without --force, and then its branch once its PR merged or its
+// head is on the remote; until then the branch is left and looked at again
+// at each wake (dispatcher.md §9).
 func (d *Dispatcher) cleanup(ctx context.Context, r *Run, pr *PR) {
 	if !d.owns(r.Worktree) {
 		return
@@ -486,26 +488,42 @@ func (d *Dispatcher) cleanup(ctx context.Context, r *Run, pr *PR) {
 	if err != nil || sr.Issue.Status != "closed" {
 		return
 	}
-	if err := d.Git.RemoveWorktree(ctx, r.Worktree); err != nil {
-		if !r.Left {
-			d.say("left %s's worktree %s: %v", r.Issue, r.Worktree, err)
-			d.log(record{Event: "left", Issue: r.Issue, Path: r.Worktree, Branch: r.Branch})
+	if !r.Cleaned {
+		if err := d.Git.RemoveWorktree(ctx, r.Worktree); err != nil {
+			if !r.Left {
+				d.say("left %s's worktree %s: %v", r.Issue, r.Worktree, err)
+				d.log(record{Event: "left", Issue: r.Issue, Path: r.Worktree, Branch: r.Branch})
+			}
+			r.Left = true
+			return
 		}
-		r.Left = true
+		r.Cleaned, r.Left = true, false
+		d.say("removed %s's worktree %s", r.Issue, r.Worktree)
+		d.log(record{Event: "removed", Issue: r.Issue, Session: r.Session, Path: r.Worktree})
+	}
+	if r.BranchDone {
 		return
 	}
-	r.Cleaned, r.Left = true, false
-	deleted := ""
+	if r.Branch == "" {
+		r.BranchDone = true
+		return
+	}
 	if pr == nil {
 		pr = d.pr(ctx, r)
 	}
-	if pr != nil && pr.State == "MERGED" {
-		if err := d.Git.DeleteBranch(ctx, r.Branch); err == nil {
-			deleted = r.Branch
-		}
+	safe := pr != nil && pr.State == "MERGED"
+	if !safe {
+		safe, _ = d.Git.OnRemote(ctx, r.Branch)
 	}
-	d.say("removed %s's worktree %s", r.Issue, r.Worktree)
-	d.log(record{Event: "removed", Issue: r.Issue, Session: r.Session, Path: r.Worktree, Branch: deleted})
+	if !safe {
+		return
+	}
+	if err := d.Git.DeleteBranch(ctx, r.Branch); err != nil {
+		return
+	}
+	r.BranchDone = true
+	d.say("deleted %s's branch %s", r.Issue, r.Branch)
+	d.log(record{Event: "branch", Issue: r.Issue, Session: r.Session, Branch: r.Branch})
 }
 
 // owns reports whether path is a worktree under its own directory.
