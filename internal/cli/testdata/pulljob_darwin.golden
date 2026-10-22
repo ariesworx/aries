@@ -1,0 +1,37 @@
+=== /home/alice/Library/LaunchAgents/aries-pull-job-proj-4832751b.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by `aries setup pull-job`; remove it with `aries setup pull-job --remove`. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>aries-pull-job-proj-4832751b</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/aries</string>
+		<string>-C</string>
+		<string>/home/alice/code/proj</string>
+		<string>pull-job</string>
+		<string>--run</string>
+		<string>--branch</string>
+		<string>main</string>
+		<string>--remote</string>
+		<string>origin</string>
+		<string>--key-file</string>
+		<string>/home/alice/.ssh/id_work</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>900</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/usr/local/bin:/usr/bin</string>
+	</dict>
+</dict>
+</plist>
+=== start
+launchctl load -w /home/alice/Library/LaunchAgents/aries-pull-job-proj-4832751b.plist
+=== stop
+launchctl unload -w /home/alice/Library/LaunchAgents/aries-pull-job-proj-4832751b.plist

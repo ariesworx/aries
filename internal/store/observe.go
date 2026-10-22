@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -40,6 +42,25 @@ type Observer interface {
 	// unless the model has a price in the store, so its values are
 	// bounded by the table and not by what clients report.
 	UsageAdded(ctx context.Context, actor Actor, u []UsageTokens)
+	// IssueCycled reports a close that committed of an issue of the
+	// given type that had been started, with how long it took from the
+	// issue's first start since it was last opened to the close, on the
+	// store's clock. A close of an issue never started is not reported.
+	IssueCycled(issueType IssueType, took time.Duration)
+	// IssueQueued reports an issue's first start that committed, with how
+	// long it waited, on the store's clock, from its creation, or from
+	// its defer_until if that is later. When it became ready is not
+	// used: ready is derived and no event records it.
+	IssueQueued(issueType IssueType, took time.Duration)
+	// IssueLanded reports a close by the closing pass of a required
+	// check that committed, with how long it was from the issue's last
+	// handoff with state done to the close, on the store's clock. An
+	// issue with no such handoff is not reported.
+	IssueLanded(issueType IssueType, took time.Duration)
+	// GateWaited reports a gate's pass or waiver that committed, with
+	// how long the gate was open on the store's clock, from its add or
+	// its last rearm.
+	GateWaited(kind GateKind, took time.Duration)
 }
 
 // Tracer is told where a write's time goes, as it goes, under the
@@ -209,4 +230,113 @@ type UsageTokens struct {
 	Input, Output, CacheWrite, CacheRead int64
 	// CacheWrite1h is the part of CacheWrite written for an hour.
 	CacheWrite1h int64
+}
+
+// cycle is one start-to-close time an attempt found, reported once the
+// attempt commits.
+type cycle struct {
+	typ  IssueType
+	took time.Duration
+}
+
+// cycled notes, for the store's observer, how long the issue just closed
+// took from its first start since its last reopening: the first
+// claim.take after the latest issue.reopen, which the events_target
+// index serves. An issue closed without ever being started has none and
+// notes nothing.
+func (w *wtx) cycled(ctx context.Context, is Issue) error {
+	var start sql.NullTime
+	err := w.tx.QueryRowContext(ctx, `SELECT min(at) FROM events WHERE target = $1 AND op = $2
+  AND seq > COALESCE((SELECT max(seq) FROM events WHERE target = $1 AND op = $3), 0)`,
+		string(is.ID), string(OpClaimTake), string(OpIssueReopen)).Scan(&start)
+	if err != nil {
+		return fmt.Errorf("start of an issue: %w", err)
+	}
+	if start.Valid {
+		w.cycles = append(w.cycles, cycle{is.Type, max(w.now.Sub(start.Time), 0)})
+	}
+	return nil
+}
+
+// stage is one wait of an issue or a gate an attempt found, reported once
+// the attempt commits: kind is "queue", "landing" or "gate", and typ is
+// the issue's type, or for a gate its kind.
+type stage struct {
+	kind string
+	typ  string
+	took time.Duration
+}
+
+// queued notes, for the store's observer, how long issue id waited for
+// its first start, when the take being written is its first: from its
+// creation, or its defer_until if later, to now. It must run before the
+// take's event is written. A later take notes nothing.
+func (w *wtx) queued(ctx context.Context, id IssueID) error {
+	var typ IssueType
+	var created time.Time
+	var deferred sql.NullTime
+	var taken int
+	err := w.tx.QueryRowContext(ctx, `SELECT i.type, i.created_at, i.defer_until,
+  (SELECT count(*) FROM events WHERE target = $1 AND op = $2) FROM issues i WHERE i.id = $1`,
+		string(id), string(OpClaimTake)).Scan(&typ, &created, &deferred, &taken)
+	if err != nil {
+		return fmt.Errorf("queue of an issue: %w", err)
+	}
+	if taken > 0 {
+		return nil
+	}
+	if deferred.Valid && deferred.Time.After(created) {
+		created = deferred.Time
+	}
+	w.stages = append(w.stages, stage{"queue", string(typ), max(w.now.Sub(created), 0)})
+	return nil
+}
+
+// landedAfter notes, for the store's observer, how long the issue the
+// closing pass just closed had waited since its last handoff with state
+// done.
+func (w *wtx) landedAfter(ctx context.Context, is Issue) error {
+	var at sql.NullTime
+	err := w.tx.QueryRowContext(ctx, `SELECT max(c.created_at) FROM handoffs h JOIN comments c ON c.id = h.comment_id
+  WHERE h.issue_id = $1 AND h.state = $2`, string(is.ID), string(HandoffDone)).Scan(&at)
+	if err != nil {
+		return fmt.Errorf("last handoff of an issue: %w", err)
+	}
+	if at.Valid {
+		w.stages = append(w.stages, stage{"landing", string(is.Type), max(w.now.Sub(at.Time), 0)})
+	}
+	return nil
+}
+
+// gateWaited notes, for the store's observer, how long gate g was open
+// when it was passed or waived: since its add or its last rearm, which
+// the events of the gate's issue give.
+func (w *wtx) gateWaited(ctx context.Context, g Gate) error {
+	var at sql.NullTime
+	err := w.tx.QueryRowContext(ctx, `SELECT max(at) FROM events WHERE target = $1 AND op IN ($2, $3)`,
+		string(g.ID), string(OpGateAdd), string(OpGateRearm)).Scan(&at)
+	if err != nil {
+		return fmt.Errorf("start of a gate's wait: %w", err)
+	}
+	if at.Valid {
+		w.stages = append(w.stages, stage{"gate", string(g.Kind), max(w.now.Sub(at.Time), 0)})
+	}
+	return nil
+}
+
+// StatusCounts returns how many issues the project has in each status,
+// from one grouped count that the status index serves: at most one row a
+// status, whatever the number of issues, and no text.
+func (s *Store) StatusCounts(ctx context.Context) (map[Status]int, error) {
+	out := map[Status]int{}
+	err := scanAll(ctx, s.r, "issue counts", `SELECT status, count(*) FROM issues GROUP BY status`, nil, func(rs *sql.Rows) error {
+		var st Status
+		var n int
+		if err := rs.Scan(&st, &n); err != nil {
+			return err
+		}
+		out[st] = n
+		return nil
+	})
+	return out, err
 }

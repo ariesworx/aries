@@ -1,0 +1,6 @@
+=== task
+"/usr/local/bin/aries" "-C" "/home/alice/code/proj" "pull-job" "--run" "--branch" "main" "--remote" "origin" "--key-file" "/home/alice/.ssh/id_work"
+=== start
+schtasks /Create /F /TN aries-pull-job-proj-4832751b /SC MINUTE /MO 15 /TR "/usr/local/bin/aries" "-C" "/home/alice/code/proj" "pull-job" "--run" "--branch" "main" "--remote" "origin" "--key-file" "/home/alice/.ssh/id_work"
+=== stop
+schtasks /Delete /F /TN aries-pull-job-proj-4832751b

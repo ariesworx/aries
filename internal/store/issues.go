@@ -928,6 +928,28 @@ func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force boo
 			}
 			extra["reviews_overridden"] = gates
 		}
+		// An issue folded into another says so on the record: the issues
+		// its duplicates and supersedes links name.
+		rows, err := w.tx.QueryContext(ctx, `SELECT to_id FROM deps WHERE from_id = $1 AND type IN ('duplicates', 'supersedes') ORDER BY to_id`,
+			string(before.ID))
+		if err != nil {
+			return Issue{}, fmt.Errorf("folded links of %s: %w", before.ID, err)
+		}
+		defer func() { _ = rows.Close() }()
+		var folded []string
+		for rows.Next() {
+			var to string
+			if err := rows.Scan(&to); err != nil {
+				return Issue{}, fmt.Errorf("folded links of %s: %w", before.ID, err)
+			}
+			folded = append(folded, to)
+		}
+		if err := rows.Err(); err != nil {
+			return Issue{}, fmt.Errorf("folded links of %s: %w", before.ID, err)
+		}
+		if len(folded) > 0 {
+			extra["folded_into"] = folded
+		}
 	}
 	c, err := loadClaim(ctx, w.tx, before.ID)
 	if err != nil {
@@ -948,6 +970,11 @@ func setStatus(ctx context.Context, w *wtx, before Issue, op Op, args []any, ext
 	out, err := casUpdate(ctx, w, before, []string{"status", "closed_at", "close_reason"}, args)
 	if err != nil {
 		return Issue{}, err
+	}
+	if op == OpIssueClose {
+		if err := w.cycled(ctx, out); err != nil {
+			return Issue{}, err
+		}
 	}
 	return out, w.issueEvent(ctx, op, before, out, extra)
 }

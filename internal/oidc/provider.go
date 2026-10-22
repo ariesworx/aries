@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -258,14 +259,21 @@ func secureURL(raw string) error {
 // readSecret reads a client secret from path, a file only its owner may
 // read (rule 2), and returns its first line.
 func readSecret(path string) (string, error) {
-	fi, err := os.Stat(path)
+	// Open once and check the open file's mode, so the file checked is the
+	// file read even if the path is swapped meanwhile.
+	f, err := os.Open(path) //nolint:gosec // the operator's client_secret_file
+	if err != nil {
+		return "", fmt.Errorf("client_secret_file: %w", err)
+	}
+	defer f.Close() //nolint:errcheck // read only
+	fi, err := f.Stat()
 	if err != nil {
 		return "", fmt.Errorf("client_secret_file: %w", err)
 	}
 	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
 		return "", fmt.Errorf("client_secret_file %s is mode %#o; it holds a secret, so make it 0600: chmod 600 %s", path, fi.Mode().Perm(), path)
 	}
-	b, err := os.ReadFile(path) //nolint:gosec // the operator's client_secret_file
+	b, err := io.ReadAll(io.LimitReader(f, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("client_secret_file: %w", err)
 	}

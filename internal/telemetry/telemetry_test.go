@@ -244,7 +244,7 @@ func TestRecord(t *testing.T) {
 // allKeys is every attribute key an instrument may have. A new key is a
 // new dimension of every series: add it here only with a fixed list of
 // values (AGENTS.md rule 18).
-var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction", "kind", "model"}
+var allKeys = []string{"op", "result", "result_class", "project", "reason", "limit", "migrated", "event", "signal", "direction", "kind", "model", "type", "status"}
 
 // wantKeys is each instrument's attribute keys (design §16.4).
 var wantKeys = map[string][]string{
@@ -281,6 +281,11 @@ var wantKeys = map[string][]string{
 	"aries.https.tokens":                {"result"},
 	"aries.https.tls_handshakes.failed": nil,
 	"aries.https.cert.reloads":          {"result"},
+	"aries.issue.cycle.duration":        {"project", "type"},
+	"aries.issues":                      {"project", "status"},
+	"aries.issue.queue.duration":        {"project", "type"},
+	"aries.issue.landing.duration":      {"project", "type"},
+	"aries.gate.wait.duration":          {"project", "kind"},
 }
 
 // hostile are strings a client might choose, none of them a value any
@@ -303,6 +308,7 @@ func recordAll(tel *Telemetry, values []string) {
 	for i := range numInstruments {
 		if specs[i].watched {
 			tel.Watch(i, func() float64 { return 0 })
+			tel.WatchSeries(i, func(observe func(float64, ...string)) { observe(1, values[0], "open") })
 		}
 	}
 }
@@ -553,6 +559,11 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.https.tokens":                "aries_https_tokens_total",
 		"aries.https.tls_handshakes.failed": "aries_https_tls_handshakes_failed_total",
 		"aries.https.cert.reloads":          "aries_https_cert_reloads_total",
+		"aries.issue.cycle.duration":        "aries_issue_cycle_duration_seconds",
+		"aries.issues":                      "aries_issues",
+		"aries.issue.queue.duration":        "aries_issue_queue_duration_seconds",
+		"aries.issue.landing.duration":      "aries_issue_landing_duration_seconds",
+		"aries.gate.wait.duration":          "aries_gate_wait_duration_seconds",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}
 	for _, d := range Instruments() {
@@ -565,8 +576,12 @@ func TestPrometheusNames(t *testing.T) {
 		sample := d.Prometheus
 		if d.Kind == Histogram {
 			sample += "_bucket"
-			if n := samples[d.Prometheus+"_bucket"]; n%(len(Buckets)+1) != 0 {
-				t.Errorf("/metrics: %s_bucket has %d samples, want a multiple of %d buckets", d.Prometheus, n, len(Buckets)+1)
+			buckets := Buckets
+			if longBuckets(d.Name) {
+				buckets = CycleBuckets
+			}
+			if n := samples[d.Prometheus+"_bucket"]; n%(len(buckets)+1) != 0 {
+				t.Errorf("/metrics: %s_bucket has %d samples, want a multiple of %d buckets", d.Prometheus, n, len(buckets)+1)
 			}
 		}
 		if samples[sample] == 0 {

@@ -342,6 +342,9 @@ func (w *wtx) report(ctx context.Context, before Issue, g *gateRow, r Report, re
 			return Gate{}, fmt.Errorf("pass gate %s: %w", g.ID, err)
 		}
 		evidence["outcome"] = GatePassed
+		if err := w.gateWaited(ctx, g.Gate); err != nil {
+			return Gate{}, err
+		}
 		if err := w.event(ctx, OpGatePass, string(g.ID), map[string]any{"outcome": nil}, evidence); err != nil {
 			return Gate{}, err
 		}

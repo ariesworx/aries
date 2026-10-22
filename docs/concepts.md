@@ -480,7 +480,11 @@ types:
   it), and only from the session `cli`, a person's own terminal, never an
   agent's. The assignee and holder are told (`gate.passed`) that it
   passed; they then finish the issue. An admin's `close --force` closes
-  past it, recording the gate it overrode. It is off unless a profile
+  past it, recording the gate it overrode. It is also how an issue that
+  is a duplicate, won't-do or superseded closes past `landed`, which no
+  commit will ever satisfy: `close --force --reason "duplicate of ID"`,
+  with a `duplicates` or `supersedes` link, whose targets the event
+  records as `folded_into`. It is off unless a profile
   names it: where the host already requires a review before merge,
   `landed` means reviewed and a second review is ceremony. Use it for
   what the host does not see, such as a design, a decision or an

@@ -294,6 +294,44 @@ func TestForgedHeadersLog(t *testing.T) {
 	}
 }
 
+// Behind a proxy every peer is the proxy, so refusal lines are sampled by
+// address and reason: a flood of one kind of refusal (an unknown key)
+// uses up its own allowance and never hides another kind (a proof for
+// another URL).
+func TestRefusalLogsByReason(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"direct", "proxy"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			fl := newForgedListener(t, mode, Limits{RefusalLogs: 1})
+			all := forgeries[len(forgeries)-1]
+			for range 5 {
+				c, _, err := fl.dial(t, all)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if r := fl.prove(t, c, fl.public, signerOf(t, "mallory")); r == nil {
+					t.Fatal("mallory's key was not refused")
+				}
+			}
+			c, _, err := fl.dial(t, all)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r := fl.prove(t, c, "https://"+forgedHost, signerOf(t, "alice")); r == nil {
+				t.Fatal("a proof for another URL was not refused")
+			}
+			log := fl.log.String()
+			if n := strings.Count(log, "reason=unknown_key"); n != 1 {
+				t.Errorf("%d unknown_key lines logged, want 1:\n%s", n, log)
+			}
+			if !strings.Contains(log, "reason=url") {
+				t.Errorf("the url refusal was hidden by the flood of unknown_key:\n%s", log)
+			}
+		})
+	}
+}
+
 // A forged X-Forwarded-For (or Forwarded, or X-Real-IP) moves no limit
 // per address. With TLS at ariesd, the address charged is the peer's,
 // so a client that claims a new address on each try is held to its own

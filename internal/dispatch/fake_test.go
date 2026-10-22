@@ -387,10 +387,11 @@ type fakeGit struct {
 	failAdd   error
 	found     string
 	worktrees map[string]string // path → branch
+	pushed    map[string]bool   // branch → the remote has its head
 }
 
 func newGit(c *calls) *fakeGit {
-	return &fakeGit{calls: c, head: "c0ffee", dirty: map[string]bool{}, worktrees: map[string]string{}}
+	return &fakeGit{calls: c, head: "c0ffee", dirty: map[string]bool{}, worktrees: map[string]string{}, pushed: map[string]bool{}}
 }
 
 func (g *fakeGit) AddWorktree(_ context.Context, path, branch string) (string, error) {
@@ -418,6 +419,12 @@ func (g *fakeGit) RemoveWorktree(_ context.Context, path string) error {
 func (g *fakeGit) DeleteBranch(_ context.Context, branch string) error {
 	g.calls.add("branch delete %s", branch)
 	return nil
+}
+
+func (g *fakeGit) OnRemote(_ context.Context, branch string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.pushed[branch], nil
 }
 
 func (g *fakeGit) RemoteHead(context.Context) (string, error) {

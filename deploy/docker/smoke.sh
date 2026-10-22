@@ -1037,7 +1037,7 @@ signin_checks() {
   # The token is bob's alone, and in no output and no log line.
   tokenfile=$(find "$work/data-bob" -path '*/signin/*' -name token.json | head -n 1)
   [[ -n $tokenfile ]] || fail "no sign-in kept in bob's data directory"
-  [[ $(stat -f '%Lp' "$tokenfile" 2>/dev/null || stat -c '%a' "$tokenfile") == 600 ]] || fail "the token's file is not 0600"
+  [[ $(stat -c '%a' "$tokenfile" 2>/dev/null || stat -f '%Lp' "$tokenfile") == 600 ]] || fail "the token's file is not 0600"
   token=$(sed -n 's/.*"token": "\([^"]*\)".*/\1/p' "$tokenfile")
   [[ -n $token ]] || fail "the token's file holds no token"
   if "${compose[@]}" logs --no-log-prefix aries 2>&1 | grep -Fq -- "$token"; then
