@@ -442,6 +442,31 @@ recommends them for one maintainer:
      takes out only its own. As a hook, `aries land` says nothing off the
      default branch and exits 0 whatever happens, so it never fails a
      pull.
+   - **A scheduled pull.** The hook runs only on a pull, and nothing
+     pulls unless a person does, so merged issues stay open until they
+     do. `aries setup pull-job` prints, and with `--write` makes, a job of
+     your own that runs `aries pull-job --run` every 15 minutes
+     (`--every DURATION`, at least one minute): a launchd agent on macOS
+     (`~/Library/LaunchAgents`), a systemd user service and timer on
+     Linux (`~/.config/systemd/user`), a Task Scheduler task on Windows.
+     Each run does nothing off the default branch; on it, it fetches and
+     fast-forwards only, and only when no tracked file has changes (a
+     checkout with commits of its own is left alone, never merged or
+     reset), and then, on every run, reports landed for the commits not
+     yet reported, so a checkout that something else moved (a desktop
+     app cutting a worktree, say) is landed too. It reports from the
+     session `cli`, with `ARIES_SESSION`, `CLAUDE_CODE_SESSION_ID`,
+     `CLAUDE_SESSION_ID` and `CI` cleared, and writes one line per run to
+     `pull-job.log` in aries's data directory. It never writes unasked,
+     replaces nothing that is not its own, and `--remove` takes out only
+     its own job. **Trust:** the job is your key, unattended: what it
+     reports is worth what your checkout saw, and nobody reviewed it as
+     a person would a pull. **Auth:** it fetches with git, with nothing
+     to type: a public repository over HTTPS, a credential helper, or an
+     ssh key in an agent the job's session can reach. Aries's key is
+     your default identities, or the file `--key-file PATH` names, which
+     goes in the job's command line (a path, never the key; never a
+     project's file).
 2. **A runner inside the network, or a tunnel.** The workflow above on a
    self-hosted runner that reaches the server, or with Tailscale,
    WireGuard or an IAP tunnel (design decision 65). A pass is worth what

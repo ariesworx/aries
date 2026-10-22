@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
+	"github.com/ariesworx/aries/internal/version"
 )
 
 // A dry run judges every ready issue and says what it would start, skip
@@ -134,6 +137,81 @@ func TestDryRunSaysWhatHolds(t *testing.T) {
 	out := w.out.String()
 	if !strings.Contains(out, "hold [budget]: ") || strings.Contains(out, "would start") {
 		t.Errorf("past the cap, the dry run printed:\n%s", out)
+	}
+}
+
+// A run's environment carries the Postgres the dispatcher found first on
+// PATH, and ARIES_REQUIRE_POSTGRES=1, so a test that needs Postgres fails
+// instead of skipping (aries-xphid6sx).
+func TestRunEnvCarriesPostgres(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	d.FindPostgres = func() string { return "/opt/pg/bin" }
+	if err := d.Wake(t.Context(), WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	sp := l.spec(l.sessions()[0])
+	for _, want := range []string{"PATH=/opt/pg/bin" + string(os.PathListSeparator) + "/usr/bin", "ARIES_REQUIRE_POSTGRES=1"} {
+		if !slices.Contains(sp.Env, want) {
+			t.Errorf("the run's environment lacks %s:\n%s", want, strings.Join(sp.Env, "\n"))
+		}
+	}
+	if strings.Contains(sp.Brief, NoPostgresNote) {
+		t.Errorf("the brief carries the no-Postgres note though Postgres was found")
+	}
+}
+
+// With no Postgres the run still starts, with a note in its brief and
+// ARIES_REQUIRE_POSTGRES=1 and its PATH unchanged, and the dispatcher says
+// so.
+func TestRunWithoutPostgresStartsWithANote(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	d.FindPostgres = func() string { return "" }
+	if err := d.Wake(t.Context(), WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	sessions := l.sessions()
+	if len(sessions) != 1 {
+		t.Fatalf("launched %d runs; want 1", len(sessions))
+	}
+	sp := l.spec(sessions[0])
+	if !strings.Contains(sp.Brief, NoPostgresNote) {
+		t.Errorf("the brief lacks the note:\n%s", sp.Brief)
+	}
+	for _, want := range []string{"PATH=/usr/bin", "ARIES_REQUIRE_POSTGRES=1"} {
+		if !slices.Contains(sp.Env, want) {
+			t.Errorf("the run's environment lacks %s", want)
+		}
+	}
+	if !strings.Contains(w.out.String(), "no Postgres found for ar-1") {
+		t.Errorf("the dispatcher did not say so:\n%s", w.out.String())
+	}
+}
+
+// FindPostgres looks where scripts/install-postgres.sh puts it.
+func TestFindPostgres(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	env := []string{"HOME=" + home, "ARIES_POSTGRES_PACKAGED=" + filepath.Join(home, "none")}
+	if got := FindPostgres(env); got != "" {
+		t.Fatalf("found %q in an empty home", got)
+	}
+	bin := filepath.Join(home, ".cache", "aries", "postgres-"+version.Postgres, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"postgres", "initdb"} {
+		if err := os.WriteFile(filepath.Join(bin, p), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // a stand-in program must be executable
+			t.Fatal(err)
+		}
+	}
+	if got := FindPostgres(env); got != bin {
+		t.Errorf("FindPostgres = %q; want %q", got, bin)
 	}
 }
 
@@ -678,6 +756,7 @@ func TestCleanup(t *testing.T) {
 		status   string
 		pr       *PR
 		dirty    bool
+		pushed   bool
 		live     bool
 		removed  bool
 		branch   bool
@@ -686,6 +765,8 @@ func TestCleanup(t *testing.T) {
 		{name: "closed and merged", status: "closed", pr: &PR{State: "MERGED"}, removed: true, branch: true},
 		{name: "closed, PR not merged", status: "closed", pr: &PR{State: "CLOSED"}, removed: true},
 		{name: "closed, no PR", status: "closed", removed: true},
+		{name: "closed, no PR, pushed", status: "closed", pushed: true, removed: true, branch: true},
+		{name: "closed, PR open, pushed", status: "closed", pr: &PR{State: "OPEN"}, pushed: true, removed: true, branch: true},
 		{name: "open", status: "in_progress", pr: &PR{State: "MERGED"}},
 		{name: "a live run", status: "closed", pr: &PR{State: "MERGED"}, live: true},
 		{name: "dirty", status: "closed", pr: &PR{State: "MERGED"}, dirty: true, reported: "left"},
@@ -710,6 +791,7 @@ func TestCleanup(t *testing.T) {
 				w.forge.set(r.Branch, *tc.pr)
 			}
 			w.git.dirty[r.Worktree] = tc.dirty
+			w.git.pushed[r.Branch] = tc.pushed
 			if err := d.Wake(ctx, WakeTimer); err != nil {
 				t.Fatal(err)
 			}
@@ -735,6 +817,44 @@ func TestCleanup(t *testing.T) {
 				t.Error("cleaned twice")
 			}
 		})
+	}
+}
+
+// A branch whose PR was not merged when the worktree went stays pending: it
+// is deleted at a later wake, once the PR shows merged, and said once.
+func TestCleanupBranchPending(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	ctx := t.Context()
+	if err := d.Wake(ctx, WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	r := d.State.Runs[0]
+	l.proc(r.Session).end(Exit{Outcome: OutcomeOK})
+	d.reapReady(ctx)
+	w.tracker.set("ar-1", func(sr *proto.ShowResult) { sr.Issue.Status = "closed" })
+	w.forge.set(r.Branch, PR{State: "OPEN"})
+	for range 2 {
+		if err := d.Wake(ctx, WakeTimer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !r.Cleaned || r.BranchDone || w.calls.count("branch delete "+r.Branch) != 0 {
+		t.Fatalf("cleaned %v, branch done %v: %q", r.Cleaned, r.BranchDone, w.calls.all())
+	}
+	w.forge.set(r.Branch, PR{State: "MERGED"})
+	for range 2 {
+		if err := d.Wake(ctx, WakeTimer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !r.BranchDone || w.calls.count("branch delete "+r.Branch) != 1 || w.calls.count("worktree remove ") != 1 {
+		t.Errorf("branch done %v: %q", r.BranchDone, w.calls.all())
+	}
+	if n := strings.Count(w.out.String(), "deleted ar-1's branch"); n != 1 {
+		t.Errorf("said %d times:\n%s", n, w.out.String())
 	}
 }
 
@@ -795,14 +915,14 @@ func TestRunEnvAgentTelemetry(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	d, _ := w.dispatcher(DefaultConfig())
-	env := d.runEnv("s-1", "ar-1")
+	env := d.runEnv("s-1", "ar-1", "")
 	if slices.ContainsFunc(env, func(kv string) bool {
 		return strings.HasPrefix(kv, "OTEL_") || strings.HasPrefix(kv, "CLAUDE_CODE_ENABLE")
 	}) {
 		t.Errorf("no endpoint, but telemetry is set: %q", env)
 	}
 	d.AgentOTLP = "http://127.0.0.1:4318"
-	env = d.runEnv("s-1", "ar-1")
+	env = d.runEnv("s-1", "ar-1", "")
 	for _, want := range []string{"CLAUDE_CODE_ENABLE_TELEMETRY=1", "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318",
 		"OTEL_RESOURCE_ATTRIBUTES=service.name=aries-agents,aries.path=headless,aries.issue=ar-1"} {
 		if !slices.Contains(env, want) {

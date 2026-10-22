@@ -14,9 +14,17 @@ global:
 
 rule_files:
   - alerts.yaml
+  - alerts-sextant.yaml
 
 scrape_configs:
   # `telemetry: listen: 127.0.0.1:9464` in ariesd's config.
   - job_name: ariesd
     static_configs:
       - targets: ["127.0.0.1:9464"]
+  # Sextant's own listener, at its default (`listen:` in sextant.yaml);
+  # alerts-sextant.yaml selects by this job name. A server with no Sextant
+  # leaves it unreachable and loses nothing, since no rule watches `up`
+  # for it.
+  - job_name: sextant
+    static_configs:
+      - targets: ["127.0.0.1:9466"]

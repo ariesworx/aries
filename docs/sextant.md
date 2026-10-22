@@ -124,9 +124,9 @@ the end; never a key, a token or what the server holds.
 | `limits.models` | 20 | 1 to 500 | Values of the `model` label; the rest are summed into `(other)` |
 | `limits.request_timeout` | 30s | 1s to 2m | A connection's start, and each request |
 
-Each poll of a project sends `prices` and then `cost --group-by model`
-for the window, with at most `limits.models` groups: what one person
-running `aries cost` sends. Sextant keeps one connection to each
+Each poll of a project sends `prices`, then `cost --group-by model` and
+`cost --group-by account` for the window, each with at most
+`limits.models` groups: what one person running `aries cost` sends. Sextant keeps one connection to each
 project open between polls and makes a new one when it is lost.
 
 ## What it exports
@@ -134,6 +134,10 @@ project open between polls and makes a new one when it is lost.
 | Metric | Prometheus | Kind | Labels | What it is |
 |---|---|---|---|---|
 | `sextant.cost.usd` | `sextant_cost_usd` | gauge | `project`, `model` | The list-price cost of the window's tokens, by model, as of the last poll |
+| `sextant.account.cost.usd` | `sextant_account_cost_usd` | gauge | `project`, `account` | The list-price cost of the window's tokens, by account |
+| `sextant.hours` | `sextant_hours` | gauge | `project`, `account` | The hours people logged against the account on the days the window overlaps |
+| `sextant.tokens` | `sextant_tokens` | gauge | `project`, `model`, `kind` | The window's tokens by model and kind (`input`, `output`, `cache_write`, `cache_read`) |
+| `sextant.cost.unpriced.tokens` | `sextant_cost_unpriced_tokens` | gauge | `project`, `model` | The window's tokens that no price covers, so a missing price shows as tokens, never as $0 |
 | `sextant.scrape.errors` | `sextant_scrape_errors_total` | counter | `project`, `op`, `code` | Sextant's failures to read a project |
 
 - **A gauge, not a counter.** A cost is computed on read from prices
@@ -146,6 +150,11 @@ project open between polls and makes a new one when it is lost.
   the server's, as for ariesd's `aries.usage.tokens` (decision 92).
   Tokens with no price cost nothing at list price, so `(other)` may be
   0; `aries cost` names the unpriced models.
+- **`account`** is an account's code name, among the `limits.models`
+  accounts with the largest cost, and at most 20 values in a process; one
+  past that, or not shaped like a code name, is `(other)`. Cost by
+  account and by model are two series, not one by both: `cost` groups by
+  one key. No series has a person.
 - **`project`** is the project's id. One past `limits.projects`, which
   the config cannot list, would be `other`.
 - **`op`** is `connect` (the dial, the sign-in and the handshake),
@@ -156,6 +165,23 @@ project open between polls and makes a new one when it is lost.
   read again, so a dashboard shows a gap rather than an old figure.
   Alert on `increase(sextant_scrape_errors_total[15m]) > 0`, and on
   Sextant's own `up` in Prometheus.
+
+**Alert rules and a dashboard.**
+[alerts-sextant.yaml](../deploy/observability/alerts-sextant.yaml) has
+three rules: an account's spend over a budget
+(`SextantAccountOverBudget`), unpriced tokens
+(`SextantUnpricedTokens`) and Sextant failing to read a project
+(`SextantScrapeFailing`). A budget is an alert rule and no data in
+Aries: the threshold is the most an account may spend in one window,
+100 US dollars in the example, and one account's own budget is a copy of
+the rule with `account="NAME"` in its selector.
+[dashboard-sextant.json](../deploy/observability/dashboard-sextant.json)
+draws spend by account and by model, tokens, hours, unpriced tokens and
+the failures. They are tested as ariesd's are: a test fails if a rule or
+a panel names a series, label or value Sextant does not export, and the
+budget rule is evaluated over what a real Sextant exports. The example
+`prometheus.yaml` loads the rules and scrapes Sextant as job `sextant`;
+the Docker test server's `observe` profile does not run Sextant.
 
 **Prometheus** scrapes `http://127.0.0.1:9466/metrics`. `/healthz`
 answers 200 while Sextant runs, and `/readyz` 200 once its first poll

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,6 +45,10 @@ type Dispatcher struct {
 	// Claude Code's metrics and events to, without content
 	// (internal/agenttel).
 	AgentOTLP string
+	// FindPostgres is optional: it returns the directory of the Postgres
+	// programs to put first on each run's PATH, or "" for none (then the
+	// brief says so). Called at each launch.
+	FindPostgres func() string
 	// State is read and changed in place; Save writes it.
 	State *State
 	Save  func(*State) error
@@ -325,10 +330,18 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		d.release(ctx, id, session, "aries dispatch could not make the run's worktree: "+err.Error())
 		return skip(RuleLaunch, "the worktree failed: "+err.Error())
 	}
+	pg := ""
+	if d.FindPostgres != nil {
+		pg = d.FindPostgres()
+	}
+	if pg == "" {
+		d.say("no Postgres found for %s: the run starts with a note in its brief (scripts/install-postgres.sh installs one)", id)
+		found = strings.TrimSpace(found + "\n" + NoPostgresNote)
+	}
 	text := Brief(d.Template, st, session, dir, found)
 	model := ModelID(dec.Model)
 	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
-		Env: d.runEnv(session, id), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
+		Env: d.runEnv(session, id, pg), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
 		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
@@ -354,7 +367,11 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 // the run's session and the key, and the Go variables the gate sets
 // (AGENTS.md, Commands), so that no command needs them written in front:
 // an allow rule does not match a command that starts with an assignment.
-func (d *Dispatcher) runEnv(session, issue string) []string {
+// It also sets ARIES_REQUIRE_POSTGRES=1, so that a test needing Postgres
+// fails rather than skips, and puts pgDir, when not empty, first on PATH,
+// so the run needs neither install-postgres.sh nor a PATH of its own; and
+// it carries the agent-metrics variables for the run's issue.
+func (d *Dispatcher) runEnv(session, issue, pgDir string) []string {
 	var env []string
 	for _, kv := range d.Environ {
 		k, _, _ := strings.Cut(kv, "=")
@@ -367,6 +384,16 @@ func (d *Dispatcher) runEnv(session, issue string) []string {
 	}
 	env = withEnv(env, "GOTOOLCHAIN", "local")
 	env = withEnv(env, "GOFLAGS", "-mod=readonly")
+	env = withEnv(env, "ARIES_REQUIRE_POSTGRES", "1")
+	if pgDir != "" {
+		path := pgDir
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok && v != "" {
+				path += string(os.PathListSeparator) + v
+			}
+		}
+		env = withEnv(env, "PATH", path)
+	}
 	env = append(env, "ARIES_SESSION="+session)
 	env = append(env, agenttel.Env(d.AgentOTLP, agenttel.PathHeadless, issue)...)
 	if d.Key != "" {
@@ -429,6 +456,7 @@ func (d *Dispatcher) ended(ctx context.Context, r *Run, e Exit) {
 		if err := d.Git.RemoveWorktree(ctx, r.Worktree); err == nil {
 			r.Cleaned = true
 		}
+		r.BranchDone = true
 		d.release(ctx, r.Issue, r.Session, "The lock "+RunsLock+" refused the run before it started; aries dispatch released the claim and tries again later.")
 		return
 	}
@@ -443,7 +471,7 @@ func (d *Dispatcher) ended(ctx context.Context, r *Run, e Exit) {
 // §6, §9).
 func (d *Dispatcher) reconcile(ctx context.Context) {
 	for _, r := range d.State.Runs {
-		if r.Live() || r.Cleaned {
+		if r.Live() || (r.Cleaned && r.BranchDone) {
 			continue
 		}
 		var pr *PR
@@ -482,8 +510,9 @@ func (d *Dispatcher) pr(ctx context.Context, r *Run) *PR {
 }
 
 // cleanup removes the worktree of an ended run of its own whose issue is
-// closed, without --force, and its branch only when its PR merged
-// (dispatcher.md §9).
+// closed, without --force, and then its branch once its PR merged or its
+// head is on the remote; until then the branch is left and looked at again
+// at each wake (dispatcher.md §9).
 func (d *Dispatcher) cleanup(ctx context.Context, r *Run, pr *PR) {
 	if !d.owns(r.Worktree) {
 		return
@@ -492,26 +521,42 @@ func (d *Dispatcher) cleanup(ctx context.Context, r *Run, pr *PR) {
 	if err != nil || sr.Issue.Status != "closed" {
 		return
 	}
-	if err := d.Git.RemoveWorktree(ctx, r.Worktree); err != nil {
-		if !r.Left {
-			d.say("left %s's worktree %s: %v", r.Issue, r.Worktree, err)
-			d.log(record{Event: "left", Issue: r.Issue, Path: r.Worktree, Branch: r.Branch})
+	if !r.Cleaned {
+		if err := d.Git.RemoveWorktree(ctx, r.Worktree); err != nil {
+			if !r.Left {
+				d.say("left %s's worktree %s: %v", r.Issue, r.Worktree, err)
+				d.log(record{Event: "left", Issue: r.Issue, Path: r.Worktree, Branch: r.Branch})
+			}
+			r.Left = true
+			return
 		}
-		r.Left = true
+		r.Cleaned, r.Left = true, false
+		d.say("removed %s's worktree %s", r.Issue, r.Worktree)
+		d.log(record{Event: "removed", Issue: r.Issue, Session: r.Session, Path: r.Worktree})
+	}
+	if r.BranchDone {
 		return
 	}
-	r.Cleaned, r.Left = true, false
-	deleted := ""
+	if r.Branch == "" {
+		r.BranchDone = true
+		return
+	}
 	if pr == nil {
 		pr = d.pr(ctx, r)
 	}
-	if pr != nil && pr.State == "MERGED" {
-		if err := d.Git.DeleteBranch(ctx, r.Branch); err == nil {
-			deleted = r.Branch
-		}
+	safe := pr != nil && pr.State == "MERGED"
+	if !safe {
+		safe, _ = d.Git.OnRemote(ctx, r.Branch)
 	}
-	d.say("removed %s's worktree %s", r.Issue, r.Worktree)
-	d.log(record{Event: "removed", Issue: r.Issue, Session: r.Session, Path: r.Worktree, Branch: deleted})
+	if !safe {
+		return
+	}
+	if err := d.Git.DeleteBranch(ctx, r.Branch); err != nil {
+		return
+	}
+	r.BranchDone = true
+	d.say("deleted %s's branch %s", r.Issue, r.Branch)
+	d.log(record{Event: "branch", Issue: r.Issue, Session: r.Session, Branch: r.Branch})
 }
 
 // owns reports whether path is a worktree under its own directory.

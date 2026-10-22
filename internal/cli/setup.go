@@ -22,7 +22,7 @@ import (
 // every agent. It edits the project's own files unless --global says the
 // person's home ones may be touched.
 func cmdSetup(ctx context.Context, r *runner, args []string) error {
-	const usage = "setup AGENT|--all|post-merge [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]"
+	const usage = "setup AGENT|--all|post-merge|pull-job [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH] [--every DURATION]"
 	fs := r.newFlags("setup")
 	write := fs.Bool("write", false, "edit the files")
 	check := fs.Bool("check", false, "fail unless everything is in place")
@@ -32,6 +32,7 @@ func cmdSetup(ctx context.Context, r *runner, args []string) error {
 	entry := agentsetup.DefaultEntry
 	fs.StringVar(&entry.Command, "command", entry.Command, "how the agent runs aries")
 	keyFile := fs.String("key-file", "", "the key file the agent's aries signs in with (ARIES_KEY_FILE in its entry); only for your own files: --global, or a desktop app")
+	every := fs.Duration("every", 0, "how often the pull job runs (setup pull-job; default 15m)")
 	pos, err := parse(fs, args, usage)
 	if err != nil {
 		return err
@@ -50,6 +51,18 @@ func cmdSetup(ctx context.Context, r *runner, args []string) error {
 			return usagef(usage, "the post-merge hook takes no --key-file")
 		}
 		return r.setupPostMerge(ctx, entry.Command, setupMode{write: *write, check: *check, remove: *remove}, *global, *all, usage)
+	}
+	if len(pos) == 1 && pos[0] == pullJob {
+		path := ""
+		if set(fs, "key-file") && !*remove {
+			if path, err = r.keyFileOption(*keyFile); err != nil {
+				return err
+			}
+		}
+		return r.setupPullJob(ctx, setupMode{write: *write, check: *check, remove: *remove}, *every, path, *global, *all, usage)
+	}
+	if set(fs, "every") {
+		return usagef(usage, "--every is for `aries setup pull-job`")
 	}
 	if set(fs, "key-file") {
 		if *remove {

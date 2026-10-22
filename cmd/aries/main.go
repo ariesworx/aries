@@ -28,7 +28,7 @@ func main() {
 	code := cli.Run(ctx, os.Args[1:], cli.Env{
 		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		Getenv: os.Getenv, Hostname: os.Hostname, Version: version.Version,
-		OpenBrowser: cli.OpenBrowser(runtime.GOOS),
+		OpenBrowser: cli.OpenBrowser(runtime.GOOS), RunProgram: cli.RunProgram,
 	})
 	stop() // not deferred: os.Exit skips deferred calls
 	os.Exit(code)

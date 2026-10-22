@@ -89,6 +89,10 @@ type Env struct {
 	// Nil opens the system's (credential.Open); tests give one of their
 	// own, so that none touches a person's keychain.
 	Credentials func(ctx context.Context) (credential.Store, error)
+	// RunProgram runs a program and waits, for `setup pull-job --write`
+	// to start the person's scheduler. Nil runs none: setup prints the
+	// commands for the person to run. cmd/aries sets RunProgram.
+	RunProgram func(ctx context.Context, name string, args ...string) error
 	// OutcomeHost is the CI host `outcome` reads, for the repository in
 	// dir. Nil reads GitHub through gh when gh is on PATH, and no host
 	// otherwise.
@@ -185,7 +189,8 @@ func init() {
 		{"outbox", outboxUsage, "list the writes that wait for the server and the ones it refused; retry or drop one; show the counts", cmdOutbox},
 		{"cache", cacheUsage, "say what this machine keeps of what was read, shown while the server cannot be reached; clear deletes it", cmdCache},
 		{"mcp", "mcp", "serve the MCP tools for an agent on stdin and stdout", cmdMCP},
-		{"setup", "setup AGENT|--all|post-merge [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
+		{"setup", "setup AGENT|--all|post-merge|pull-job [--write|--check|--remove] [--global [--key-file PATH]] [--command PATH] [--every DURATION]", "set agents up: MCP config, instruction pointer, session hook", cmdSetup},
+		{"pull-job", pullJobUsage, "one run of the job `setup pull-job` schedules: pull the default branch, then report landed", cmdPullJob},
 		{"admin", priceUsage + " | " + planUsage + " | " + adminUsage,
 			"list model prices and subscription plans, or set one; manage a server's projects, principals, members and keys, and a project's workflow (admins only)", cmdAdmin},
 		{"upgrade", "upgrade [--check] [--rollback]", "replace aries with the latest verified release; --rollback undoes it", cmdUpgrade},

@@ -26,7 +26,8 @@ const (
 	dashboardFile  = "../../deploy/observability/dashboard.json"
 	composeFile    = "../../deploy/docker/compose.yaml"
 
-	jobAriesd = "ariesd"
+	jobAriesd  = "ariesd"
+	jobSextant = "sextant"
 )
 
 // runtimeSeries are the Go runtime's metrics on ariesd's /metrics, as
@@ -187,6 +188,12 @@ func checkExpr(expr string) []string {
 			}
 		}
 		labels, isOurs := ours[sel.name]
+		if l, ok := sextantSeries()[sel.name]; ok && !isOurs {
+			labels, isOurs = l, true
+			if job != jobSextant {
+				problems = append(problems, fmt.Sprintf(`%s must be held to job=%q`, sel.name, jobSextant))
+			}
+		}
 		switch {
 		case isOurs:
 		case sel.name == "up":
@@ -316,9 +323,11 @@ type alertRule struct {
 	Annotations map[string]string `yaml:"annotations"`
 }
 
-func readAlerts(t *testing.T) []alertRule {
+func readAlerts(t *testing.T) []alertRule { return readAlertsFile(t, alertsFile) }
+
+func readAlertsFile(t *testing.T, path string) []alertRule {
 	t.Helper()
-	b, err := os.ReadFile(alertsFile)
+	b, err := os.ReadFile(path) //nolint:gosec // a rules file of deploy/observability
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,12 +340,12 @@ func readAlerts(t *testing.T) []alertRule {
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&file); err != nil {
-		t.Fatalf("%s: %v", alertsFile, err)
+		t.Fatalf("%s: %v", path, err)
 	}
 	var rules []alertRule
 	for _, g := range file.Groups {
 		if g.Name == "" || len(g.Rules) == 0 {
-			t.Errorf("%s: a group has no name or no rules: %q", alertsFile, g.Name)
+			t.Errorf("%s: a group has no name or no rules: %q", path, g.Name)
 		}
 		rules = append(rules, g.Rules...)
 	}
@@ -524,8 +533,11 @@ type scrapeConfig struct {
 // the port the guide gives ariesd.
 func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
 	t.Parallel()
+	// Prometheus also scrapes Sextant, at its default listen address;
+	// the collector is ariesd's alone.
 	want := map[string]string{jobAriesd: "127.0.0.1:9464"}
-	check := func(file string, jobs []scrapeConfig) {
+	wantProm := map[string]string{jobAriesd: "127.0.0.1:9464", jobSextant: "127.0.0.1:9466"}
+	check := func(file string, jobs []scrapeConfig, want map[string]string) {
 		t.Helper()
 		got := map[string]string{}
 		for _, j := range jobs {
@@ -550,9 +562,9 @@ func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
 		ScrapeConfigs []scrapeConfig `yaml:"scrape_configs"`
 	}
 	readYAML(t, prometheusFile, &prom)
-	check(prometheusFile, prom.ScrapeConfigs)
-	if !slices.Equal(prom.RuleFiles, []string{"alerts.yaml"}) {
-		t.Errorf("%s: rule_files is %v, want the alert rules beside it, alerts.yaml", prometheusFile, prom.RuleFiles)
+	check(prometheusFile, prom.ScrapeConfigs, wantProm)
+	if !slices.Equal(prom.RuleFiles, []string{"alerts.yaml", "alerts-sextant.yaml"}) {
+		t.Errorf("%s: rule_files is %v, want the alert rules beside it, alerts.yaml and alerts-sextant.yaml", prometheusFile, prom.RuleFiles)
 	}
 
 	var col struct {
@@ -578,7 +590,7 @@ func TestHarnessScrapesWhatTheRulesSelect(t *testing.T) {
 	for _, r := range col.Receivers {
 		jobs = append(jobs, r.Config.ScrapeConfigs...)
 	}
-	check(collectorFile, jobs)
+	check(collectorFile, jobs, want)
 	if got := col.Receivers["otlp"].Protocols.HTTP.Endpoint; got != "127.0.0.1:4318" {
 		t.Errorf("%s: the otlp receiver listens on %q, want 127.0.0.1:4318, loopback and OTLP's port for HTTP", collectorFile, got)
 	}

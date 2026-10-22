@@ -196,6 +196,7 @@ services:
     volumes:
       - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - ../observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - ../observability/alerts-sextant.yaml:/etc/prometheus/alerts-sextant.yaml:ro
 
   # Grafana's all-in-one OpenTelemetry backend, to look at what ariesd
   # reports over time: a Collector that receives what ariesd pushes,
@@ -229,6 +230,7 @@ services:
       - ../observability/dashboard.json:/etc/aries/dashboards/aries.json:ro
       - ../observability/dashboard-requests.json:/etc/aries/dashboards/aries-requests.json:ro
       - ../observability/dashboard-traces-logs.json:/etc/aries/dashboards/aries-traces-logs.json:ro
+      - ../observability/dashboard-work.json:/etc/aries/dashboards/aries-work.json:ro
       - ../observability/agents-dashboard.json:/etc/aries/dashboards/aries-agents.json:ro
     healthcheck:
       test: ["CMD", "test", "-e", "/tmp/ready"]

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -286,13 +287,27 @@ func newPull(errs *errlog) (http.Handler, sdkmetric.Reader, error) {
 	return promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorLog: promLog{errs}, Timeout: scrapeTimeout}), exp, nil
 }
 
+// histogramBuckets gives each of ariesd's histograms its buckets:
+// [CycleBuckets] to the issues' cycle time, which runs to days, and
+// [Buckets] to every other. It is one view, since two that match an
+// instrument would each make a stream of it.
+func histogramBuckets(i sdkmetric.Instrument) (sdkmetric.Stream, bool) {
+	if i.Kind != sdkmetric.InstrumentKindHistogram || !strings.HasPrefix(i.Name, "aries.") {
+		return sdkmetric.Stream{}, false
+	}
+	b := Buckets
+	if i.Name == specs[IssueCycleDuration].name {
+		b = CycleBuckets
+	}
+	return sdkmetric.Stream{Name: i.Name, Description: i.Description, Unit: i.Unit,
+		Aggregation: sdkmetric.AggregationExplicitBucketHistogram{Boundaries: b}}, true
+}
+
 // build makes the meter provider over readers, and every instrument.
 func (t *Telemetry) build(res *resource.Resource, readers ...sdkmetric.Reader) error {
 	opts := []sdkmetric.Option{
 		sdkmetric.WithResource(res),
-		sdkmetric.WithView(sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "aries.*", Kind: sdkmetric.InstrumentKindHistogram},
-			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{Boundaries: Buckets}})),
+		sdkmetric.WithView(histogramBuckets),
 	}
 	for _, r := range readers {
 		opts = append(opts, sdkmetric.WithReader(r))
@@ -348,19 +363,8 @@ func (t *Telemetry) Record(i Instrument, v float64, vals ...string) {
 	}
 	in := &t.inst[i]
 	var buf [4]attribute.KeyValue
-	kvs := buf[:0]
-	for j, a := range in.attrs {
-		if a.key == KeyProject && !t.perProject {
-			continue
-		}
-		val := ""
-		if j < len(vals) {
-			val = vals[j]
-		}
-		kvs = append(kvs, attribute.String(a.key, t.value(a, val)))
-	}
 	ctx := context.Background()
-	set := metric.WithAttributes(kvs...)
+	set := metric.WithAttributes(t.attributes(buf[:0], in.attrs, vals)...)
 	switch {
 	case in.counter != nil:
 		in.counter.Add(ctx, int64(v), set)
@@ -371,6 +375,23 @@ func (t *Telemetry) Record(i Instrument, v float64, vals ...string) {
 	case in.gauge != nil:
 		in.gauge.Record(ctx, v, set)
 	}
+}
+
+// attributes appends to kvs the attributes of attrs with the values vals,
+// in order, as Record sets them: a project's only when the server records
+// per project, and a value not on its list as the fallback.
+func (t *Telemetry) attributes(kvs []attribute.KeyValue, attrs []attr, vals []string) []attribute.KeyValue {
+	for j, a := range attrs {
+		if a.key == KeyProject && !t.perProject {
+			continue
+		}
+		val := ""
+		if j < len(vals) {
+			val = vals[j]
+		}
+		kvs = append(kvs, attribute.String(a.key, t.value(a, val)))
+	}
+	return kvs
 }
 
 // Count adds one to counter i.
@@ -391,7 +412,7 @@ func (t *Telemetry) Since(i Instrument, start time.Time, vals ...string) {
 // [DBPoolWaits], whose fn returns a total that only grows; any other
 // instrument is ignored.
 func (t *Telemetry) Watch(i Instrument, fn func() float64) {
-	if t == nil || t.mp == nil || i < 0 || i >= numInstruments || !specs[i].watched {
+	if t == nil || t.mp == nil || i < 0 || i >= numInstruments || !specs[i].watched || len(specs[i].attrs) > 0 {
 		return
 	}
 	sp := specs[i]
@@ -406,6 +427,35 @@ func (t *Telemetry) Watch(i Instrument, fn func() float64) {
 	} else {
 		_, err = t.meter.Float64ObservableGauge(sp.name, metric.WithDescription(sp.desc), metric.WithUnit(sp.unit), observe)
 	}
+	if err != nil {
+		t.errs.failed(logs.TelemetrySDKError, "telemetry: an instrument could not be watched", fmt.Errorf("%s: %w", sp.name, err))
+	}
+}
+
+// WatchSeries has fn read the gauge i, which has attributes, whenever the
+// instruments are collected: fn calls observe once for each series, with
+// its value and the values of i's attributes in order, checked as Record
+// checks them. Only [Issues] is read so; any other instrument is
+// ignored. fn runs at each export and each scrape, so it must be bounded
+// and safe for concurrent use. Series that more than one observation
+// names (a project past the cap on projects, all as other) are summed.
+func (t *Telemetry) WatchSeries(i Instrument, fn func(observe func(v float64, vals ...string))) {
+	if t == nil || t.mp == nil || i != Issues {
+		return
+	}
+	sp := specs[i]
+	_, err := t.meter.Float64ObservableGauge(sp.name, metric.WithDescription(sp.desc), metric.WithUnit(sp.unit),
+		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
+			sums := map[attribute.Set]float64{}
+			fn(func(v float64, vals ...string) {
+				var buf [4]attribute.KeyValue
+				sums[attribute.NewSet(t.attributes(buf[:0], sp.attrs, vals)...)] += v
+			})
+			for set, v := range sums {
+				o.Observe(v, metric.WithAttributeSet(set))
+			}
+			return nil
+		}))
 	if err != nil {
 		t.errs.failed(logs.TelemetrySDKError, "telemetry: an instrument could not be watched", fmt.Errorf("%s: %w", sp.name, err))
 	}

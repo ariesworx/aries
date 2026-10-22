@@ -354,6 +354,46 @@ to move is checked by CI on the merge, as before. Telling the worker to
 merge `origin/main` before it opens its PR would change the template and
 is left to its owner.
 
+**As built: brief version 2 and the run's environment (22 October 2026,
+aries-xphid6sx).** The Sonnet trial wave (nine runs, PRs 300–308) lost
+turns the same way in five of its six substantive lessons
+(aries-w5kyz3hj, aries-yryu7pv6, aries-cwvkhaey, aries-vn6ecmsf,
+aries-mf2ozf4h): heredocs, `sed -i`, `cat >>`, `cd X && …`, interpreter
+scripts, `env VAR=… cmd` and an inline `gh pr create --body` are denied
+under `dontAsk`, and each run got past them by switching to the Edit and
+Write tools and `--body-file`. Three changes:
+
+- **Template version 2** says so in a line: edit with Edit and Write,
+  pass PR text with `--body-file`, no heredoc, compound `cd`, inline
+  script or `VAR=value` prefix.
+- **`scripts/gate.sh` was denied for aries-yryu7pv6** because of how it
+  was named, not because it is missing from `DefaultAllowed`. The run
+  had `cd`'d into a subdirectory (the shell's directory persists), so
+  `scripts/gate.sh` failed with "no such file", and it then retried with
+  an absolute path and with `../../scripts/gate.sh`; the rule
+  `Bash(scripts/gate.sh:*)` matches only that literal prefix. The list is
+  unchanged (an allowance by absolute path would be per run); version 2
+  tells the run to name it `scripts/gate.sh` from the worktree's root and
+  not to `cd`.
+- **Postgres is the dispatcher's to find, at each launch**
+  (`FindPostgres`, `internal/dispatch/postgres.go`), where
+  `scripts/install-postgres.sh` puts it: the packaged one on Linux, else
+  the cache directory's. It is put first on the run's `PATH`
+  (`Dispatcher.runEnv`), and `ARIES_REQUIRE_POSTGRES=1` is always set, so
+  a test that needs Postgres fails instead of skipping. In aries-yryu7pv6
+  `go test` printed `ok` for a skipped e2e test and the run first took it
+  as a pass; the script was denied, so the run could not install one. It
+  builds nothing: that takes minutes and is a person's step.
+  **With none found, the run starts**, with a note in its brief (in the
+  block of what was found, so in the hash) and a line from the
+  dispatcher. Refusing to start would stall every issue, docs and
+  scripts included, over a gap most issues do not touch; the note and the
+  failing tests make the gap visible, and the run lists what it could not
+  run under "Not run".
+
+The shared-memory ENOSPC aries-mf2ozf4h met under the pgtest lock is not
+this change's, and is left to its own issue.
+
 **State** is a JSON file in aries's data directory, per project, 0600,
 the user's own, as `offline.Local` keeps its files: the runs, the
 failure count, whether it is stopped. It is a cache: everything in it
@@ -378,7 +418,10 @@ one of its runs worked is closed (under `landed`, that means merged):
 3. The local branch is deleted only when its head is on the remote or
    its PR merged, so nothing unpushed is lost. A squash merge leaves the
    branch unmerged in git's eyes, so the PR's state decides, not
-   `git branch -d`.
+   `git branch -d`. As built: the worktree and the branch are separate
+   steps (`cleaned`, `branch_done` in the state file). A branch that
+   neither arm covers when the worktree goes stays pending and is looked
+   at again at each wake; its deletion is logged once (`branch`).
 4. The removal is logged, with the paths and the commit the branch held.
 
 A remote branch is the host's to delete on merge. A headless run has no
@@ -585,7 +628,11 @@ It departs from or settles the design here:
   work only.
 - **Claim before launch:** `start ID --for 10m` in the run's session,
   then `git worktree add` (a lost run's worktree kept aside, §9), then
-  `aries lock run dispatch/runs --capacity N --for 10m -- claude -p …`
+  `aries lock run dispatch/runs --capacity N --for 10m --grace 40s -- claude -p …`
+  (`lock run` kills its command 10 seconds after the interrupt it passes
+  on unless `--grace` says otherwise, which cut the 30 seconds of §6 to
+  10; the dispatcher asks for 40, so its SIGTERM comes first; found by
+  the failure drills, aries-vn6ecmsf, 21 October 2026)
   without `--wait`, then the `brief:` comment. A conflict skips the issue
   (`held`); a worktree or launch that fails, and a run the lock refused
   before the harness started (`refused`, told apart from a failed run by

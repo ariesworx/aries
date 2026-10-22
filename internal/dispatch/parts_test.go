@@ -134,7 +134,7 @@ func TestClaudeArgv(t *testing.T) {
 	argv := c.Argv(sp)
 	line := strings.Join(argv, " ")
 	for _, want := range []string{
-		"/bin/aries -C /repo/wt lock run dispatch/runs --capacity 4 --for 10m0s -- claude -p",
+		"/bin/aries -C /repo/wt lock run dispatch/runs --capacity 4 --for 10m0s --grace 40s -- claude -p",
 		"--session-id " + sp.Session, "--model opus", "--output-format json", "--permission-mode dontAsk",
 		"--max-budget-usd 5", "--allowedTools Read", "--disallowedTools Bash(gh pr merge:*)",
 	} {
@@ -475,6 +475,13 @@ func TestExecGit(t *testing.T) {
 	}
 	if err := g.RemoveWorktree(ctx, wt); err != nil {
 		t.Fatal(err)
+	}
+	if ok, err := g.OnRemote(ctx, "feature/ar-1-x"); err != nil || ok {
+		t.Errorf("OnRemote before a push = %v, %v", ok, err)
+	}
+	gitIn(top, "push", "--quiet", "origin", "feature/ar-1-x")
+	if ok, err := g.OnRemote(ctx, "feature/ar-1-x"); err != nil || !ok {
+		t.Errorf("OnRemote after a push = %v, %v", ok, err)
 	}
 	if err := g.DeleteBranch(ctx, "feature/ar-1-x"); err != nil {
 		t.Fatal(err)

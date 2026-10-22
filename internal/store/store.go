@@ -450,6 +450,9 @@ type wtx struct {
 	// usage are the tokens the attempt added, for the observer once it
 	// commits.
 	usage []UsageTokens
+	// cycles are the start-to-close times of the issues the attempt
+	// closed, for the observer once it commits.
+	cycles []cycle
 }
 
 // exec runs a mutating statement.
@@ -864,6 +867,9 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 		if len(w.usage) > 0 {
 			o.UsageAdded(ctx, actor, w.usage)
+		}
+		for _, c := range w.cycles {
+			o.IssueCycled(c.typ, c.took)
 		}
 	}
 	// Counted after the commit: every watch subscribed before it is

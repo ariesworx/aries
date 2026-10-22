@@ -15,10 +15,17 @@ import (
 	"time"
 )
 
+// KillGrace is how long `aries lock run` gives the harness after the
+// interrupt it passes on before it kills it. It is longer than the
+// dispatcher's own wait from SIGINT to SIGTERM (Config.StopGrace, 30
+// seconds), so that a harness flushing its transcript is not killed
+// before that wait ends and the terminate is delivered.
+const KillGrace = 40 * time.Second
+
 // Claude launches headless Claude Code runs under the lock RunsLock
 // (dispatcher.md §5, §10, §11):
 //
-//	aries -C WORKTREE lock run dispatch/runs --capacity N --for 10m -- \
+//	aries -C WORKTREE lock run dispatch/runs --capacity N --for 10m --grace 40s -- \
 //	  claude -p --session-id SESSION --model MODEL --output-format json \
 //	  --permission-mode dontAsk --allowedTools … --disallowedTools …
 //
@@ -85,7 +92,8 @@ func (c *Claude) Argv(sp Spec) []string {
 		denied = DefaultDenied
 	}
 	argv := []string{c.Aries, "-C", sp.Dir, "lock", "run", RunsLock,
-		"--capacity", strconv.Itoa(sp.Capacity), "--for", sp.Lease.String(), "--",
+		"--capacity", strconv.Itoa(sp.Capacity), "--for", sp.Lease.String(),
+		"--grace", KillGrace.String(), "--",
 		claude, "-p", "--session-id", sp.Session, "--model", sp.Model,
 		"--output-format", "json", "--permission-mode", "dontAsk"}
 	if c.MaxBudgetUSD != "" {

@@ -993,3 +993,32 @@ func TestMetricsOfUsageTokens(t *testing.T) {
 		}
 	}
 }
+
+// An issue started and closed records one cycle, one closed unstarted
+// records none, and aries.issues is the store's own count by status at
+// each collection.
+func TestMetricsOfWork(t *testing.T) {
+	t.Parallel()
+	tel, mr := measured(t, true)
+	s := newServerTel(t, Limits{}, tel)
+	create := func(title string) string {
+		return mustCall[proto.CreateResult](t, s, alice, proto.OpCreate, proto.CreateArgs{Title: title}).ID
+	}
+	started, unstarted, held := create("started"), create("unstarted"), create("held")
+	create("queued")
+	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: started})
+	mustCall[proto.StartResult](t, s, alice, proto.OpStart, proto.StartArgs{ID: held})
+	mustCall[proto.WriteResult](t, s, dana, proto.OpClose, proto.CloseArgs{ID: started, Reason: "done"})
+	mustCall[proto.WriteResult](t, s, dana, proto.OpClose, proto.CloseArgs{ID: unstarted, Reason: "no need"})
+
+	snap := snapshot(t, mr)
+	check(t, snap, []want{
+		{"aries.issue.cycle.duration", []string{"project", project, "type", "task"}, 1},
+		{"aries.issues", []string{"project", project, "status", "open"}, 1},
+		{"aries.issues", []string{"project", project, "status", "in_progress"}, 1},
+		{"aries.issues", []string{"project", project, "status", "closed"}, 2},
+	})
+	if n := snap.Observations("aries.issue.cycle.duration"); n != 1 {
+		t.Errorf("cycle durations = %d, want 1: the issue closed unstarted has none", n)
+	}
+}

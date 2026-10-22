@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/ariesworx/aries/internal/lazyregexp"
 	"github.com/ariesworx/aries/internal/logs"
 	"github.com/ariesworx/aries/internal/proto"
 	"go.opentelemetry.io/otel/attribute"
@@ -36,8 +37,25 @@ const sextantService = "sextant"
 // The names of Sextant's instruments.
 const (
 	SextantCostName         = "sextant.cost.usd"
+	SextantAccountCostName  = "sextant.account.cost.usd"
+	SextantHoursName        = "sextant.hours"
+	SextantTokensName       = "sextant.tokens"
+	SextantUnpricedName     = "sextant.cost.unpriced.tokens"
 	SextantScrapeErrorsName = "sextant.scrape.errors"
 )
+
+// KeyAccount is the attribute an account's figures carry. Its values are
+// capped by [DefaultSextantAccounts] and shaped by accountShape; any
+// other is [AccountOther].
+const (
+	KeyAccount   = "account"
+	AccountOther = "(other)"
+)
+
+// accountShape is what an account's code name must look like to be a
+// label's value; the server holds accounts to little, so Sextant holds
+// them to this before one reaches a series (rule 2).
+var accountShape = lazyregexp.New(`^[A-Za-z0-9][A-Za-z0-9_.:/+@-]{0,63}$`)
 
 // The values of a scrape error's op: what Sextant was doing when it
 // failed. Any other is recorded as unknown.
@@ -63,6 +81,9 @@ var sextantCodes = []string{
 const (
 	DefaultSextantProjects = 50
 	DefaultSextantModels   = 20
+	// DefaultSextantAccounts caps the account label, as the models' cap
+	// does the model label.
+	DefaultSextantAccounts = 20
 )
 
 // SextantConfig configures a Sextant. The zero value exports nothing.
@@ -84,6 +105,25 @@ type SextantConfig struct {
 	// does; one more is recorded as other, and (other) for a model. Zero
 	// takes the default.
 	Projects, Models int
+	// Accounts caps how many distinct accounts the account attribute
+	// takes; one more is recorded as (other). Zero takes the default.
+	Accounts int
+}
+
+// SextantAccount is one account's cost in a project's window in US
+// dollars at list price, and the hours people logged against it.
+type SextantAccount struct {
+	Account string
+	USD     float64
+	Hours   float64
+}
+
+// SextantTokens is one model's tokens in a project's window, by kind,
+// and Unpriced, the part of them no price covers.
+type SextantTokens struct {
+	Model                                string
+	Input, Output, CacheWrite, CacheRead int64
+	Unpriced                             int64
 }
 
 // SextantCost is one model's cost in a project's window, in US dollars
@@ -105,11 +145,31 @@ type Sextant struct {
 	errs     metric.Int64Counter
 	projects projectSet
 	models   projectSet
+	accounts projectSet
 
 	mu sync.Mutex
 	// cost is each project's last figures, by the project's id, which
 	// the gauge's callback reads at each collection.
 	cost map[string]projectCost
+	// byAccount and byTokens are the same for the account and token
+	// figures.
+	byAccount map[string]projectAccounts
+	byTokens  map[string]projectTokens
+}
+
+// projectAccounts is a project's last figures by account, under the
+// values it and they were admitted as.
+type projectAccounts struct {
+	label string
+	usd   map[string]float64
+	hours map[string]float64
+}
+
+// projectTokens is a project's last token figures by model.
+type projectTokens struct {
+	label    string
+	byKind   map[[2]string]int64 // model, kind
+	unpriced map[string]int64    // model
 }
 
 // projectCost is a project's last figures, by model, under the values it
@@ -133,9 +193,10 @@ func NewSextant(ctx context.Context, cfg SextantConfig) (*Sextant, error) {
 		env.service = sextantService
 	}
 	t := newTelemetry(Config{Logger: cfg.Logger}, env)
-	s := &Sextant{t: t, cost: map[string]projectCost{}}
+	s := &Sextant{t: t, cost: map[string]projectCost{}, byAccount: map[string]projectAccounts{}, byTokens: map[string]projectTokens{}}
 	s.projects.max = positiveOr(cfg.Projects, DefaultSextantProjects)
 	s.models.max = positiveOr(cfg.Models, DefaultSextantModels)
+	s.accounts.max = positiveOr(cfg.Accounts, DefaultSextantAccounts)
 	if env.disabled {
 		if env.endpoint != "" || cfg.Pull {
 			t.log.Info("telemetry is off: OTEL_SDK_DISABLED is true", "event", logs.TelemetryOff)
@@ -184,6 +245,26 @@ func NewSextant(ctx context.Context, cfg SextantConfig) (*Sextant, error) {
 		_, gaugeErr = meter.Float64ObservableGauge(SextantCostName,
 			metric.WithDescription("The list-price cost of the tokens of a project's window, by model, as of the last poll."),
 			metric.WithFloat64Callback(s.observeCost))
+	}
+	if err == nil && gaugeErr == nil {
+		_, gaugeErr = meter.Float64ObservableGauge(SextantAccountCostName,
+			metric.WithDescription("The list-price cost of the tokens of a project's window, by account, as of the last poll."),
+			metric.WithFloat64Callback(s.observeAccountCost))
+	}
+	if err == nil && gaugeErr == nil {
+		_, gaugeErr = meter.Float64ObservableGauge(SextantHoursName,
+			metric.WithDescription("The hours people logged against a project's accounts in its window, as of the last poll."),
+			metric.WithFloat64Callback(s.observeHours))
+	}
+	if err == nil && gaugeErr == nil {
+		_, gaugeErr = meter.Int64ObservableGauge(SextantTokensName,
+			metric.WithDescription("The tokens of a project's window, by model and kind, as of the last poll."),
+			metric.WithInt64Callback(s.observeTokens))
+	}
+	if err == nil && gaugeErr == nil {
+		_, gaugeErr = meter.Int64ObservableGauge(SextantUnpricedName,
+			metric.WithDescription("The tokens of a project's window that no price covers, by model, as of the last poll: a missing price is never $0."),
+			metric.WithInt64Callback(s.observeUnpriced))
 	}
 	if err := errors.Join(err, gaugeErr); err != nil {
 		return nil, errors.Join(fmt.Errorf("telemetry: make Sextant's instruments: %w", err), mp.Shutdown(context.WithoutCancel(ctx)))
@@ -255,6 +336,128 @@ func (s *Sextant) observeCost(_ context.Context, o metric.Float64Observer) error
 	s.mu.Unlock()
 	for k, usd := range sums {
 		o.Observe(usd, metric.WithAttributes(attribute.String(KeyProject, k[0]), attribute.String(KeyModel, k[1])))
+	}
+	return nil
+}
+
+// projectLabel is the value project takes as a label: its id if it is a
+// project's id within the cap, and otherwise other.
+func (s *Sextant) projectLabel(project string) string {
+	if s.projects.admit(project) {
+		return project
+	}
+	return Other
+}
+
+// SetAccounts replaces project's figures by account with accounts, the
+// last poll's; nil clears them. An account of the wrong shape, or past
+// the cap, is recorded as (other), and figures that share their values
+// are summed.
+func (s *Sextant) SetAccounts(project string, accounts []SextantAccount) {
+	if !s.Enabled() {
+		return
+	}
+	pa := projectAccounts{label: s.projectLabel(project), usd: map[string]float64{}, hours: map[string]float64{}}
+	for _, a := range accounts {
+		name := AccountOther
+		if a.Account != AccountOther && accountShape.MatchString(a.Account) && s.accounts.take(a.Account) {
+			name = a.Account
+		}
+		pa.usd[name] += a.USD
+		pa.hours[name] += a.Hours
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(accounts) == 0 {
+		delete(s.byAccount, project)
+		return
+	}
+	s.byAccount[project] = pa
+}
+
+// SetTokens replaces project's token figures by model with tokens, the
+// last poll's; nil clears them. A model of the wrong shape, or past the
+// cap, is recorded as (other), and figures that share their values are
+// summed.
+func (s *Sextant) SetTokens(project string, tokens []SextantTokens) {
+	if !s.Enabled() {
+		return
+	}
+	pt := projectTokens{label: s.projectLabel(project), byKind: map[[2]string]int64{}, unpriced: map[string]int64{}}
+	for _, t := range tokens {
+		m := ModelOther
+		if t.Model != ModelOther && proto.UsageModel.MatchString(t.Model) && s.models.take(t.Model) {
+			m = t.Model
+		}
+		pt.byKind[[2]string{m, TokenInput}] += t.Input
+		pt.byKind[[2]string{m, TokenOutput}] += t.Output
+		pt.byKind[[2]string{m, TokenCacheWrite}] += t.CacheWrite
+		pt.byKind[[2]string{m, TokenCacheRead}] += t.CacheRead
+		pt.unpriced[m] += t.Unpriced
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(tokens) == 0 {
+		delete(s.byTokens, project)
+		return
+	}
+	s.byTokens[project] = pt
+}
+
+// observeAccountCost reports every project's last cost by account.
+func (s *Sextant) observeAccountCost(_ context.Context, o metric.Float64Observer) error {
+	s.observeAccounts(o, func(pa projectAccounts) map[string]float64 { return pa.usd })
+	return nil
+}
+
+// observeHours reports every project's last logged hours by account.
+func (s *Sextant) observeHours(_ context.Context, o metric.Float64Observer) error {
+	s.observeAccounts(o, func(pa projectAccounts) map[string]float64 { return pa.hours })
+	return nil
+}
+
+func (s *Sextant) observeAccounts(o metric.Float64Observer, pick func(projectAccounts) map[string]float64) {
+	s.mu.Lock()
+	sums := map[[2]string]float64{}
+	for _, pa := range s.byAccount {
+		for a, v := range pick(pa) {
+			sums[[2]string{pa.label, a}] += v
+		}
+	}
+	s.mu.Unlock()
+	for k, v := range sums {
+		o.Observe(v, metric.WithAttributes(attribute.String(KeyProject, k[0]), attribute.String(KeyAccount, k[1])))
+	}
+}
+
+// observeTokens reports every project's last tokens by model and kind.
+func (s *Sextant) observeTokens(_ context.Context, o metric.Int64Observer) error {
+	s.mu.Lock()
+	sums := map[[3]string]int64{}
+	for _, pt := range s.byTokens {
+		for k, n := range pt.byKind {
+			sums[[3]string{pt.label, k[0], k[1]}] += n
+		}
+	}
+	s.mu.Unlock()
+	for k, n := range sums {
+		o.Observe(n, metric.WithAttributes(attribute.String(KeyProject, k[0]), attribute.String(KeyModel, k[1]), attribute.String(KeyKind, k[2])))
+	}
+	return nil
+}
+
+// observeUnpriced reports every project's last unpriced tokens by model.
+func (s *Sextant) observeUnpriced(_ context.Context, o metric.Int64Observer) error {
+	s.mu.Lock()
+	sums := map[[2]string]int64{}
+	for _, pt := range s.byTokens {
+		for m, n := range pt.unpriced {
+			sums[[2]string{pt.label, m}] += n
+		}
+	}
+	s.mu.Unlock()
+	for k, n := range sums {
+		o.Observe(n, metric.WithAttributes(attribute.String(KeyProject, k[0]), attribute.String(KeyModel, k[1])))
 	}
 	return nil
 }
