@@ -166,6 +166,23 @@ departs from §2 and §3:
   window (24h, 1m to 31 days). Nothing a client adds grows Sextant: it
   holds one connection per configured project and one set of series
   per project and model.
+- **X1 and X3 (21 Oct 2026)** decide §3's grouping: `cost` groups by
+  one key, so cost by account and by model are two series,
+  `sextant.account.cost.usd` (`project`, `account`) beside
+  `sextant.cost.usd` (`project`, `model`), with `sextant.hours`
+  (`project`, `account`), `sextant.tokens` (`project`, `model`, `kind`)
+  and `sextant.cost.unpriced.tokens` (`project`, `model`, the tokens of
+  a group the server marks unpriced or of a model it has no price for).
+  A poll sends `cost` twice, by model and by account. Accounts are
+  capped at 20 (`telemetry.DefaultSextantAccounts`, not yet a config
+  setting; a poll asks for `limits.models` groups) and must be shaped
+  like a code name, or are `(other)`. `sextant.cost.amortized.usd` is
+  not built. X3's rules and dashboard are
+  `deploy/observability/alerts-sextant.yaml` and
+  `dashboard-sextant.json`, tested in `internal/telemetry`
+  (`harness_sextant_test.go`); the rules for a gate older than a day and
+  nothing closed in a week wait for X2, and the `observe` profile does
+  not run Sextant.
 - **Not built:** a release, an installer line, a systemd unit and an
   AppArmor profile (X5); `deploy/observability`'s dashboard and rules
   (X3); and the Docker test server's `observe` profile does not run it.

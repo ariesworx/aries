@@ -1,0 +1,47 @@
+# Alert rules for Sextant, which exports what the agents spend
+# (docs/sextant.md, docs/design/sextant.md §3), in Prometheus's rule
+# format. An example that is tested, as alerts.yaml is: a test in
+# internal/telemetry fails if a rule names a series, a label or a value
+# that Sextant does not export, and evaluates the budget rule over what a
+# real Sextant exports.
+#
+# What they assume: Sextant's /metrics is scraped as job "sextant"
+# (prometheus.yaml beside this file does, at its default listen address).
+#
+# A budget is an alert rule and no data in Aries (decision 98). Cost is a
+# gauge over Sextant's window (24 hours by default), so the threshold is
+# the most an account may spend in one window. One account's budget
+# differs from another's: copy the rule, add `account="NAME"` to its
+# selector, and set its own number; the default rule below holds every
+# account to the same one. No series has a person: an account is a code
+# name.
+
+groups:
+  - name: sextant
+    rules:
+      - alert: SextantAccountOverBudget
+        expr: sum by (project, account) (sextant_account_cost_usd{job="sextant"}) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An account's spend in Sextant's window is over its budget"
+          description: "{{ $labels.account }} in project {{ $labels.project }} has spent {{ $value | printf \"%.2f\" }} US dollars at list price in the window, over this rule's budget. See which model and which issues in `aries cost --group-by model` and `--group-by issue`, then raise the budget here or change what the account pays for."
+
+      - alert: SextantUnpricedTokens
+        expr: sum by (project, model) (sextant_cost_unpriced_tokens{job="sextant"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tokens in Sextant's window have no price, so their cost is missing, not zero"
+          description: "{{ $value }} tokens of {{ $labels.model }} in project {{ $labels.project }} have no price. Set one with `aries admin price set`, or the cost figures leave them out."
+
+      - alert: SextantScrapeFailing
+        expr: increase(sextant_scrape_errors_total{job="sextant"}[15m]) > 0 or (sextant_scrape_errors_total{job="sextant"} > 0 unless sextant_scrape_errors_total{job="sextant"} offset 15m)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sextant cannot read a project, so its figures are cleared"
+          description: "Sextant's {{ $labels.op }} failed with {{ $labels.code }} for project {{ $labels.project }}, and its cost figures show nothing until it is read again. Sextant's log says why; fix is the one the code names (auth: its key or its workload sign-in; unavailable: the server)."
