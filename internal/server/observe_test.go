@@ -1017,6 +1017,7 @@ func TestMetricsOfWork(t *testing.T) {
 		{"aries.issues", []string{"project", project, "status", "open"}, 1},
 		{"aries.issues", []string{"project", project, "status", "in_progress"}, 1},
 		{"aries.issues", []string{"project", project, "status", "closed"}, 2},
+		{"aries.issues.closed", []string{"project", project, "type", "task", "reason", "other"}, 2},
 		{"aries.claims.held", []string{"project", project}, 1},
 		{"aries.issues.ready", []string{"project", project}, 1},
 	})

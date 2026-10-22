@@ -240,6 +240,326 @@
     {
       "id": 8,
       "type": "timeseries",
+      "title": "Queue time to first start, 50th and 90th percentile by type",
+      "description": "From creation, or defer_until if later, to the first start. Time spent behind a blocker counts. Estimated from buckets that run from 1 minute to 14 days.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (type, le) (increase(aries_issue_queue_duration_seconds_bucket[$__range])))",
+          "legendFormat": "{{type}} p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum by (type, le) (increase(aries_issue_queue_duration_seconds_bucket[$__range])))",
+          "legendFormat": "{{type}} p90"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Awaiting landing, 50th and 90th percentile by type",
+      "description": "From the last handoff with state done to the close by the closing pass: the wait for review and merge.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (type, le) (increase(aries_issue_landing_duration_seconds_bucket[$__range])))",
+          "legendFormat": "{{type}} p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum by (type, le) (increase(aries_issue_landing_duration_seconds_bucket[$__range])))",
+          "legendFormat": "{{type}} p90"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Gate wait, 50th and 90th percentile by kind",
+      "description": "From a gate's add, or last rearm, to its pass or waiver. A kind is human or ci.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (kind, le) (increase(aries_gate_wait_duration_seconds_bucket[$__range])))",
+          "legendFormat": "{{kind}} p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum by (kind, le) (increase(aries_gate_wait_duration_seconds_bucket[$__range])))",
+          "legendFormat": "{{kind}} p90"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Issues closed a day, by reason",
+      "description": "landed: the closing pass of the check landed. forced: a close that overrode open items or checks. other: every other close.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Revert rate",
+      "description": "Reopens by a failed check over closes that landed, a day at a time. Empty when nothing landed.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total{reason=\"check_failed\"}[1d])) / sum(increase(aries_issues_closed_total{reason=\"landed\"}[1d]))",
+          "legendFormat": "revert rate"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Reverts and landed closes a day",
+      "description": "The counts behind the revert rate.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total{reason=\"check_failed\"}[1d]))",
+          "legendFormat": "reverts"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(aries_issues_closed_total{reason=\"landed\"}[1d]))",
+          "legendFormat": "landed closes"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Reopen rate",
+      "description": "Reopens of every reason over closes of every reason, a day at a time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total[1d])) / sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "reopen rate"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Reopens and closes a day",
+      "description": "The counts behind the reopen rate.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total[1d]))",
+          "legendFormat": "reopens"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "closes"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Forced share of closes",
+      "description": "Closes that overrode open items or checks over all closes, a day at a time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_closed_total{reason=\"forced\"}[1d])) / sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "forced share"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Forced closes and closes a day",
+      "description": "The counts behind the forced share.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_closed_total{reason=\"forced\"}[1d]))",
+          "legendFormat": "forced"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "closes"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
       "title": "Live claims and ready issues against the slots",
       "description": "Claims held and not expired, and issues Ready would list (counted at most once a minute), against the number of agents the coordinator runs at once. The slot line is a constant to edit in this panel: it is the coordinator's, not Aries's (the memory dispatch says 4). Ready issues with claims below the line are idle slots; an issue awaiting landing holds no claim.",
       "datasource": {
@@ -250,7 +570,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 80
       },
       "fieldConfig": {
         "defaults": {

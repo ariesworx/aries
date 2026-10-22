@@ -119,6 +119,25 @@ const (
 	// status. It is watched ([Telemetry.WatchSeries]), one count of the
 	// issues' statuses for each open project at each collection.
 	Issues
+	// IssuesClosed counts the closes that committed: project, type, reason
+	// (CloseLanded, CloseForced or Other).
+	IssuesClosed
+	// IssuesReopened counts the reopens that committed: project, type,
+	// reason (ReopenCheckFailed or Other).
+	IssuesReopened
+	// IssueQueueDuration is how long an issue waited for its first
+	// start, from its creation, or its defer_until if later, on the
+	// store's clock, recorded at that start: project, type. Its buckets
+	// are [CycleBuckets].
+	IssueQueueDuration
+	// IssueLandingDuration is how long an issue waited from its last
+	// handoff with state done to the close by its closing pass, on the
+	// store's clock: project, type. Its buckets are [CycleBuckets].
+	IssueLandingDuration
+	// GateWaitDuration is how long a gate was open when it was passed or
+	// waived, from its add or its last rearm, on the store's clock:
+	// project, kind. Its buckets are [CycleBuckets].
+	GateWaitDuration
 	// ClaimsHeld is how many live claims (held and not expired) each
 	// project has: project. It is watched ([Telemetry.WatchSeries]), one
 	// indexed count for each open project at each collection. An issue
@@ -235,6 +254,14 @@ const (
 	ReasonMembership = "membership"
 	ReasonDisabled   = "disabled"
 	ReasonArchived   = "archived"
+
+	// Why an issue closed or reopened, as IssuesClosed and IssuesReopened
+	// have it: a close by W1's closing pass, a close that overrode open
+	// acceptance items or checks, and a reopen by a failed check. A free-text
+	// reason is never an attribute: any other close or reopen is Other.
+	CloseLanded       = "landed"
+	CloseForced       = "forced"
+	ReopenCheckFailed = "check_failed"
 
 	// The kinds of token UsageTokens counts, and the model of any token
 	// whose model has no price. ModelOther starts with a parenthesis, as
@@ -397,6 +424,8 @@ var (
 	attrGateEvt  = attr{key: KeyEvent, values: []string{GateAdded, GatePassed, GateFailed, GateWaived, GateRearmed}, fallback: Other}
 	attrTokenKnd = attr{key: KeyKind, values: []string{TokenInput, TokenOutput, TokenCacheWrite, TokenCacheRead, TokenCacheWrite1h}, fallback: Other}
 	attrModel    = attr{key: KeyModel, fallback: ModelOther}
+	attrClosed   = attr{key: KeyReason, values: []string{CloseLanded, CloseForced}, fallback: Other}
+	attrReopened = attr{key: KeyReason, values: []string{ReopenCheckFailed}, fallback: Other}
 	attrType     = attr{key: KeyType, values: issueTypes, fallback: Other}
 	attrStatus   = attr{key: KeyStatus, values: issueStatuses, fallback: Other}
 	attrWhy      = attr{key: KeyReason, values: []string{ReasonNone, ReasonMembership, ReasonDisabled, ReasonArchived}, fallback: Other}
@@ -461,8 +490,14 @@ var specs = [numInstruments]spec{
 
 	IssueCycleDuration: {name: "aries.issue.cycle.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's first start since it was last opened to its close; an issue closed unstarted has none."},
 	Issues:             {name: "aries.issues", kind: Gauge, watched: true, attrs: []attr{attrProject, attrStatus}, desc: "Issues by project and status, counted at each collection from the open projects."},
-	ClaimsHeld:         {name: "aries.claims.held", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Live claims (held, not expired) by project, counted at each collection from the open projects."},
-	IssuesReady:        {name: "aries.issues.ready", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Ready issues by project, from a count of each open project kept for at most a minute."},
+	IssuesClosed:       {name: "aries.issues.closed", kind: Counter, attrs: []attr{attrProject, attrType, attrClosed}, desc: "Issues closed, by type and reason: landed, forced or other."},
+	IssuesReopened:     {name: "aries.issues.reopened", kind: Counter, attrs: []attr{attrProject, attrType, attrReopened}, desc: "Issues reopened, by type and reason: check_failed or other."},
+
+	IssueQueueDuration:   {name: "aries.issue.queue.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's creation, or its defer_until if later, to its first start."},
+	IssueLandingDuration: {name: "aries.issue.landing.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's last handoff with state done to its close by the closing pass."},
+	GateWaitDuration:     {name: "aries.gate.wait.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrGateKind}, desc: "Time a gate was open, from its add or last rearm to its pass or waiver."},
+	ClaimsHeld:           {name: "aries.claims.held", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Live claims (held, not expired) by project, counted at each collection from the open projects."},
+	IssuesReady:          {name: "aries.issues.ready", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Ready issues by project, from a count of each open project kept for at most a minute."},
 }
 
 // Description is one instrument as the documentation and the tests list
