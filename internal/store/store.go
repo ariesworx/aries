@@ -459,6 +459,9 @@ type wtx struct {
 	// closingPass is set while the closing pass closes an issue, which is
 	// what makes a close landed for the observer: the close's reason is text.
 	closingPass bool
+	// stages are the queue, landing and gate waits the attempt found, for
+	// the observer once it commits.
+	stages []stage
 }
 
 // exec runs a mutating statement.
@@ -882,6 +885,16 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 				o.IssueClosed(c.typ, c.why)
 			} else {
 				o.IssueReopened(c.typ, c.why)
+			}
+		}
+		for _, st := range w.stages {
+			switch st.kind {
+			case "queue":
+				o.IssueQueued(IssueType(st.typ), st.took)
+			case "landing":
+				o.IssueLanded(IssueType(st.typ), st.took)
+			case "gate":
+				o.GateWaited(GateKind(st.typ), st.took)
 			}
 		}
 	}

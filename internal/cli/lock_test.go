@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os/exec"
 	"strconv"
 	"testing"
@@ -35,6 +36,73 @@ func TestPrintLocks(t *testing.T) {
 				t.Errorf("printLocks:\n%q\nwant:\n%q", b.String(), tc.want)
 			}
 		})
+	}
+}
+
+// stop waits the grace it is given before it kills the command, and a
+// command that has stopped by then is not killed.
+func TestStopGrace(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		script string
+		killed bool
+	}{
+		{"ignores the interrupt", "trap '' INT; echo ready; while :; do sleep 1; done", true},
+		{"stops at the interrupt", "trap 'exit 0' INT; echo ready; while :; do sleep 1; done", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const grace = 40 * time.Second
+			var asked time.Duration
+			r := &runner{env: Env{After: func(d time.Duration) <-chan time.Time {
+				asked = d
+				c := make(chan time.Time, 1)
+				if tc.killed {
+					c <- time.Time{} // the grace runs out at once
+				}
+				return c
+			}}}
+			cmd := exec.Command("sh", "-c", tc.script) //nolint:gosec // a script of the test's own
+			pipe, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Skipf("no POSIX shell here: %v", err)
+			}
+			if _, err := io.ReadFull(pipe, make([]byte, len("ready\n"))); err != nil { // the trap is set
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			err = r.stop(cmd, done, grace)
+			if asked != grace {
+				t.Errorf("stop waited %v, want %v", asked, grace)
+			}
+			if killed := err != nil && err.Error() == "signal: killed"; killed != tc.killed {
+				t.Errorf("stop = %v, want killed %v", err, tc.killed)
+			}
+		})
+	}
+}
+
+func TestGraceOf(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"", 10 * time.Second, false},
+		{"40s", 40 * time.Second, false},
+		{"0s", 0, true},
+		{"junk", 0, true},
+	} {
+		got, err := (&acquireFlags{grace: tc.in}).graceOf()
+		if (err != nil) != tc.wantErr || got != tc.want {
+			t.Errorf("graceOf(%q) = %v, %v; want %v, error %v", tc.in, got, err, tc.want, tc.wantErr)
+		}
 	}
 }
 

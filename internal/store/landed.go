@@ -339,6 +339,9 @@ func (w *wtx) landing(ctx context.Context, g *gateRow, rc *requiredCheck, passed
 		if _, err := closeTx(ctx, w, is, ReasonLanded, false); err != nil {
 			return nil, err
 		}
+		if err := w.landedAfter(ctx, is); err != nil {
+			return nil, err
+		}
 		what = fmt.Sprintf("%s closed: %s", is.ID, what)
 		// The session that did the work may be gone: the close-out goes
 		// where its people will read it (design §21.7).

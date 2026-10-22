@@ -12,7 +12,7 @@ says how to use each, and lists the alerts.
 | [prometheus.yaml](prometheus.yaml) | A Prometheus configuration that scrapes ariesd and loads the rules |
 | [dashboard.json](dashboard.json) | The server's dashboard, in Grafana's format |
 | [dashboard-requests.json](dashboard-requests.json) | Requests by op, in Grafana's format |
-| [dashboard-work.json](dashboard-work.json) | The work: issues in progress and open, closes a day, start to close by type, and tokens by model |
+| [dashboard-work.json](dashboard-work.json) | The work: issues in progress and open, closes a day, start to close by type, queue time, awaiting landing and gate wait, and tokens by model |
 | [dashboard-traces-logs.json](dashboard-traces-logs.json) | Traces and logs, for a Grafana with Tempo and Loki |
 | [grafana-dashboards.yaml](grafana-dashboards.yaml) | Grafana's provisioning of the three dashboards, as the Docker test server's `observe` profile loads it |
 

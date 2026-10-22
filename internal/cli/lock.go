@@ -21,7 +21,7 @@ import (
 
 const lockUsage = "lock acquire NAME [--capacity N] [--for DURATION] [--wait]" +
 	" | lock renew NAME EPOCH [--for DURATION] | lock release NAME EPOCH | lock leave NAME | lock list [NAME]" +
-	" | lock run NAME [--capacity N] [--for DURATION] [--wait] -- CMD [ARG]..."
+	" | lock run NAME [--capacity N] [--for DURATION] [--wait] [--grace DURATION] -- CMD [ARG]..."
 
 // Lock timings (design §20.5). A place in a queue lapses two minutes after
 // its last renewal, so a waiter renews it twice as often as it must. A
@@ -30,7 +30,7 @@ const lockUsage = "lock acquire NAME [--capacity N] [--for DURATION] [--wait]" +
 const (
 	placeRenewEvery = 30 * time.Second
 	// stopGrace is how long `lock run` gives the command to stop after an
-	// interrupt before it kills it.
+	// interrupt before it kills it, unless --grace says otherwise.
 	stopGrace = 10 * time.Second
 )
 
@@ -65,6 +65,8 @@ type acquireFlags struct {
 	capacity int
 	lease    string
 	wait     bool
+	// grace is lock run's --grace; acquire does not read it.
+	grace string
 }
 
 func (f *acquireFlags) register(fs interface {
@@ -75,6 +77,19 @@ func (f *acquireFlags) register(fs interface {
 	fs.IntVar(&f.capacity, "capacity", 0, "how many may hold it at once, set by its first acquire (default 1)")
 	fs.StringVar(&f.lease, "for", "", "the hold's lease, renewed while it is held (default 15m; 1m to 24h)")
 	fs.BoolVar(&f.wait, "wait", false, "wait in its queue rather than fail when it is held")
+}
+
+// graceOf is how long lock run gives the command to stop after an
+// interrupt: stopGrace when f has none.
+func (f *acquireFlags) graceOf() (time.Duration, error) {
+	if f.grace == "" {
+		return stopGrace, nil
+	}
+	d, err := time.ParseDuration(f.grace)
+	if err != nil || d <= 0 {
+		return 0, usagef(lockUsage, "--grace %q: want a positive duration such as 40s", f.grace)
+	}
+	return d, nil
 }
 
 // leaseOf is the lease f asks for, as a duration: the default when none.
@@ -361,7 +376,7 @@ func printLocks(w io.Writer, locks []proto.Lock) {
 // when the command exits, and exits with the command's exit code.
 //
 // An interrupt (ctrl-c, SIGTERM) is passed to the command, which is
-// killed if it has not stopped within stopGrace; the hold is released
+// killed if it has not stopped within --grace (10 seconds by default); the hold is released
 // once it has, and aries exits 130 if the command died of it. Interrupted
 // while waiting, it gives up its place. A hold that is lost, because the
 // server says it ended (its lease ran out while the server could not be
@@ -387,6 +402,7 @@ func lockRun(ctx context.Context, r *runner, args []string) error {
 	fs := r.newFlags("lock run")
 	var f acquireFlags
 	f.register(fs)
+	fs.StringVar(&f.grace, "grace", "", "how long the command has to stop after an interrupt before it is killed (default 10s)")
 	pos, err := parse(fs, args, lockUsage)
 	if err != nil {
 		return err
@@ -400,6 +416,10 @@ func lockRun(ctx context.Context, r *runner, args []string) error {
 		return usagef(lockUsage, "lock run prints what the command prints; --json is for the other lock commands")
 	}
 	lease, err := f.leaseOf()
+	if err != nil {
+		return err
+	}
+	grace, err := f.graceOf()
 	if err != nil {
 		return err
 	}
@@ -420,7 +440,7 @@ func lockRun(ctx context.Context, r *runner, args []string) error {
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	code, lost := r.holdWhile(ctx, name, held.Epoch, lease, cmd, done)
+	code, lost := r.holdWhile(ctx, name, held.Epoch, lease, grace, cmd, done)
 	if !lost {
 		r.releaseLock(ctx, name, held.Epoch)
 	}
@@ -433,14 +453,14 @@ func lockRun(ctx context.Context, r *runner, args []string) error {
 // holdWhile renews the hold of name at epoch for lease until the command
 // ends, and returns its exit code. When ctx ends, or the hold is lost, it
 // stops the command; lost reports the latter, and the code is then 1.
-func (r *runner) holdWhile(ctx context.Context, name string, epoch int64, lease time.Duration, cmd *exec.Cmd, done <-chan error) (code int, lost bool) {
+func (r *runner) holdWhile(ctx context.Context, name string, epoch int64, lease, grace time.Duration, cmd *exec.Cmd, done <-chan error) (code int, lost bool) {
 	every := lease / 3
 	for {
 		select {
 		case err := <-done:
 			return exitCodeOf(err, false), false
 		case <-ctx.Done():
-			return exitCodeOf(r.stop(cmd, done), true), false
+			return exitCodeOf(r.stop(cmd, done, grace), true), false
 		case <-r.after(every):
 		}
 		var out proto.LockResult
@@ -450,7 +470,7 @@ func (r *runner) holdWhile(ctx context.Context, name string, epoch int64, lease 
 			every = lease / 3
 		case ok && pe.Code == proto.CodeConflict:
 			_, _ = fmt.Fprintf(r.env.Stderr, "aries: lost lock %s: %s; stopping the command\n", esc(name), esc(pe.Message))
-			_ = r.stop(cmd, done)
+			_ = r.stop(cmd, done, grace)
 			return 1, true
 		case ctx.Err() == nil:
 			// Not reached, or refused for another reason: try again
@@ -461,16 +481,16 @@ func (r *runner) holdWhile(ctx context.Context, name string, epoch int64, lease 
 	}
 }
 
-// stop asks the command to stop, kills it if it has not within stopGrace,
+// stop asks the command to stop, kills it if it has not within grace,
 // and returns how it ended.
-func (r *runner) stop(cmd *exec.Cmd, done <-chan error) error {
+func (r *runner) stop(cmd *exec.Cmd, done <-chan error, grace time.Duration) error {
 	if err := cmd.Process.Signal(os.Interrupt); err != nil {
 		_ = cmd.Process.Kill() // Windows has no interrupt to send
 	}
 	select {
 	case err := <-done:
 		return err
-	case <-r.after(stopGrace):
+	case <-r.after(grace):
 		_ = cmd.Process.Kill()
 		return <-done
 	}

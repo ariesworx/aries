@@ -461,7 +461,7 @@ does, mostly through `lock run`.
 
 | Command | Does |
 |---|---|
-| `lock run NAME -- CMD [ARG]...` | Take the lock, run CMD with `ARIES_LOCK_EPOCH` set to the hold's epoch, renew the hold while CMD runs (at a third of its lease), release it when CMD exits, and exit with CMD's exit code. `--wait` waits in the lock's queue, keeping its place every 30 seconds, rather than fail when the lock is held; `--capacity N` and `--for DURATION` as for `acquire`. CMD's output is its own, not `aries`'s, so `--json` is refused |
+| `lock run NAME -- CMD [ARG]...` | Take the lock, run CMD with `ARIES_LOCK_EPOCH` set to the hold's epoch, renew the hold while CMD runs (at a third of its lease), release it when CMD exits, and exit with CMD's exit code. `--wait` waits in the lock's queue, keeping its place every 30 seconds, rather than fail when the lock is held; `--capacity N` and `--for DURATION` as for `acquire`; `--grace DURATION` is how long CMD has to stop after an interrupt before it is killed (default 10s). CMD's output is its own, not `aries`'s, so `--json` is refused |
 | `lock acquire NAME` | Take the lock and print its epoch, on its own line; stderr says how to renew and release it. `--capacity N` makes it a semaphore of N holders, at its first acquire (default 1, at most the server's `holders_per_lock`); a later acquire naming another capacity is refused. `--for DURATION` is the hold's lease (default 15m, from 1m to 24h). Without `--wait`, a lock that is held is refused with `busy`, naming its holders and when their leases end; with it, `aries` waits in the queue until the lock is granted, and gives its place up if interrupted |
 | `lock renew NAME EPOCH` | Extend your hold to its lease from now, or `--for DURATION` from now. A hold that ended, or lapsed, is refused with `conflict`: stop what it guards |
 | `lock release NAME EPOCH` | Release your hold; the next in the queue is granted it at once. Any session of your principal may release it, with its epoch |
@@ -473,7 +473,7 @@ does, mostly through `lock run`.
 | When | What happens |
 |---|---|
 | CMD exits | The hold is released, and `aries` exits with CMD's exit code |
-| You interrupt it (ctrl-c, or SIGTERM to `aries`) | CMD is sent an interrupt, and killed if it has not stopped within 10 seconds; the hold is released once it has. `aries` exits with CMD's exit code, or 130 if CMD died of the interrupt. Interrupted while waiting, it gives its place up and exits 1 |
+| You interrupt it (ctrl-c, or SIGTERM to `aries`) | CMD is sent an interrupt, and killed if it has not stopped within `--grace` (10 seconds by default); the hold is released once it has. `aries` exits with CMD's exit code, or 130 if CMD died of the interrupt. Interrupted while waiting, it gives its place up and exits 1 |
 | The server says the hold ended | Its lease ran out while the server could not be reached, or your access ended. `aries` says so, stops CMD as above, and exits 1: what the lock guarded is no longer guarded |
 | The server cannot be reached for a while | CMD runs on, and `aries` keeps trying to renew, more often. If the lease runs out first, the server ends the hold and grants the lock to the next waiter; the next renewal that reaches it hears so, and stops CMD |
 | `aries` itself is killed (SIGKILL, a crash, the machine) | Nothing is released. The hold lasts until its lease runs out, at most `--for` after the last renewal, and the reaper then grants the lock to the next waiter within its 30-second tick. CMD, if it outlives `aries`, runs on without the lock: a resource that checks `ARIES_LOCK_EPOCH` refuses it once the lock is granted again |
@@ -541,7 +541,8 @@ session=S template=brief@N`; the run is started with the full model id
 template, `dispatch run` refuses before it reads anything. Its worktree is
 `.aries-dispatch/worktrees/ID` at the repository's top, on the branch
 `start` names; once the issue closes, the worktree is removed (never
-with `--force`) and the branch deleted when its PR merged.
+with `--force`) and the branch deleted once its PR merged or its head is
+on the remote, at a later wake if that was not so yet.
 
 **What a run may run.** A run is headless under `--permission-mode
 dontAsk`, so a command outside its allow list is denied, not asked.

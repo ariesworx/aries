@@ -805,6 +805,11 @@ func (s *Store) decide(ctx context.Context, actor Actor, id IssueID, reason stri
 			return err
 		}
 		out = after.Gate
+		if outcome != "" {
+			if err := w.gateWaited(ctx, out); err != nil {
+				return err
+			}
+		}
 		w.gated(out, change)
 		return nil
 	})

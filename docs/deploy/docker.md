@@ -333,6 +333,12 @@ Loki by `service_name`, and any `aries_*` series in Prometheus.
   published on 127.0.0.1 alone (`ARIES_GRAFANA_PORT`, 3000 by default),
   so that is anyone on your machine. Grafana downloads no plugin at
   start, so it reaches nothing outside the machine.
+- **It also shows the agents**: the dashboard "Aries agents" reads what
+  Claude Code exports under the service name `aries-agents`, with no
+  content, once Desktop sessions and `aries dispatch run` are pointed at
+  the Collector's `http://127.0.0.1:4318`
+  ([Agent metrics](../agents.md#agent-metrics-claude-code), which says
+  what is never exported).
 - **The alert rules are not loaded here.** They stay with the
   `prometheus` profile and the smoke test.
 - **After restarting the server, restart it too**, as for the

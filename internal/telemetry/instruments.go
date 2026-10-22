@@ -125,6 +125,19 @@ const (
 	// IssuesReopened counts the reopens that committed: project, type,
 	// reason (ReopenCheckFailed or Other).
 	IssuesReopened
+	// IssueQueueDuration is how long an issue waited for its first
+	// start, from its creation, or its defer_until if later, on the
+	// store's clock, recorded at that start: project, type. Its buckets
+	// are [CycleBuckets].
+	IssueQueueDuration
+	// IssueLandingDuration is how long an issue waited from its last
+	// handoff with state done to the close by its closing pass, on the
+	// store's clock: project, type. Its buckets are [CycleBuckets].
+	IssueLandingDuration
+	// GateWaitDuration is how long a gate was open when it was passed or
+	// waived, from its add or its last rearm, on the store's clock:
+	// project, kind. Its buckets are [CycleBuckets].
+	GateWaitDuration
 
 	numInstruments
 )
@@ -470,6 +483,10 @@ var specs = [numInstruments]spec{
 	Issues:             {name: "aries.issues", kind: Gauge, watched: true, attrs: []attr{attrProject, attrStatus}, desc: "Issues by project and status, counted at each collection from the open projects."},
 	IssuesClosed:       {name: "aries.issues.closed", kind: Counter, attrs: []attr{attrProject, attrType, attrClosed}, desc: "Issues closed, by type and reason: landed, forced or other."},
 	IssuesReopened:     {name: "aries.issues.reopened", kind: Counter, attrs: []attr{attrProject, attrType, attrReopened}, desc: "Issues reopened, by type and reason: check_failed or other."},
+
+	IssueQueueDuration:   {name: "aries.issue.queue.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's creation, or its defer_until if later, to its first start."},
+	IssueLandingDuration: {name: "aries.issue.landing.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's last handoff with state done to its close by the closing pass."},
+	GateWaitDuration:     {name: "aries.gate.wait.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrGateKind}, desc: "Time a gate was open, from its add or last rearm to its pass or waiver."},
 }
 
 // Description is one instrument as the documentation and the tests list

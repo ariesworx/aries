@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type seen struct {
 	gates   []string // "change:kind:gate"
 	usage   []string // "model in= out= cw= cr="
 	cycles  []string // "type took"
+	stages  []string // "queue type took", "landing type took" or "gate kind took"
 	// outcomes are "closed|reopened type why".
 	outcomes []string
 }
@@ -43,6 +45,25 @@ func (o *seen) takeOutcomes() []string {
 	defer o.mu.Unlock()
 	c := o.outcomes
 	o.outcomes = nil
+	return c
+}
+
+func (o *seen) stage(format string, args ...any) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.stages = append(o.stages, fmt.Sprintf(format, args...))
+}
+
+func (o *seen) IssueQueued(typ IssueType, took time.Duration) { o.stage("queue %s %s", typ, took) }
+func (o *seen) IssueLanded(typ IssueType, took time.Duration) { o.stage("landing %s %s", typ, took) }
+func (o *seen) GateWaited(kind GateKind, took time.Duration)  { o.stage("gate %s %s", kind, took) }
+
+// takeStages returns the stage durations seen since the last call.
+func (o *seen) takeStages() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	c := o.stages
+	o.stages = nil
 	return c
 }
 
@@ -567,5 +588,110 @@ func TestObserverUsage(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: observed %v, want %v", st.name, got, want)
 		}
+	}
+}
+
+// An issue's first start reports its wait since its create, or since its
+// defer_until when that is later; a later take reports none. A landed
+// pass that closes it reports the time since its last handoff with state
+// done. All of it on the store's clock.
+func TestObserverQueueAndLanding(t *testing.T) {
+	t.Parallel()
+	obs := &seen{}
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Observer: obs})
+	ctx := t.Context()
+	mustSetWorkflow(t, s, landedWorkflow(t))
+	obs.takeStages()
+
+	is := mustCreate(t, s, NewIssue{Title: "a", Type: TypeBug})
+	clk.add(5 * time.Hour)
+	if _, _, err := s.StartIssue(ctx, alice, is.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeStages(), []string{"queue bug 5h0m0s"}; !slices.Equal(got, want) {
+		t.Errorf("first start: stages = %v, want %v", got, want)
+	}
+	clk.add(time.Hour)
+	if _, _, err := s.StartIssue(ctx, bob, is.ID, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := obs.takeStages(); len(got) != 0 {
+		t.Errorf("a later take: stages = %v, want none", got)
+	}
+	h := HandoffNote{Note: "https://example.com/pr/3", HandoffFields: HandoffFields{State: HandoffDone}}
+	h.Accept = Acceptance{Tick: []int{1}}
+	if _, err := s.HandoffIssue(ctx, bob, is.ID, 0, h, false, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(90 * time.Minute)
+	if _, err := s.PassCheck(ctx, ciJob, landed(is.ID)); err != nil {
+		t.Fatal(err)
+	}
+	// The landed gate's own wait is reported beside it.
+	got := obs.takeStages()
+	landings := slices.DeleteFunc(slices.Clone(got), func(s string) bool { return !strings.HasPrefix(s, "landing ") })
+	if want := []string{"landing bug 1h30m0s"}; !slices.Equal(landings, want) {
+		t.Errorf("landed pass: stages = %v, want one %v", got, want)
+	}
+
+	// A deferral that ends after the create starts the wait at its end.
+	until := clk.now().Add(2 * time.Hour)
+	d := mustCreate(t, s, NewIssue{Title: "d", DeferUntil: &until})
+	clk.add(3 * time.Hour)
+	if _, _, err := s.StartIssue(ctx, alice, d.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeStages(), []string{"queue task 1h0m0s"}; !slices.Equal(got, want) {
+		t.Errorf("deferred issue: stages = %v, want %v", got, want)
+	}
+}
+
+// A gate's pass or waiver reports its wait since its add, or since its
+// last rearm: a failure restarts nothing.
+func TestObserverGateWait(t *testing.T) {
+	t.Parallel()
+	obs := &seen{}
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Observer: obs})
+	ctx := t.Context()
+	subject := mustCreate(t, s, NewIssue{Title: "subject"})
+	g := ciGate(t, s, subject.ID, "", "build")
+	obs.takeStages()
+
+	clk.add(time.Hour)
+	if _, err := s.FailCheck(ctx, ciJob, Report{Gate: g.ID}); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(time.Hour)
+	if _, err := s.PassCheck(ctx, ciJob, Report{Gate: g.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeStages(), []string{"gate ci 2h0m0s"}; !slices.Equal(got, want) {
+		t.Errorf("pass after a failure: stages = %v, want %v", got, want)
+	}
+	clk.add(time.Hour)
+	if _, err := s.RearmGate(ctx, ciJob, g.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(10 * time.Minute)
+	if _, err := s.FailCheck(ctx, ciJob, Report{Gate: g.ID}); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(20 * time.Minute)
+	if _, err := s.PassCheck(ctx, ciJob, Report{Gate: g.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeStages(), []string{"gate ci 30m0s"}; !slices.Equal(got, want) {
+		t.Errorf("pass after a rearm: stages = %v, want %v", got, want)
+	}
+
+	h := mustGate(t, s, alice, NewGate{Blocks: subject.ID, Approvers: []string{"carol"}})
+	clk.add(4 * time.Hour)
+	if _, err := s.WaiveGate(ctx, danaCLI, h.ID, "not needed"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeStages(), []string{"gate human 4h0m0s"}; !slices.Equal(got, want) {
+		t.Errorf("waived human gate: stages = %v, want %v", got, want)
 	}
 }

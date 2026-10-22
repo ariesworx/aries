@@ -174,21 +174,23 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 		Cfg: cfg,
 		Tracker: &dispatch.Exec{Aries: aries, Dir: top, Environ: env,
 			Session: "dispatch-" + randomHex(4)},
-		Launcher:    &dispatch.Claude{Aries: aries, MaxBudgetUSD: *budget},
-		Git:         &dispatch.ExecGit{Top: top, Remote: "origin", Base: base},
-		Forge:       &dispatch.GH{Dir: top},
-		Out:         r.env.Stdout,
-		Log:         logf,
-		Now:         r.env.Now,
-		NewSession:  newUUID,
-		Worktrees:   filepath.Join(top, ".aries-dispatch", "worktrees"),
-		RunLogs:     paths.Runs,
-		Key:         key,
-		Environ:     env,
-		State:       state,
-		Save:        save,
-		StopRequest: func() string { return dispatch.ReadStop(paths.Stop) },
-		Template:    tmpl,
+		Launcher:     &dispatch.Claude{Aries: aries, MaxBudgetUSD: *budget},
+		Git:          &dispatch.ExecGit{Top: top, Remote: "origin", Base: base},
+		Forge:        &dispatch.GH{Dir: top},
+		Out:          r.env.Stdout,
+		Log:          logf,
+		Now:          r.env.Now,
+		NewSession:   newUUID,
+		Worktrees:    filepath.Join(top, ".aries-dispatch", "worktrees"),
+		RunLogs:      paths.Runs,
+		Key:          key,
+		Environ:      env,
+		AgentOTLP:    envValue(env, "ARIES_AGENT_OTLP_ENDPOINT"),
+		FindPostgres: func() string { return dispatch.FindPostgres(env) },
+		State:        state,
+		Save:         save,
+		StopRequest:  func() string { return dispatch.ReadStop(paths.Stop) },
+		Template:     tmpl,
 	}
 	if cfg.DryRun {
 		r.notef("dry run: it starts, claims and writes nothing")
@@ -209,6 +211,16 @@ func openLog(paths dispatch.Paths) (*os.File, error) {
 		return nil, err
 	}
 	return os.OpenFile(paths.Log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+}
+
+// envValue is the value of name in env (NAME=value strings), or "".
+func envValue(env []string, name string) string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			return v
+		}
+	}
+	return ""
 }
 
 // dispatchKey reads the API key from the credential store, and says
