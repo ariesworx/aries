@@ -295,6 +295,11 @@ The sweep keeps its own acts below: resume, rework and queueing merges.
   `t.Skip` is held too, since paths cannot see it. Queued with
   `gh api graphql` `enqueuePullRequest`; every other PR is held and
   listed for the maintainer in one batch per sweep.
+  *Note, 22 October 2026.* [merges.md](merges.md) (aries-zxxoccdq)
+  proposes the rule as one classifier, `aries prs merges`, that this
+  sweep, the coordinator and Bearings' train all call, with its rules
+  in a project setting applied from a file; until it is answered and
+  built, the sweep queues under rule 4 as above.
 - **Merged but not closed.** Merged PRs whose issues are still open,
   which `digest` also shows as *awaiting landing*: named in the report,
   so the maintainer can see the pull job has not run. The dispatcher
