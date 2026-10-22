@@ -71,7 +71,7 @@ func TestSetupWriteIsIdempotent(t *testing.T) {
 		note  string
 	}{
 		{name: "claude-code", files: map[string]string{".mcp.json": `"type": "stdio"`, "CLAUDE.md": "<!-- aries:begin -->",
-			".claude/settings.json": `"command": "aries prime --hook"`}, note: "approve"},
+			".claude/settings.json": `"command": "aries guard --hook"`}, parts: 4, note: "approve"},
 		{name: "codex", files: map[string]string{".codex/config.toml": "[mcp_servers.aries]", "AGENTS.md": "<!-- aries:end -->",
 			".codex/hooks.json": `"command": "aries prime --hook=codex"`}, note: "/hooks"},
 		{name: "gemini", files: map[string]string{".gemini/settings.json": `"command": "aries prime --hook=gemini"`, "GEMINI.md": "`prime`"},
@@ -182,11 +182,15 @@ func TestSetupUpgradesHooks(t *testing.T) {
 		name string
 		old  func(current string) string
 		hint string
+		// guard is what the write does to the guard's part: an install
+		// from before the guard gains it.
+		guard string
 	}{
-		{name: "prime only", hint: "(Stop, SubagentStop and SessionEnd hooks)", old: func(string) string {
-			return `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "aries prime --hook"}]}]}}`
-		}},
-		{name: "async SessionEnd", hint: "(SessionEnd hook)", old: func(current string) string {
+		{name: "prime only", hint: "(Stop, SubagentStop and SessionEnd hooks), .claude/settings.json (the guard's PreToolUse hook; 23 permissions.deny rules of .aries/guard.yaml)",
+			guard: "added", old: func(string) string {
+				return `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "aries prime --hook"}]}]}}`
+			}},
+		{name: "async SessionEnd", hint: "(SessionEnd hook)", guard: "unchanged", old: func(current string) string {
 			return strings.Replace(current, sync, ",\n"+`            "async": true,`+"\n"+`            "timeout": 30`, 1)
 		}},
 	}
@@ -211,14 +215,14 @@ func TestSetupUpgradesHooks(t *testing.T) {
 				t.Fatalf("check of the old install: exit %d\n%s\nwant %d\n%s", code, errb, ExitFailure, want)
 			}
 			code, out, errb := runIn(t, home, "-C", sub, "setup", "claude-code", "--write")
-			if want := ".mcp.json: unchanged\nCLAUDE.md: unchanged\n.claude/settings.json: updated\n"; code != ExitOK || out != want {
+			if want := ".mcp.json: unchanged\nCLAUDE.md: unchanged\n.claude/settings.json (hook): updated\n.claude/settings.json (guard): " + tc.guard + "\n"; code != ExitOK || out != want {
 				t.Fatalf("upgrade write: exit %d\n%s%s\nwant\n%s", code, out, errb, want)
 			}
 			first := snapshot(t, root)
 			if b := first[settings]; b != string(current) {
 				t.Fatalf("settings after the upgrade:\n%s\nwant\n%s", b, current)
 			}
-			if code, out, _ := runIn(t, home, "-C", sub, "setup", "claude-code", "--write"); code != ExitOK || strings.Count(out, ": unchanged\n") != 3 {
+			if code, out, _ := runIn(t, home, "-C", sub, "setup", "claude-code", "--write"); code != ExitOK || strings.Count(out, ": unchanged\n") != 4 {
 				t.Fatalf("second write: exit %d %s", code, out)
 			}
 			sameFiles(t, first, snapshot(t, root))
@@ -285,7 +289,7 @@ func TestSetupKeepsOtherContent(t *testing.T) {
 	}
 	orig := snapshot(t, root)
 	if code, out, errb := runIn(t, t.TempDir(), "-C", sub, "setup", "claude-code", "--write"); code != ExitOK ||
-		strings.Count(out, ": added\n") != 3 {
+		strings.Count(out, ": added\n") != 4 {
 		t.Fatalf("write: %d %s %s", code, out, errb)
 	}
 	after := snapshot(t, root)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/aries/internal/brief"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -388,10 +390,35 @@ type fakeGit struct {
 	found     string
 	worktrees map[string]string // path → branch
 	pushed    map[string]bool   // branch → the remote has its head
+	// policy is the remote default branch's .aries/guard.yaml: the
+	// repository's own unless a test sets another; noPolicy says it has
+	// none, and failPolicy that it cannot be read.
+	policy     []byte
+	noPolicy   bool
+	failPolicy error
 }
 
 func newGit(c *calls) *fakeGit {
-	return &fakeGit{calls: c, head: "c0ffee", dirty: map[string]bool{}, worktrees: map[string]string{}, pushed: map[string]bool{}}
+	return &fakeGit{calls: c, head: "c0ffee", dirty: map[string]bool{}, worktrees: map[string]string{}, pushed: map[string]bool{},
+		policy: repoPolicy()}
+}
+
+// repoPolicy is the repository's own .aries/guard.yaml.
+func repoPolicy() []byte {
+	b, err := os.ReadFile(filepath.Join("..", "..", guard.File))
+	if err != nil {
+		panic(err) // the repository's own file: only a broken checkout lacks it
+	}
+	return b
+}
+
+func (g *fakeGit) Policy(context.Context) ([]byte, bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.failPolicy != nil {
+		return nil, false, g.failPolicy
+	}
+	return g.policy, !g.noPolicy, nil
 }
 
 func (g *fakeGit) AddWorktree(_ context.Context, path, branch string) (string, error) {
@@ -490,7 +517,7 @@ func (w *world) dispatcher(cfg Config) (*Dispatcher, *fakeLauncher) {
 	d := &Dispatcher{
 		Cfg: cfg, Tracker: w.tracker, Launcher: l, Git: w.git, Forge: w.forge,
 		Out: w.out, Log: w.log, Now: func() time.Time { return w.now },
-		Worktrees: "/repo/.aries-dispatch/worktrees", RunLogs: "/data/runs", Key: "sk-test-not-a-key",
+		Worktrees: "/repo/.aries-dispatch/worktrees", RunLogs: w.t.TempDir(), Key: "sk-test-not-a-key",
 		Environ:     []string{"PATH=/usr/bin", "ARIES_SESSION=outer", "ANTHROPIC_API_KEY=outer-key", "CLAUDE_CODE_SESSION_ID=outer", "CLAUDECODE=1", "GOFLAGS=-mod=mod"},
 		State:       &State{},
 		Save:        func(*State) error { w.saved.Add(1); return nil },

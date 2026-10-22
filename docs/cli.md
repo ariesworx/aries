@@ -545,16 +545,26 @@ with `--force`) and the branch deleted once its PR merged or its head is
 on the remote, at a later wake if that was not so yet.
 
 **What a run may run.** A run is headless under `--permission-mode
-dontAsk`, so a command outside its allow list is denied, not asked.
-Claude Code's allow rules such as `Bash(go:*)` do not match a command
-that starts with `VAR=value`, so each run's environment carries
-`GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`, as the gate sets them,
-and its brief tells it to issue commands bare and, when one is denied,
-to retry it in its allowed form before giving up. The allow list covers
-git, Go, the gate, and `gh pr create`,
-`view`, `checks`, `list`, `ready` and `edit`; `gh pr merge`, `gh api`
-and forced or `main` pushes are always denied. `mise exec` is not
-allowed, nor `scripts/leftovers.sh` (the gate runs it), since each would run anything; `find` with `-exec` or `-ok` is denied.
+dontAsk`, so a command outside its allow list is denied, not asked. Its
+permissions come from the repository's `.aries/guard.yaml`
+([The guard](agents.md#the-guard-claude-code)): at each launch the
+dispatcher takes a snapshot of the file on the remote default branch,
+as the worktree's fetch left it, into the run's log directory (never the
+worktree, which the run can edit), names it in the run's environment as
+`ARIES_GUARD_POLICY`, and gives the run `aries guard --hook` as a
+PreToolUse hook through `--settings`, with `"onFailure": "block"`, so
+that a guard that cannot run blocks the call. Claude Code's own
+`--allowedTools` and `--disallowedTools` are rendered from the same
+snapshot: the policy's tools and `run:` rules as `Bash(words *)`, and a
+coarse copy of its denies, which hold when the guard does not. The guard
+reads what those lists cannot (`VAR=value` in front, a wrapper such as
+`scripts/leftovers.sh`, `sh -c`, `find -exec`); each run's environment
+still carries `GOTOOLCHAIN=local` and `GOFLAGS=-mod=readonly`, as the
+gate sets them. `gh pr merge`, `gh api` and forced or `main` pushes are
+always denied. Without `.aries/guard.yaml` in the checkout, or with one
+that does not load, `dispatch run` refuses before it reads anything; a
+remote default branch without one, or with one that does not load,
+starts no run, and the claim is released saying so.
 
 **Where it keeps its files.** In aries's data directory, under
 `dispatch/PROJECT`: `state.json` (0600), `log.jsonl` (one line per
@@ -599,7 +609,7 @@ Memories are notes kept across sessions, in `project` (the default),
 | `mcp` | Serve the MCP tools for an agent on stdin and stdout ([agent guide](agents.md)) |
 | `outbox` | List the writes that wait for the server and the ones it refused, for your principal on this machine; `outbox retry N` sends a refused entry again, `outbox drop N` removes an entry for good, and `outbox stats` shows the counts; `--host-key KEY` reaches what was queued under a host key the server had before. It never connects ([When the server cannot be reached](#when-the-server-cannot-be-reached)) |
 | `cache` | Say what this machine keeps of what was read from the server for this project, shown while the server cannot be reached; `cache clear` deletes it. It never connects ([What is shown from the cache](#what-is-shown-from-the-cache)) |
-| `setup AGENT` | Set an agent up for this repository (`setup post-merge` is no agent: git's hook that runs `aries land`, [offered](ci.md#a-server-ci-cannot-reach) and never written unasked, and `setup pull-job [--every DURATION] [--key-file PATH]` no agent either: a per-user scheduled job, a launchd agent, a systemd user timer or a Task Scheduler task, that runs `aries pull-job --run`, also never written unasked and removed with `--remove`, taking out only its own); see [Set up an agent](agents.md#set-up-an-agent). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
+| `setup AGENT` | Set an agent up for this repository (`setup post-merge` is no agent: git's hook that runs `aries land`, [offered](ci.md#a-server-ci-cannot-reach) and never written unasked, and `setup pull-job [--every DURATION] [--key-file PATH]` no agent either: a per-user scheduled job, a launchd agent, a systemd user timer or a Task Scheduler task, that runs `aries pull-job --run`, also never written unasked and removed with `--remove`, taking out only its own); see [Set up an agent](agents.md#set-up-an-agent). For Claude Code, a project's `.claude/settings.json` also gets the guard: `aries guard --hook` as a PreToolUse hook for Bash, Edit, Write and NotebookEdit, and a coarse copy of `.aries/guard.yaml`'s denies (the built-in ones without the file) in `permissions.deny`, beside your own rules; `--check` reports either missing ([The guard](agents.md#the-guard-claude-code)). With `--global`, or for Claude Desktop, `--key-file PATH` also names the key file the agent signs in with, in your own files only ([Give an agent its own identity](agents.md#give-an-agent-its-own-identity)) |
 | `usage --hook[=AGENT]` | Send the token counts in the session's transcripts that earlier runs have not sent. Run by Claude Code's Stop, SubagentStop and SessionEnd hooks, which `setup claude-code` installs, with the hook's JSON on stdin; bare `--hook` is Claude Code's, the only agent captured so far. It always exits 0 and sends only counts ([Token usage hooks](agents.md#token-usage-hooks-claude-code)) |
 | `guard --hook` / `guard --check` | Check an agent's tool call against the repository's policy, `.aries/guard.yaml` ([The guard](agents.md#the-guard-claude-code)). `--hook` is Claude Code's PreToolUse hook: the call's JSON on stdin, and on stdout its decision (allow, deny with a fix, ask) or nothing; it reads the session's snapshot of the policy, never the worktree's file, and always exits 0. `--check` loads the policy, the repository's or `--policy FILE`, says what is wrong with it on one line, and with commands as arguments prints each one's decision, `--headless` deciding as for a headless run; it exits 1 when the file is wrong or a command is not allowed |
 | `admin price` | `admin price list` lists the model prices, in US dollars per million tokens. `admin price set MODEL --from DATE --input USD --output USD --cache-write USD --cache-write-1h USD --cache-read USD` sets a model's rates from a date (midnight UTC) or an RFC 3339 time, and prints `added`, `replaced` (the same model and `--from`) or `unchanged`. Every rate must be given, 0 where the model charges nothing, with at most six decimals. For a model priced by prompt length, add `--over TOKENS --over-input USD --over-output USD --over-cache-write USD --over-cache-write-1h USD --over-cache-read USD` (all six together): requests whose prompt is over that many tokens are priced at those rates ([Prices by prompt length](server.md#prices)). Setting is for admins ([Prices](server.md#prices)) |

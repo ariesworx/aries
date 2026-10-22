@@ -2,9 +2,9 @@
 
 Status: design, 21 October 2026 (aries-kqoyjyft), decided the same day:
 the maintainer accepted the ten recommendations, recorded in §12, and
-the sections below state what was chosen. G1, the guard itself, is
-built (aries-qdb5xj4w); §14 says where it departs from this design, and
-§13 what is left. It changes what an unattended agent may run, so it is held
+the sections below state what was chosen. G1, the guard itself, and G2
+and G3, its setup and the dispatcher, are built (aries-qdb5xj4w); §14
+says where they depart from this design, and §13 what is left. It changes what an unattended agent may run, so it is held
 for the maintainer's review under the memory `merges`.
 
 ## 1. Why
@@ -596,10 +596,7 @@ its suggested order, each a pull request of its own.
 **As built (G1, the guard, 21 October 2026; aries-qdb5xj4w).** Package
 `internal/guard`, `aries guard --hook` and `--check`
 (`internal/cli/guard.go`), and the starting `.aries/guard.yaml`. G2 and
-G3 are not built: `aries setup claude-code` writes no PreToolUse hook
-and no `permissions.deny`, `prime --hook` takes no snapshot, and the
-dispatcher still uses `DefaultAllowed` and `DefaultDenied`; so no
-session runs the guard yet. Where G1 departs from §3 to §11:
+G3 follow below. Where G1 departs from §3 to §11:
 
 - **The parser** (`sh.go`) reads `case`, `select`, functions, `coproc`,
   arithmetic (`$(( ))`, `(( ))`, `for ((`), a `${…}` holding an
@@ -675,3 +672,56 @@ session runs the guard yet. Where G1 departs from §3 to §11:
   percentile, with one cold start of 188 ms, the first run.
   `TestDecideAllocations` bounds what one decision allocates, a
   steadier hold than a wall clock in a parallel suite.
+
+**As built (G2 and G3, setup and the dispatcher, 22 October 2026;
+aries-qdb5xj4w).** Where they depart from §6 and §8:
+
+- **The coarse copy** is `guard.Coarse`, and the allow list
+  `guard.Allowed`, one function each for the dispatcher and setup
+  (`internal/guard/coarse.go`). A rule of words is `Bash(words *)`; a
+  rule with `flags:` is each flag right after the words and later in
+  the command (`Bash(git push --force*)`, `Bash(git push * --force*)`,
+  and `Bash(git push * +*)` for a forcing refspec); `refs:` a last
+  refspec or a destination after `:` (`Bash(git push * main)`,
+  `Bash(git push *:refs/heads/main)`); `config:` `Bash(git -c alias.*)`;
+  a `path:` rule `Edit(path)` alone, since Claude Code applies Edit
+  rules to the Write tool and never reads a Write path rule (§1). The
+  built-in denies come first. The copy errs toward denying: a flag
+  written as an argument's text (`sed -n '/x -i/p'`) is denied by
+  Claude Code, which the guard would allow. `TestDefaultPermissions`
+  (`internal/dispatch`) holds the rows to Claude Code's documented
+  matching of the rendered lists.
+- **Setup** writes the guard as a target of its own, `guard
+  .claude/settings.json`, beside the hooks in the same file: Claude
+  Code's alone, and a project's alone (`--global` writes none, since
+  the policy is a project's). It reads the checkout's policy, which is
+  the person's command reading the person's file, or uses the built-in
+  denies without one. It adds the rules it lacks and keeps the
+  person's; a rule the policy drops is not taken out, since it cannot
+  be told from one of the person's, and `--remove` takes out every rule
+  the policy now renders. This repository's own `.claude/settings.json`
+  is not rewritten here: running the guard in every session of it needs
+  an `aries` with `guard` on every contributor's `PATH`, which is the
+  maintainer's call. `TestGuardSettingsInStep` (`scripts`) holds that
+  file to the policy once it runs the guard.
+- **The Desktop snapshot** is taken by `prime --hook` for Claude Code
+  only, from `origin/BRANCH`, BRANCH the default branch as
+  `gitx.DefaultBranch` finds it (else `main`), with `git ls-tree` and
+  `git cat-file`, before prime connects, so a slow server cannot cost
+  it. A repository whose origin has no such branch gets a snapshot of
+  the built-in denies and a line saying so. Snapshots last taken more
+  than 30 days before are pruned when one is taken.
+- **The headless snapshot** is `RUNLOGS/SESSION.guard.yaml`, beside the
+  run's log in the dispatcher's 0700 directory, taken after the
+  worktree's fetch. The dispatcher refuses at start a checkout without
+  the file, or with one that does not load, and a launch from a branch
+  without one, or with one that does not load, releases the claim with
+  the reason. It loads the snapshot exactly as the hook will
+  (`guard.ReadSnapshot`) instead of running `aries guard --check` with
+  §5's rows in the worktree: the built-in denies hold whatever the file
+  says, so those rows cannot fail on a file that loads.
+- **Not built:** the dispatcher does not check that Claude Code is
+  2.1.295 or later, which `"onFailure": "block"` needs; an older one
+  ignores the key and runs a call whose guard failed, under the coarse
+  lists. The brief template's line about `VAR=value` stays, so its
+  version does not change here.

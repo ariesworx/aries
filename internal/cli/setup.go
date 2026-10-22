@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ariesworx/aries/internal/agentsetup"
 	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -125,6 +127,11 @@ func cmdSetup(ctx context.Context, r *runner, args []string) error {
 	root, err := r.setupRoot(*global)
 	if err != nil {
 		return err
+	}
+	if !*global && slices.ContainsFunc(plans, func(p setupPlan) bool { return p.Guard != "" && p.skipped == "" }) {
+		if entry.Deny, err = guardDeny(root); err != nil {
+			return err
+		}
 	}
 	again := "aries setup " + names[0]
 	if *all {
@@ -249,6 +256,10 @@ func (r *runner) applySetup(plans []setupPlan, entry agentsetup.Entry, mode setu
 					m = append(m, f.rel+" ("+hookList(hooks)+")")
 					continue
 				}
+				if f.Kind == agentsetup.KindGuard {
+					m = append(m, f.rel+" ("+guardList(f.MissingHooks(f.disk.orig, entry), f.MissingDeny(f.disk.orig, entry))+")")
+					continue
+				}
 				m = append(m, f.rel)
 			}
 			if len(m) > 0 {
@@ -307,7 +318,7 @@ func (r *runner) applySetup(plans []setupPlan, entry agentsetup.Entry, mode setu
 		p := &plans[i]
 		for _, f := range p.files {
 			switch {
-			case f.res != agentsetup.Added:
+			case f.res != agentsetup.Added, f.Kind == agentsetup.KindGuard: // the guard asks nothing of the person
 			case !global:
 				p.note = p.Steps(entry)
 			case f.Kind == agentsetup.KindHook:
@@ -326,6 +337,43 @@ func hookList(events []string) string {
 		return strings.Join(events, "") + " hook"
 	}
 	return strings.Join(events[:len(events)-1], ", ") + " and " + events[len(events)-1] + " hooks"
+}
+
+// guardList names what the guard's settings lack: its hook, and how many
+// of the policy's deny rules.
+func guardList(hooks, deny []string) string {
+	var parts []string
+	if len(hooks) > 0 {
+		parts = append(parts, "the guard's "+hookList(hooks))
+	}
+	switch len(deny) {
+	case 0:
+	case 1:
+		parts = append(parts, "1 permissions.deny rule of "+guard.File)
+	default:
+		parts = append(parts, fmt.Sprintf("%d permissions.deny rules of %s", len(deny), guard.File))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// guardDeny is the coarse copy of the repository's policy at root, or of
+// the built-in denies when it has none, for Claude Code's
+// permissions.deny (docs/design/guard.md §8). This is the person's
+// checkout, read by the person's command; sessions read a snapshot of
+// the default branch's instead.
+func guardDeny(root string) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(root, guard.File)) //nolint:gosec // the repository's own policy file
+	if errors.Is(err, os.ErrNotExist) {
+		return guard.Coarse(guard.BuiltinPolicy()), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	p, err := guard.Load(b)
+	if err != nil {
+		return nil, proto.Errf(proto.CodeInvalid, "correct it, and check it with aries guard --check", guard.File+": "+err.Error())
+	}
+	return guard.Coarse(p), nil
 }
 
 // globalHookNote is said after setup adds or prints hooks in the home
@@ -552,6 +600,8 @@ func (r *runner) printSnippets(plan setupPlan, entry agentsetup.Entry, all, glob
 			if global {
 				p("# %s\n", globalHookNote)
 			}
+		case agentsetup.KindGuard:
+			p("\n# the guard and the coarse copy of %s's denies (docs/design/guard.md): merge into %s\n%s", guard.File, f.rel, f.Snippet(entry))
 		}
 	}
 	if agent.SessionEnv != "" {

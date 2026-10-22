@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/aries/internal/brief"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 	"github.com/ariesworx/aries/internal/version"
 )
@@ -933,5 +934,80 @@ func TestRunEnvAgentTelemetry(t *testing.T) {
 		if strings.HasPrefix(kv, "OTEL_LOG_") || strings.Contains(kv, "CLAUDE_CODE_SESSION_ID") {
 			t.Errorf("the run's environment has %s", kv)
 		}
+	}
+}
+
+// A run reads a snapshot of the remote default branch's policy, taken at
+// its launch and marked headless, which its environment names; its tool
+// lists are rendered from that policy, the coarse copy of its denies
+// among them (docs/design/guard.md §8).
+func TestRunReadsPolicySnapshot(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	if err := d.Wake(t.Context(), WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.sessions()) != 1 {
+		t.Fatalf("no run started:\n%s", w.out.String())
+	}
+	sp := l.spec(l.sessions()[0])
+	if sp.Policy == "" || !slices.Contains(sp.Env, guard.EnvPolicy+"="+sp.Policy) {
+		t.Fatalf("the run's environment does not name its snapshot %q:\n%s", sp.Policy, strings.Join(sp.Env, "\n"))
+	}
+	b, err := os.ReadFile(sp.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, mode, err := guard.ReadSnapshot(b)
+	if err != nil || mode != guard.Headless || p.Source != guard.File {
+		t.Fatalf("snapshot: mode %v, source %q, %v", mode, p.Source, err)
+	}
+	if fi, err := os.Stat(sp.Policy); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("snapshot mode = %v, %v; want 0600", fi.Mode().Perm(), err)
+	}
+	if !slices.Equal(sp.Denied, guard.Coarse(p)) || !slices.Equal(sp.Allowed, guard.Allowed(p)) {
+		t.Errorf("the run's lists are not the policy's:\nallowed %q\ndenied %q", sp.Allowed, sp.Denied)
+	}
+}
+
+// A remote default branch with no policy file, or one that cannot be
+// read, starts no run: the claim is released saying why, and the
+// worktree made for it is removed (decision 4).
+func TestRunRefusedWithoutPolicy(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		setup func(*fakeGit)
+		why   string
+	}{
+		{"none", func(g *fakeGit) { g.noPolicy = true }, guard.File},
+		{"invalid", func(g *fakeGit) { g.policy = []byte("version: 1\nalow: []\n") }, `unknown key "alow"`},
+		{"unreadable", func(g *fakeGit) { g.failPolicy = errors.New("git show: bad object") }, "bad object"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			w.tracker.add("ar-1", "feature", "model:opus")
+			tc.setup(w.git)
+			d, l := w.dispatcher(DefaultConfig())
+			if err := d.Wake(t.Context(), WakeStart); err != nil {
+				t.Fatal(err)
+			}
+			if len(l.sessions()) != 0 {
+				t.Fatalf("a run started without a policy")
+			}
+			h := w.calls.index("handoff ar-1 ")
+			if h < 0 || !strings.Contains(w.calls.all()[h], "release=true") || !strings.Contains(w.calls.all()[h], tc.why) {
+				t.Errorf("no releasing handoff saying %s: %q", tc.why, w.calls.all())
+			}
+			if w.calls.index("worktree remove ") < 0 {
+				t.Errorf("the worktree made for the run was kept: %q", w.calls.all())
+			}
+			if !strings.Contains(w.out.String(), "skip ar-1 [launch]: ") {
+				t.Errorf("output:\n%s", w.out.String())
+			}
+		})
 	}
 }

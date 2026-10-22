@@ -15,6 +15,7 @@ import (
 	"github.com/ariesworx/aries/internal/credential"
 	"github.com/ariesworx/aries/internal/dispatch"
 	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -117,6 +118,9 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkPolicy(top); err != nil {
+		return err
+	}
 	base, err := gitx.DefaultBranch(ctx, top)
 	if err != nil || base == "" {
 		return proto.Errf(proto.CodeInvalid, "fetch origin, so its default branch is known", "dispatch run: no default branch found")
@@ -202,6 +206,26 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 		return d.Wake(ctx, dispatch.WakeStart)
 	}
 	return d.Loop(ctx)
+}
+
+// checkPolicy refuses a repository whose checkout has no policy for the
+// guard, or one it cannot load (docs/design/guard.md §8, decision 4).
+// Each run reads its own snapshot of the default branch's, taken at its
+// launch; this says at the start what would stop every run.
+func checkPolicy(top string) error {
+	b, err := os.ReadFile(filepath.Join(top, guard.File)) //nolint:gosec // the repository's own policy file
+	if errors.Is(err, os.ErrNotExist) {
+		return proto.Errf(proto.CodeInvalid, "add "+guard.File+" by pull request: docs/design/guard.md §4 has a starting one",
+			"dispatch run: "+guard.File+" is missing: runs take their permissions from it, so none starts without it")
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := guard.Load(b); err != nil {
+		return proto.Errf(proto.CodeInvalid, "correct it by pull request, and check it with aries guard --check",
+			"dispatch run: "+guard.File+": "+err.Error())
+	}
+	return nil
 }
 
 // openLog opens the dispatcher's log for appending, 0600 in its 0700

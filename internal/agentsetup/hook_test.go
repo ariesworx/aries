@@ -334,7 +334,7 @@ func TestTargets(t *testing.T) {
 		global bool
 		want   string
 	}{
-		{"claude-code", false, "mcp .mcp.json, pointer CLAUDE.md, hook .claude/settings.json"},
+		{"claude-code", false, "mcp .mcp.json, pointer CLAUDE.md, hook .claude/settings.json, guard .claude/settings.json"},
 		{"claude-code", true, "mcp .claude.json, pointer .claude/CLAUDE.md, hook .claude/settings.json"},
 		{"codex", false, "mcp .codex/config.toml, pointer AGENTS.md, hook .codex/hooks.json"},
 		{"codex", true, "mcp .codex/config.toml, pointer .codex/AGENTS.md, hook .codex/hooks.json"},

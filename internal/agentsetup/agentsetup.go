@@ -36,6 +36,10 @@ type Agent struct {
 	// GlobalHook is the home one. "" when the harness has no hook setup
 	// writes.
 	Hook, GlobalHook string
+	// Guard is the project settings file that gets the guard's
+	// PreToolUse hook and the coarse copy of the policy's denies
+	// (guard.go); "" for a harness without it.
+	Guard string
 	// SessionEnv is the variable the harness sets to its session id for
 	// the processes it starts, or "" when it sets none.
 	SessionEnv string
@@ -87,7 +91,7 @@ const (
 var Agents = map[string]Agent{
 	"claude-code": {Name: "claude-code", Title: "Claude Code", Project: ".mcp.json", Global: ".claude.json",
 		Pointer: "CLAUDE.md", GlobalPointer: ".claude/CLAUDE.md",
-		Hook: ".claude/settings.json", GlobalHook: ".claude/settings.json",
+		Hook: ".claude/settings.json", GlobalHook: ".claude/settings.json", Guard: ".claude/settings.json",
 		SessionEnv: "CLAUDE_CODE_SESSION_ID", format: jsonClaude, hooks: claudeHooks,
 		Note: "Claude Code asks each person to approve a project's .mcp.json servers the first time it opens the project."},
 	"codex": {Name: "codex", Title: "Codex", Project: ".codex/config.toml", Global: ".codex/config.toml",
@@ -154,6 +158,10 @@ type Entry struct {
 	// one person's machine, so the caller sets it only for a file that is
 	// that person's own, never for one a repository commits.
 	KeyFile string
+	// Deny is the coarse copy of the guard's denies (guard.Coarse) that a
+	// Claude Code project's settings get as permissions.deny; nil writes
+	// none.
+	Deny []string
 }
 
 // KeyFileEnv is the environment variable that names the key file aries
@@ -296,10 +304,11 @@ const (
 	KindMCP     Kind = iota // the MCP server registration
 	KindPointer             // the block in the agent's instruction file
 	KindHook                // the hooks: SessionStart, and Claude Code's usage hooks
+	KindGuard               // Claude Code's guard: its PreToolUse hook and permissions.deny
 )
 
 func (k Kind) String() string {
-	return [...]string{"mcp", "pointer", "hook"}[k]
+	return [...]string{"mcp", "pointer", "hook", "guard"}[k]
 }
 
 // Target is one file setup maintains for an agent.
@@ -322,7 +331,11 @@ func (a Agent) Targets(global bool) []Target {
 		mcp, pointer, hook = a.Global, a.GlobalPointer, a.GlobalHook
 	}
 	var out []Target
-	for _, t := range []Target{{KindMCP, mcp, a}, {KindPointer, pointer, a}, {KindHook, hook, a}} {
+	guard := a.Guard
+	if global {
+		guard = "" // a project's policy, in the project's settings alone
+	}
+	for _, t := range []Target{{KindMCP, mcp, a}, {KindPointer, pointer, a}, {KindHook, hook, a}, {KindGuard, guard, a}} {
 		if t.Path != "" {
 			out = append(out, t)
 		}
@@ -334,6 +347,8 @@ func (a Agent) Targets(global bool) []Target {
 // and what changed, as [Agent.Apply] does.
 func (t Target) Apply(content []byte, e Entry) ([]byte, Result, error) {
 	switch t.Kind {
+	case KindGuard:
+		return applyGuard(content, e)
 	case KindPointer:
 		return applyPointer(content, t.agent.pointer)
 	case KindHook:
@@ -347,6 +362,8 @@ func (t Target) Apply(content []byte, e Entry) ([]byte, Result, error) {
 // deleted.
 func (t Target) Remove(content []byte, e Entry) ([]byte, Result, error) {
 	switch t.Kind {
+	case KindGuard:
+		return removeGuard(content, e)
 	case KindPointer:
 		return removePointer(content, t.agent.pointer)
 	case KindHook:
@@ -359,6 +376,8 @@ func (t Target) Remove(content []byte, e Entry) ([]byte, Result, error) {
 // Apply would write it.
 func (t Target) Registered(content []byte, e Entry) bool {
 	switch t.Kind {
+	case KindGuard:
+		return guardHook.registered(content, e, guardHarness) && len(missingDeny(content, e)) == 0
 	case KindPointer:
 		return pointerRegistered(content, t.agent.pointer)
 	case KindHook:
@@ -370,6 +389,12 @@ func (t Target) Registered(content []byte, e Entry) bool {
 // Snippet is the target's part on its own, to paste by hand.
 func (t Target) Snippet(e Entry) string {
 	switch t.Kind {
+	case KindGuard:
+		b, _, err := applyGuard(nil, e)
+		if err != nil {
+			panic(fmt.Sprintf("agentsetup: guard snippet: %v", err)) // only on a programming error
+		}
+		return string(b)
 	case KindPointer:
 		return pointerSnippet(t.agent.pointer)
 	case KindHook:
@@ -381,8 +406,20 @@ func (t Target) Snippet(e Entry) string {
 // MissingHooks lists the events whose Aries hook content lacks, as
 // Apply would write it, for a hook target; nil for any other kind.
 func (t Target) MissingHooks(content []byte, e Entry) []string {
-	if t.Kind != KindHook {
+	switch t.Kind {
+	case KindHook:
+		return missingHooks(t.agent.hooks, content, e, t.agent.Name)
+	case KindGuard:
+		return missingHooks([]hookStyle{guardHook}, content, e, guardHarness)
+	}
+	return nil
+}
+
+// MissingDeny lists e.Deny's rules content's permissions.deny lacks, for
+// a guard target; nil for any other kind.
+func (t Target) MissingDeny(content []byte, e Entry) []string {
+	if t.Kind != KindGuard {
 		return nil
 	}
-	return missingHooks(t.agent.hooks, content, e, t.agent.Name)
+	return missingDeny(content, e)
 }

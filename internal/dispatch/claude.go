@@ -27,69 +27,63 @@ const KillGrace = 40 * time.Second
 //
 //	aries -C WORKTREE lock run dispatch/runs --capacity N --for 10m --grace 40s -- \
 //	  claude -p --session-id SESSION --model MODEL --output-format json \
-//	  --permission-mode dontAsk --allowedTools … --disallowedTools …
+//	  --permission-mode dontAsk --settings HOOK --allowedTools … --disallowedTools …
 //
 // without --wait, so a full lock is refused and the run never starts.
 // The brief is the run's stdin; its output goes to the run's log file.
 // Each run is a process group of its own, which outlives the dispatcher.
+// The tool lists are the run's own, rendered from its snapshot of the
+// policy (Spec.Allowed, Spec.Denied), and HOOK adds `aries guard --hook`
+// as a PreToolUse hook that blocks the call when the guard fails
+// (docs/design/guard.md §6, §8).
 type Claude struct {
-	// Aries is the aries binary, which takes the lock; Claude is the
-	// harness's binary ("claude" on PATH when empty).
+	// Aries is the aries binary, which takes the lock and is the guard;
+	// Claude is the harness's binary ("claude" on PATH when empty).
 	Aries, Claude string
 	// MaxBudgetUSD, when set, is each run's --max-budget-usd.
 	MaxBudgetUSD string
-	// Allowed and Denied are its tool lists; DefaultAllowed and
-	// DefaultDenied when nil.
-	Allowed, Denied []string
 }
 
-// DefaultAllowed is what a run may do without asking, which is all it
-// may do under dontAsk: read and edit its worktree, the aries tools, git,
-// Go and the repository's gate, and gh to open, read and ready its PR. An
-// allow rule does not match a command that begins with VAR=value, nor
-// `mise exec -- …` (which would run anything), so runs get the gate's Go
-// variables in their environment (Dispatcher.runEnv) and the brief tells
-// them to issue commands bare. No allowed command is a launcher for
-// arbitrary programs (so no `mise exec`, no `scripts/leftovers.sh`, which
-// runs what follows it; the gate reaches it), except the toolchains git and
-// go, which can run what the run itself wrote. A brief
-// that asks for more than this grants is refused by the harness, which is
-// what the lessons of 19 October 2026 warned of.
-var DefaultAllowed = []string{
-	"Read", "Edit", "Write", "Glob", "Grep", "TodoWrite", "mcp__aries",
-	"Bash(git:*)", "Bash(go:*)", "Bash(gofmt:*)", "Bash(golangci-lint:*)", "Bash(shellcheck:*)",
-	"Bash(scripts/gate.sh:*)", "Bash(scripts/install-postgres.sh:*)",
-	"Bash(gh pr create:*)", "Bash(gh pr view:*)", "Bash(gh pr checks:*)", "Bash(gh pr list:*)", "Bash(gh pr ready:*)", "Bash(gh pr edit:*)", "Bash(gh run view:*)",
-	"Bash(cd:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(grep:*)", "Bash(find:*)",
-	"Bash(sed -n:*)", "Bash(mkdir:*)", "Bash(diff:*)",
+// GuardMatcher is the tools the guard's PreToolUse hook is run for, and
+// GuardTimeout its timeout in seconds (docs/design/guard.md §3, §11).
+const (
+	GuardMatcher = "Bash|Edit|Write|NotebookEdit"
+	GuardTimeout = 5
+)
+
+// guardSettings is the --settings of a run: the guard as a PreToolUse
+// hook, run by the aries binary at aries, which fails closed.
+func guardSettings(aries string) string {
+	type hook struct {
+		Type      string `json:"type"`
+		Command   string `json:"command"`
+		Timeout   int    `json:"timeout"`
+		OnFailure string `json:"onFailure"`
+	}
+	type group struct {
+		Matcher string `json:"matcher"`
+		Hooks   []hook `json:"hooks"`
+	}
+	b, _ := json.Marshal(map[string]any{"hooks": map[string][]group{"PreToolUse": {{Matcher: GuardMatcher,
+		Hooks: []hook{{Type: "command", Command: shellQuote(aries) + " guard --hook", Timeout: GuardTimeout, OnFailure: "block"}}}}}})
+	return string(b) // plain strings: cannot fail
 }
 
-// DefaultDenied is what a run may never do, whatever it is allowed
-// (dispatcher.md §11): merge, call gh's API, run a program through find
-// (-exec, -execdir, -ok, -okdir), force a push or push to
-// main, or edit the harness's settings, the MCP config or the release
-// keys. Branch protection is the backstop.
-var DefaultDenied = []string{
-	"Bash(gh pr merge:*)", "Bash(gh api:*)",
-	"Bash(git push --force:*)", "Bash(git push -f:*)", "Bash(git push --force-with-lease:*)",
-	"Bash(git push origin main:*)", "Bash(git push origin HEAD:main:*)", "Bash(git push origin +*)",
-	"Bash(find*-exec*)", "Bash(find*-ok*)",
-	"Edit(.claude/**)", "Write(.claude/**)", "Edit(.mcp.json)", "Write(.mcp.json)",
-	"Edit(internal/release/keys.go)", "Write(internal/release/keys.go)",
+// shellQuote quotes s for the shell Claude Code runs a hook's command
+// with: bare when it is plain, else in single quotes.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:@%+=,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Argv is the command line of the run sp describes. It holds no brief
 // and no key.
 func (c *Claude) Argv(sp Spec) []string {
-	claude, allowed, denied := c.Claude, c.Allowed, c.Denied
+	claude := c.Claude
 	if claude == "" {
 		claude = "claude"
-	}
-	if allowed == nil {
-		allowed = DefaultAllowed
-	}
-	if denied == nil {
-		denied = DefaultDenied
 	}
 	argv := []string{c.Aries, "-C", sp.Dir, "lock", "run", RunsLock,
 		"--capacity", strconv.Itoa(sp.Capacity), "--for", sp.Lease.String(),
@@ -99,8 +93,9 @@ func (c *Claude) Argv(sp Spec) []string {
 	if c.MaxBudgetUSD != "" {
 		argv = append(argv, "--max-budget-usd", c.MaxBudgetUSD)
 	}
-	argv = append(append(argv, "--allowedTools"), allowed...)
-	return append(append(argv, "--disallowedTools"), denied...)
+	argv = append(argv, "--settings", guardSettings(c.Aries))
+	argv = append(append(argv, "--allowedTools"), sp.Allowed...)
+	return append(append(argv, "--disallowedTools"), sp.Denied...)
 }
 
 // Launch starts the run in its worktree, in a process group of its own,

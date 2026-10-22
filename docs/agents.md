@@ -28,7 +28,7 @@ session-start hook. For Claude Code the hook file also gets the
 
 | Agent | MCP config | Pointer | Hooks | You still |
 |---|---|---|---|---|
-| `claude-code` | `.mcp.json` | `CLAUDE.md` | `.claude/settings.json`: session start, and usage on Stop, SubagentStop and SessionEnd | approve the project's MCP server when Claude Code asks |
+| `claude-code` | `.mcp.json` | `CLAUDE.md` | `.claude/settings.json`: session start, usage on Stop, SubagentStop and SessionEnd, and in a project [the guard](#the-guard-claude-code) on PreToolUse with its `permissions.deny` | approve the project's MCP server when Claude Code asks |
 | `codex` | `.codex/config.toml` | `AGENTS.md` | `.codex/hooks.json` | trust the project, and the hooks with `/hooks` |
 | `gemini` | `.gemini/settings.json` | `GEMINI.md` | `.gemini/settings.json` | trust the folder when Gemini CLI asks |
 | `cursor` | `.cursor/mcp.json` | `.cursor/rules/aries.mdc` | `.cursor/hooks.json` | turn Aries on in Cursor Settings › MCP |
@@ -242,6 +242,7 @@ run` starts. Each run then gets the same variables with
 Code's `session.id`. For a dispatched run that is the session id Aries
 recorded for it (`aries dispatch` logs it; the brief comment names it).
 
+## The guard (Claude Code)
 
 `aries guard --hook` is a PreToolUse hook that checks each Bash, Edit and
 Write call an agent makes against one policy file, the repository's
@@ -265,13 +266,49 @@ adds one line to `guard/denials.jsonl` in aries's data directory: the
 time, the session, its mode, the tool and the rule, never the command.
 
 The guard never reads the policy in the agent's worktree, which the
-agent could edit. It reads a snapshot of the file on `origin/main`,
-taken once at the session's start: a change reaches sessions only once
-it is merged, which puts it under the maintainer's review. Without a
-policy file, it applies its built-in denies (`gh pr merge`, `gh api`,
-force pushes, pushes to `main`) and decides nothing else. When it
-cannot read its snapshot, it applies the built-in denies and says so in
-a Desktop session, and denies every call in a headless run.
+agent could edit. It reads a snapshot of the file on the default branch
+as origin has it, taken once at the session's start: by `aries prime
+--hook` for a Desktop session, kept as `guard/SESSION.yaml` in aries's
+data directory (pruned 30 days after it was last taken), and by `aries
+dispatch run` at each run's launch. A change reaches sessions only once
+it is merged, which puts it under the maintainer's review, and only at a
+session's next start. Without a policy file, the guard applies its
+built-in denies (`gh pr merge`, `gh api`, force pushes, pushes to `main`)
+and decides nothing else. When it cannot read its snapshot, it applies
+the built-in denies and says so in a Desktop session, and denies every
+call in a headless run; `prime --hook` says at the session's start when
+the policy it took does not load.
+
+**Installing it.** `aries setup claude-code --write` adds, to a
+project's `.claude/settings.json`, the PreToolUse hook
+
+```json
+{"matcher": "Bash|Edit|Write|NotebookEdit",
+ "hooks": [{"type": "command", "command": "aries guard --hook", "timeout": 5}]}
+```
+
+and a coarse copy of the policy's denies in `permissions.deny`, in
+Claude Code's own form (`Bash(gh pr merge *)`, `Bash(git push * --force*)`,
+`Edit(.mcp.json)`), which Claude Code applies even when the guard does
+not run and in a folder it does not trust. It keeps your own rules and
+hooks, writes no `permissions.allow` (the guard's allow is the one allow
+list), and `--check` reports the hook or any of the rules missing; a
+rule the policy drops stays until you remove it, since it reads the same
+as one of yours. Not with `--global`: the policy is a project's. A
+dispatched run gets the hook through `--settings`, failing closed, and
+the same lists in `--allowedTools` and `--disallowedTools`
+([What a run may run](cli.md#the-dispatcher-experimental)).
+
+**What the maintainer reviews.** `.aries/guard.yaml` decides what every
+unattended run and every Desktop session may run, so a change to it is a
+pull request for the maintainer's review (a CODEOWNERS entry), as is a
+change to `.aries/brief.txt`, whose commands it must allow. In such a
+pull request, read the deny rules and their fixes, any new `allow:`
+entry (a program there may run anything it is given, as `git` and `go`
+can), and `env:` and `wrappers:`, which widen what the guard reads as
+allowed. `go test ./scripts/` holds the brief's and AGENTS.md's
+commands to the policy, and the repository's `.claude/settings.json`,
+once it runs the guard, to the policy's denies.
 
 `aries guard --check` loads the policy and reports a mistake in one
 line; with commands, it prints what the guard would decide for each:
@@ -279,11 +316,6 @@ line; with commands, it prints what the guard would decide for each:
 ```sh
 aries guard --check --headless "go test ./..." "gh pr merge 1"
 ```
-
-The guard and the policy file are built; `aries setup claude-code` does
-not install the hook yet, and nothing takes the session's snapshot, so
-the hook is not yet run by any session ([guard.md](design/guard.md),
-As built).
 
 ## Tools
 
