@@ -510,7 +510,7 @@ is `partial` or `blocked` and whose handoff branch has an open PR
 (`awaiting-review`: it waits on review, and a merged or closed PR
 releases it); one whose last handoff is `blocked` and whose row has not
 changed since (`blocked`: a reopen, a label change or an edit releases
-it); one whose text names release signing (`internal/release`, `keys.go`,
+it); one whose text names release signing (`internal/release`, "release signing",
 the release workflow); one another session holds; with `--models` or `--labels`, one whose model is not listed (`only-models`) or that lacks a label (`only-labels`), after every rule above; and one a run of its
 own failed on or was stopped on, until `dispatch run --clear`. Each
 skip names its rule. It reads the PR with `gh pr view` on the handoff's

@@ -82,8 +82,9 @@ rule of the memory `dispatch`:
 - **Exclusions** (rule 2): the label `human`; type `epic`; an issue
   whose last handoff is `done` (it waits on the maintainer or on
   landing); and anything touching release signing, judged by its text
-  naming `internal/release`, `keys.go` or the release workflow, which
-  holds it for a person rather than guesses; and the label
+  naming `internal/release`, "release signing" or the release workflow,
+  which holds it for a person rather than guesses (a bare `keys.go`
+  is not a signing word: it also names `internal/server/keys.go`); and the label
   `waiting:maintainer`, which a design waiting on the maintainer's
   answers carries, so the rule is mechanical rather than read from
   handoffs (Q5).

@@ -105,8 +105,11 @@ var models = map[string]string{
 }
 
 // signing are the words that tie an issue to release signing, which holds
-// it for a person rather than guessing (dispatcher.md §4).
-var signing = []string{"internal/release", "keys.go", "release workflow", ".github/workflows/release.yml"}
+// it for a person rather than guessing (dispatcher.md §4). They are paths
+// as AGENTS.md rule 3 names them: a bare file name such as keys.go would
+// also catch internal/server/keys.go, which is not signing. internal/release
+// covers internal/release/keys.go.
+var signing = []string{"internal/release", "release signing", "release workflow", ".github/workflows/release.yml"}
 
 // Judge applies the picking rules to one ready issue: the first rule that
 // fits skips it; an issue no rule skips is started with the model its
