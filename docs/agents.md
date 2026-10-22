@@ -41,8 +41,12 @@ Setup prints the "you still" step after it adds a part.
 ### What setup writes, and what it leaves alone
 
 - **The pointer** is a short block between `<!-- aries:begin -->` and
-  `<!-- aries:end -->`. It tells the agent to use the Aries tools and to
-  `prime`, `start` and `finish`. The rest of the file is left alone.
+  `<!-- aries:end -->`. It tells the agent to use the Aries tools, to
+  `prime`, to `start` an issue, and to end with `handoff` (state `done`),
+  or with `finish` where nothing waits on a check, a review or a person.
+  The rest of the file is left alone. `aries setup AGENT --write` updates
+  an existing project's block in place, so a project set up with an older
+  pointer gets this one on its next `--write`.
   Cursor's and AI Assistant's pointers are rule files of Aries's own.
   Codex and Junie share `AGENTS.md`, so `setup --all` writes the block once,
   and removing either agent takes it out.

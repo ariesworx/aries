@@ -1,6 +1,8 @@
 package agentsetup
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,6 +79,40 @@ func TestPointerBlockIsShort(t *testing.T) {
 		if !strings.Contains(block, w) {
 			t.Errorf("pointer block lacks %q", w)
 		}
+	}
+}
+
+// Where a project's workflow requires a check or a review, finish is
+// refused (mcpserver.Instructions), so the pointer must not send an agent
+// to finish as the way its work ends.
+func TestPointerEndsWithHandoff(t *testing.T) {
+	t.Parallel()
+	for _, w := range []string{"`handoff`", "state `done`"} {
+		if !strings.Contains(block, w) {
+			t.Errorf("pointer block lacks %s:\n%s", w, block)
+		}
+	}
+	if strings.Contains(block, "`finish` closes") {
+		t.Errorf("pointer block says finish ends the work:\n%s", block)
+	}
+}
+
+// AGENTS.md carries this pointer, and a change to one must come with the
+// other: setup writes the block, and the repository's own copy must match.
+func TestAgentsMDCarriesThePointer(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md")) //nolint:gosec // this repository's file, named by the test
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	start := strings.Index(text, beginMarker)
+	end := strings.Index(text, endMarker)
+	if start < 0 || end < start {
+		t.Fatal("AGENTS.md has no aries:begin ... aries:end block")
+	}
+	if got := text[start:end+len(endMarker)] + "\n"; got != block {
+		t.Errorf("AGENTS.md's pointer block:\n%s\nwant pointer.go's:\n%s", got, block)
 	}
 }
 
