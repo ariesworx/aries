@@ -476,6 +476,13 @@ func TestExecGit(t *testing.T) {
 	if err := g.RemoveWorktree(ctx, wt); err != nil {
 		t.Fatal(err)
 	}
+	if ok, err := g.OnRemote(ctx, "feature/ar-1-x"); err != nil || ok {
+		t.Errorf("OnRemote before a push = %v, %v", ok, err)
+	}
+	gitIn(top, "push", "--quiet", "origin", "feature/ar-1-x")
+	if ok, err := g.OnRemote(ctx, "feature/ar-1-x"); err != nil || !ok {
+		t.Errorf("OnRemote after a push = %v, %v", ok, err)
+	}
 	if err := g.DeleteBranch(ctx, "feature/ar-1-x"); err != nil {
 		t.Fatal(err)
 	}

@@ -347,6 +347,21 @@ func (g *ExecGit) DeleteBranch(ctx context.Context, branch string) error {
 	return err
 }
 
+// OnRemote compares the local branch's commit with the remote's, read with
+// ls-remote.
+func (g *ExecGit) OnRemote(ctx context.Context, branch string) (bool, error) {
+	local, err := g.git(ctx, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	if err != nil {
+		return false, err
+	}
+	out, err := g.git(ctx, "ls-remote", g.Remote, "refs/heads/"+branch)
+	if err != nil {
+		return false, err
+	}
+	remote, _, _ := strings.Cut(out, "\t")
+	return remote != "" && remote == strings.TrimSpace(local), nil
+}
+
 // RemoteHead reads the remote default branch's commit with ls-remote.
 func (g *ExecGit) RemoteHead(ctx context.Context) (string, error) {
 	out, err := g.git(ctx, "ls-remote", g.Remote, "refs/heads/"+g.Base)

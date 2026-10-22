@@ -378,7 +378,10 @@ one of its runs worked is closed (under `landed`, that means merged):
 3. The local branch is deleted only when its head is on the remote or
    its PR merged, so nothing unpushed is lost. A squash merge leaves the
    branch unmerged in git's eyes, so the PR's state decides, not
-   `git branch -d`.
+   `git branch -d`. As built: the worktree and the branch are separate
+   steps (`cleaned`, `branch_done` in the state file). A branch that
+   neither arm covers when the worktree goes stays pending and is looked
+   at again at each wake; its deletion is logged once (`branch`).
 4. The removal is logged, with the paths and the commit the branch held.
 
 A remote branch is the host's to delete on merge. A headless run has no

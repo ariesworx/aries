@@ -541,7 +541,8 @@ session=S template=brief@N`; the run is started with the full model id
 template, `dispatch run` refuses before it reads anything. Its worktree is
 `.aries-dispatch/worktrees/ID` at the repository's top, on the branch
 `start` names; once the issue closes, the worktree is removed (never
-with `--force`) and the branch deleted when its PR merged.
+with `--force`) and the branch deleted once its PR merged or its head is
+on the remote, at a later wake if that was not so yet.
 
 **What a run may run.** A run is headless under `--permission-mode
 dontAsk`, so a command outside its allow list is denied, not asked.

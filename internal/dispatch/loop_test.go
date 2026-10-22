@@ -678,6 +678,7 @@ func TestCleanup(t *testing.T) {
 		status   string
 		pr       *PR
 		dirty    bool
+		pushed   bool
 		live     bool
 		removed  bool
 		branch   bool
@@ -686,6 +687,8 @@ func TestCleanup(t *testing.T) {
 		{name: "closed and merged", status: "closed", pr: &PR{State: "MERGED"}, removed: true, branch: true},
 		{name: "closed, PR not merged", status: "closed", pr: &PR{State: "CLOSED"}, removed: true},
 		{name: "closed, no PR", status: "closed", removed: true},
+		{name: "closed, no PR, pushed", status: "closed", pushed: true, removed: true, branch: true},
+		{name: "closed, PR open, pushed", status: "closed", pr: &PR{State: "OPEN"}, pushed: true, removed: true, branch: true},
 		{name: "open", status: "in_progress", pr: &PR{State: "MERGED"}},
 		{name: "a live run", status: "closed", pr: &PR{State: "MERGED"}, live: true},
 		{name: "dirty", status: "closed", pr: &PR{State: "MERGED"}, dirty: true, reported: "left"},
@@ -710,6 +713,7 @@ func TestCleanup(t *testing.T) {
 				w.forge.set(r.Branch, *tc.pr)
 			}
 			w.git.dirty[r.Worktree] = tc.dirty
+			w.git.pushed[r.Branch] = tc.pushed
 			if err := d.Wake(ctx, WakeTimer); err != nil {
 				t.Fatal(err)
 			}
@@ -735,6 +739,44 @@ func TestCleanup(t *testing.T) {
 				t.Error("cleaned twice")
 			}
 		})
+	}
+}
+
+// A branch whose PR was not merged when the worktree went stays pending: it
+// is deleted at a later wake, once the PR shows merged, and said once.
+func TestCleanupBranchPending(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.tracker.add("ar-1", "feature", "model:opus")
+	d, l := w.dispatcher(DefaultConfig())
+	ctx := t.Context()
+	if err := d.Wake(ctx, WakeStart); err != nil {
+		t.Fatal(err)
+	}
+	r := d.State.Runs[0]
+	l.proc(r.Session).end(Exit{Outcome: OutcomeOK})
+	d.reapReady(ctx)
+	w.tracker.set("ar-1", func(sr *proto.ShowResult) { sr.Issue.Status = "closed" })
+	w.forge.set(r.Branch, PR{State: "OPEN"})
+	for range 2 {
+		if err := d.Wake(ctx, WakeTimer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !r.Cleaned || r.BranchDone || w.calls.count("branch delete "+r.Branch) != 0 {
+		t.Fatalf("cleaned %v, branch done %v: %q", r.Cleaned, r.BranchDone, w.calls.all())
+	}
+	w.forge.set(r.Branch, PR{State: "MERGED"})
+	for range 2 {
+		if err := d.Wake(ctx, WakeTimer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !r.BranchDone || w.calls.count("branch delete "+r.Branch) != 1 || w.calls.count("worktree remove ") != 1 {
+		t.Errorf("branch done %v: %q", r.BranchDone, w.calls.all())
+	}
+	if n := strings.Count(w.out.String(), "deleted ar-1's branch"); n != 1 {
+		t.Errorf("said %d times:\n%s", n, w.out.String())
 	}
 }
 
