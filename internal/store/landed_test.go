@@ -130,6 +130,45 @@ func TestRequiredCheckRefusesClose(t *testing.T) {
 	}
 }
 
+// An issue folded into another, with a duplicates (or supersedes) link to
+// it, closes past the landed gate by an admin's force; the close event
+// records the override and the issues it was folded into. Another
+// principal's close is still refused.
+func TestForceCloseRecordsFoldedInto(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	target := mustCreate(t, s, NewIssue{Title: "the fix that landed"})
+	if _, err := s.CloseIssue(ctx, alice, target.ID, 0, "landed"); err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []DepType{DepDuplicates, DepSupersedes} {
+		is := startedUnder(t, s, "folded into another, "+string(typ))
+		if err := s.AddDep(ctx, alice, is.ID, target.ID, typ, ""); err != nil {
+			t.Fatal(err)
+		}
+		var unmet *AcceptanceError
+		if _, err := s.CloseIssue(ctx, alice, is.ID, 0, "duplicate"); !errors.As(err, &unmet) || len(unmet.Checks) != 1 {
+			t.Fatalf("CloseIssue by its holder = %v; want the landed gate to refuse", err)
+		}
+		if _, err := s.ForceClose(ctx, alice, is.ID, 0, "duplicate"); err == nil {
+			t.Fatal("ForceClose by a non-admin closed it; want a refusal")
+		}
+		closed, err := s.ForceClose(ctx, dana, is.ID, 0, "duplicate of "+string(target.ID))
+		if err != nil || closed.Status != StatusClosed {
+			t.Fatalf("ForceClose by an admin = %+v, %v; want it closed", closed, err)
+		}
+		after := lastAfter(t, s, is.ID, OpIssueClose)
+		if after["checks_overridden"] == nil {
+			t.Errorf("the forced close's event = %v; want checks_overridden", after)
+		}
+		got, _ := after["folded_into"].([]any)
+		if len(got) != 1 || got[0] != string(target.ID) {
+			t.Errorf("the forced close's event = %v; want folded_into [%s]", after, target.ID)
+		}
+	}
+}
+
 // itemStates lists the states of id's items.
 func itemStates(t *testing.T, s *Store, id IssueID) []ItemState {
 	t.Helper()
