@@ -81,6 +81,18 @@ func TestJudge(t *testing.T) {
 		{name: "release signing in the notes",
 			sr:     with(issue("task", "model:opus"), func(sr *proto.ShowResult) { sr.Issue.Notes = "touches .github/workflows/release.yml" }),
 			action: ActSkip, rule: RuleSigning},
+		{name: "release signing in prose",
+			sr:     with(issue("task", "model:opus"), func(sr *proto.ShowResult) { sr.Issue.Body = "Document the Release Signing steps" }),
+			action: ActSkip, rule: RuleSigning},
+		{name: "the release key file by its path",
+			sr:     with(issue("task", "model:opus"), func(sr *proto.ShowResult) { sr.Issue.Body = "Rotate internal/release/keys.go" }),
+			action: ActSkip, rule: RuleSigning},
+		{name: "a server key file is not signing",
+			sr:     with(issue("bug", "model:opus"), func(sr *proto.ShowResult) { sr.Issue.Body = "internal/server/keys.go bridgePrincipal drops from=" }),
+			action: ActStart, model: "opus"},
+		{name: "an unrelated issue is started",
+			sr:     with(issue("bug", "model:sonnet"), func(sr *proto.ShowResult) { sr.Issue.Body = "The login redirect drops the return path" }),
+			action: ActStart, model: "sonnet"},
 		{name: "a live claim",
 			sr: with(issue("task", "model:opus"), func(sr *proto.ShowResult) {
 				sr.Claim = &proto.Claim{By: "bob", Session: "s1", ExpiresAt: now.Add(time.Minute)}
