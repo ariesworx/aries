@@ -11,7 +11,7 @@
 # A change to any line below the version ships by review and raises the
 # version; scripts/brief_test.go fails until it does, and `go test
 # ./scripts/ -run TestBriefTemplate -update` then records the new one.
-version: 2
+version: 3
 
 [headless] You are a headless run that `aries dispatch` started on issue {id}, in session {session}.
 [desktop] You are a session the project's coordinator started on issue {id}.
@@ -38,3 +38,5 @@ Do this:
 9. If your claim's lease lapses, `start` {id} again before writing to it.
 10. Before your handoff, post your lessons as the memory `lessons` says.
 11. When the PR is open, call `handoff` with state `done`, the PR's link in the note and `ticked` for the items you met. Never call `finish`; never merge.
+12. At handoff, leave the CI item and the review and merge item open, neither ticked nor waived: the landed check ticks the first and the maintainer settles the second, and a waiver would record as skipped what later happened.
+13. Wait for a long command inside the turn: run it in the foreground with a timeout, or, where your harness allows background work, wait on it before you go on; never end a turn while a command runs.
