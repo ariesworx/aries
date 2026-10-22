@@ -485,6 +485,10 @@ func readDashboard(t *testing.T, file string) []dashboardPanel {
 // panel is tied to one installation's data source.
 var dashboardSources = map[string]string{"prometheus": "${datasource}", "tempo": "${traces}", "loki": "${logs}"}
 
+// dashboardConstant is a query of a dashboard that is a constant and
+// nothing else, `vector(4)`: the one query that selects no series.
+var dashboardConstant = regexp.MustCompile(`^vector\([0-9]+(\.[0-9]+)?\)$`)
+
 // Every query of every dashboard names series, labels and values that
 // exist, as every alert rule does, and no panel is tied to one
 // installation's data source. A panel of traces or logs is held to its
@@ -511,6 +515,9 @@ func TestDashboardQueriesNameWhatExists(t *testing.T) {
 						t.Errorf("%s: panel %q has an empty query", file, p.Title)
 					}
 					continue
+				}
+				if dashboardConstant.MatchString(q.Expr) {
+					continue // a line drawn at a number, like the slot count
 				}
 				for _, problem := range checkExpr(q.Expr) {
 					t.Errorf("%s: panel %q: %s\n%s", file, p.Title, problem, q.Expr)

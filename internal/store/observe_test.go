@@ -198,6 +198,57 @@ func TestObserverIssueOutcomes(t *testing.T) {
 	expect("forced close", "closed task forced")
 }
 
+// LiveClaims counts the claims held and not expired, and ReadyCount the
+// issues Ready would list: an issue in progress whose lease ended is in
+// neither, and a blocked issue is not ready.
+func TestLiveClaimsAndReadyCount(t *testing.T) {
+	t.Parallel()
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now})
+	ctx := t.Context()
+	check := func(step string, claims, ready int) {
+		t.Helper()
+		gotC, err := s.LiveClaims(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotR, err := s.ReadyCount(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := s.Ready(ctx, alice, 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		live, _, err := s.ActiveClaims(ctx, 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotC != claims || gotC != len(live) || gotR != ready || gotR != len(list) {
+			t.Errorf("%s: LiveClaims = %d (ActiveClaims %d), ReadyCount = %d (Ready %d); want %d and %d",
+				step, gotC, len(live), gotR, len(list), claims, ready)
+		}
+	}
+	check("empty", 0, 0)
+	a := mustCreate(t, s, NewIssue{Title: "a"})
+	b := mustCreate(t, s, NewIssue{Title: "b"})
+	c := mustCreate(t, s, NewIssue{Title: "c blocked by b"})
+	if err := s.AddDep(ctx, alice, c.ID, b.ID, DepBlocks, ""); err != nil {
+		t.Fatal(err)
+	}
+	check("three open, one blocked", 0, 2)
+	if _, _, err := s.StartIssue(ctx, alice, a.ID, time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	check("a held", 1, 1)
+	clk.add(2 * time.Hour)
+	check("a in progress with its lease ended", 0, 1)
+	if _, err := s.CloseIssue(ctx, dana, b.ID, 0, "done"); err != nil {
+		t.Fatal(err)
+	}
+	check("b closed, c unblocked", 0, 1)
+}
+
 // StatusCounts matches the issues the store holds, with one row a status.
 func TestStatusCounts(t *testing.T) {
 	t.Parallel()

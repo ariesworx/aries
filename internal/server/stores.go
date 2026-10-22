@@ -166,6 +166,10 @@ type Upkeep interface {
 	// StatusCounts is the project's issues counted by status, for the
 	// aries.issues gauge.
 	StatusCounts(ctx context.Context) (map[store.Status]int, error)
+	// LiveClaims and ReadyCount are the project's live claims and ready
+	// issues, for the aries.claims.held and aries.issues.ready gauges.
+	LiveClaims(ctx context.Context) (int, error)
+	ReadyCount(ctx context.Context) (int, error)
 	Migrated() int
 	ClockState() store.ClockState
 	Now() time.Time

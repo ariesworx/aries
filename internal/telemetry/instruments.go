@@ -138,6 +138,15 @@ const (
 	// waived, from its add or its last rearm, on the store's clock:
 	// project, kind. Its buckets are [CycleBuckets].
 	GateWaitDuration
+	// ClaimsHeld is how many live claims (held and not expired) each
+	// project has: project. It is watched ([Telemetry.WatchSeries]), one
+	// indexed count for each open project at each collection. An issue
+	// awaiting landing, in progress with no claim, is not counted.
+	ClaimsHeld
+	// IssuesReady is how many issues Ready would list in each project:
+	// project. It is watched ([Telemetry.WatchSeries]), from a count the
+	// server keeps for each open project for a bounded time.
+	IssuesReady
 
 	numInstruments
 )
@@ -487,6 +496,8 @@ var specs = [numInstruments]spec{
 	IssueQueueDuration:   {name: "aries.issue.queue.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's creation, or its defer_until if later, to its first start."},
 	IssueLandingDuration: {name: "aries.issue.landing.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's last handoff with state done to its close by the closing pass."},
 	GateWaitDuration:     {name: "aries.gate.wait.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrGateKind}, desc: "Time a gate was open, from its add or last rearm to its pass or waiver."},
+	ClaimsHeld:           {name: "aries.claims.held", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Live claims (held, not expired) by project, counted at each collection from the open projects."},
+	IssuesReady:          {name: "aries.issues.ready", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Ready issues by project, from a count of each open project kept for at most a minute."},
 }
 
 // Description is one instrument as the documentation and the tests list

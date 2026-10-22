@@ -380,6 +380,31 @@ func (w *wtx) gateWaited(ctx context.Context, g Gate) error {
 	return nil
 }
 
+// LiveClaims returns how many claims are held and not expired, by one
+// count that the claims table serves: an issue in progress whose claim
+// ended (awaiting landing) is not one.
+func (s *Store) LiveClaims(ctx context.Context) (int, error) {
+	var n int
+	err := s.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM claims WHERE principal IS NOT NULL AND expires_at > $1`, s.now()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count live claims: %w", err)
+	}
+	return n, nil
+}
+
+// ReadyCount returns how many issues Ready would list with no limit, by
+// the same condition, and no text. Unlike LiveClaims it reads the whole
+// project (the ready condition is a recursive query), so the daemon
+// caches it (internal/server's watchReady).
+func (s *Store) ReadyCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.r.QueryRowContext(ctx, blockedCTE+`SELECT COUNT(*) FROM issues i `+readyWhere, s.now()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count ready issues: %w", err)
+	}
+	return n, nil
+}
+
 // StatusCounts returns how many issues the project has in each status,
 // from one grouped count that the status index serves: at most one row a
 // status, whatever the number of issues, and no text.

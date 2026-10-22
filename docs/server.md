@@ -3858,6 +3858,8 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.issue.queue.duration` | `aries_issue_queue_duration_seconds` | histogram, seconds | `project`, `type` |
 | `aries.issue.landing.duration` | `aries_issue_landing_duration_seconds` | histogram, seconds | `project`, `type` |
 | `aries.gate.wait.duration` | `aries_gate_wait_duration_seconds` | histogram, seconds | `project`, `kind` |
+| `aries.claims.held` | `aries_claims_held` | gauge | `project` |
+| `aries.issues.ready` | `aries_issues_ready` | gauge | `project` |
 | `aries.control.writes` | `aries_control_writes_total` | counter | `op`, `result` |
 | `aries.keys_file.writes` | `aries_keys_file_writes_total` | counter | `result` |
 | `aries.keys_file.last_write.time` | `aries_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |

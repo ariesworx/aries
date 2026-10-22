@@ -316,11 +316,14 @@ waiting (id, n) AS (
 // readyFilter selects and orders the ready issues of blockedCTE, best
 // first. Ready and StartIssue share it, through rankReady, so start takes
 // what ready shows first.
-const readyFilter = `WHERE i.status = 'open' AND i.template = FALSE AND i.type <> 'gate'
+const readyFilter = readyWhere + `
+ORDER BY i.priority, i.created_at, i.id`
+
+// readyWhere is readyFilter's condition alone, which ReadyCount counts.
+const readyWhere = `WHERE i.status = 'open' AND i.template = FALSE AND i.type <> 'gate'
   AND i.id NOT IN (SELECT id FROM blocked)
   AND i.id NOT IN (SELECT id FROM deferred)
-  AND i.id NOT IN (SELECT id FROM waiting)
-ORDER BY i.priority, i.created_at, i.id`
+  AND i.id NOT IN (SELECT id FROM waiting)`
 
 // clampLimit returns def when n is not positive, and otherwise n capped
 // at maxN.

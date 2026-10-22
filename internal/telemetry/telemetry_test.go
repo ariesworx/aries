@@ -288,6 +288,8 @@ var wantKeys = map[string][]string{
 	"aries.issue.queue.duration":        {"project", "type"},
 	"aries.issue.landing.duration":      {"project", "type"},
 	"aries.gate.wait.duration":          {"project", "kind"},
+	"aries.claims.held":                 {"project"},
+	"aries.issues.ready":                {"project"},
 }
 
 // hostile are strings a client might choose, none of them a value any
@@ -568,6 +570,8 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.issue.queue.duration":        "aries_issue_queue_duration_seconds",
 		"aries.issue.landing.duration":      "aries_issue_landing_duration_seconds",
 		"aries.gate.wait.duration":          "aries_gate_wait_duration_seconds",
+		"aries.claims.held":                 "aries_claims_held",
+		"aries.issues.ready":                "aries_issues_ready",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}
 	for _, d := range Instruments() {

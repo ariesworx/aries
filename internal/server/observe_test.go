@@ -1018,8 +1018,34 @@ func TestMetricsOfWork(t *testing.T) {
 		{"aries.issues", []string{"project", project, "status", "in_progress"}, 1},
 		{"aries.issues", []string{"project", project, "status", "closed"}, 2},
 		{"aries.issues.closed", []string{"project", project, "type", "task", "reason", "other"}, 2},
+		{"aries.claims.held", []string{"project", project}, 1},
+		{"aries.issues.ready", []string{"project", project}, 1},
 	})
 	if n := snap.Observations("aries.issue.cycle.duration"); n != 1 {
 		t.Errorf("cycle durations = %d, want 1: the issue closed unstarted has none", n)
+	}
+}
+
+// A count of ready issues is read again only once readyMaxAge has passed,
+// and a count that fails is neither kept nor reported.
+func TestReadyCache(t *testing.T) {
+	t.Parallel()
+	var c readyCache
+	reads := 0
+	count := func(n int, err error) func() (int, error) {
+		return func() (int, error) { reads++; return n, err }
+	}
+	t0 := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	if _, ok := c.get(t0, count(0, errors.New("down"))); ok || reads != 1 {
+		t.Fatalf("a failed count: ok = %v, reads = %d; want not ok, 1", ok, reads)
+	}
+	if n, ok := c.get(t0, count(3, nil)); !ok || n != 3 || reads != 2 {
+		t.Fatalf("first count = %d, %v, reads %d; want 3, true, 2", n, ok, reads)
+	}
+	if n, _ := c.get(t0.Add(readyMaxAge-time.Second), count(9, nil)); n != 3 || reads != 2 {
+		t.Errorf("within the age: n = %d, reads = %d; want the kept 3, 2", n, reads)
+	}
+	if n, _ := c.get(t0.Add(readyMaxAge), count(4, nil)); n != 4 || reads != 3 {
+		t.Errorf("at the age: n = %d, reads = %d; want a new 4, 3", n, reads)
 	}
 }
