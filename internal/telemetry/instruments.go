@@ -119,6 +119,15 @@ const (
 	// status. It is watched ([Telemetry.WatchSeries]), one count of the
 	// issues' statuses for each open project at each collection.
 	Issues
+	// ClaimsHeld is how many live claims (held and not expired) each
+	// project has: project. It is watched ([Telemetry.WatchSeries]), one
+	// indexed count for each open project at each collection. An issue
+	// awaiting landing, in progress with no claim, is not counted.
+	ClaimsHeld
+	// IssuesReady is how many issues Ready would list in each project:
+	// project. It is watched ([Telemetry.WatchSeries]), from a count the
+	// server keeps for each open project for a bounded time.
+	IssuesReady
 
 	numInstruments
 )
@@ -452,6 +461,8 @@ var specs = [numInstruments]spec{
 
 	IssueCycleDuration: {name: "aries.issue.cycle.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's first start since it was last opened to its close; an issue closed unstarted has none."},
 	Issues:             {name: "aries.issues", kind: Gauge, watched: true, attrs: []attr{attrProject, attrStatus}, desc: "Issues by project and status, counted at each collection from the open projects."},
+	ClaimsHeld:         {name: "aries.claims.held", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Live claims (held, not expired) by project, counted at each collection from the open projects."},
+	IssuesReady:        {name: "aries.issues.ready", kind: Gauge, watched: true, attrs: []attr{attrProject}, desc: "Ready issues by project, from a count of each open project kept for at most a minute."},
 }
 
 // Description is one instrument as the documentation and the tests list

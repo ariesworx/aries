@@ -335,6 +335,8 @@ func New(cfg Config) (*Server, error) {
 		s.single.used.Store(s.now().UnixNano()) // opened now, as openProject notes for a project of many
 		cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 		s.watchIssues()
+		s.watchClaims()
+		s.watchReady()
 		if err := s.startClock([]*behindLog{s.startBehind(s.single.logName(), cfg.Store.ClockState())}); err != nil {
 			return nil, err
 		}
@@ -351,6 +353,8 @@ func New(cfg Config) (*Server, error) {
 	s.stores.retiring = func(pr *served) { s.sweep(context.Background(), pr) }
 	cfg.Telemetry.Watch(telemetry.StoresOpen, func() float64 { return float64(s.OpenStores()) })
 	s.watchIssues()
+	s.watchClaims()
+	s.watchReady()
 	// The audit stream starts at the newest event there is now.
 	s.auditStart(context.Background())
 	return s, nil
@@ -438,6 +442,69 @@ func (s *Server) watchIssues() {
 			}
 			for st, n := range counts {
 				observe(float64(n), pr.id, string(st))
+			}
+		})
+	})
+}
+
+// readyMaxAge is how long watchReady keeps a project's count of ready
+// issues: scrapes come every 15 seconds or so, and the count reads the
+// whole project, so most of them reuse it.
+const readyMaxAge = time.Minute
+
+// readyCache is one project's last count of ready issues, and when the
+// store was asked.
+type readyCache struct {
+	mu   sync.Mutex
+	n    int
+	at   time.Time
+	have bool
+}
+
+// get returns the count if it is younger than readyMaxAge at now, and
+// otherwise reads it with count and keeps what that returns. A count that
+// fails is not kept, and a later collection tries again.
+func (c *readyCache) get(now time.Time, count func() (int, error)) (int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.have && now.Sub(c.at) < readyMaxAge {
+		return c.n, true
+	}
+	n, err := count()
+	if err != nil {
+		return 0, false
+	}
+	c.n, c.at, c.have = n, now, true
+	return n, true
+}
+
+// watchClaims has the telemetry read aries.claims.held at each
+// collection: one indexed count of the live claims of each open project,
+// run store after store and never opening one. A store whose count fails
+// is left out of that collection.
+func (s *Server) watchClaims() {
+	s.cfg.Telemetry.WatchSeries(telemetry.ClaimsHeld, func(observe func(float64, ...string)) {
+		s.each(func(pr *served) {
+			ctx, cancel := context.WithTimeout(context.Background(), issueCountTimeout)
+			defer cancel()
+			if n, err := pr.store.LiveClaims(ctx); err == nil {
+				observe(float64(n), pr.id)
+			}
+		})
+	})
+}
+
+// watchReady has the telemetry read aries.issues.ready at each
+// collection, from each open project's cached count (readyCache), which
+// at most one collection in readyMaxAge refreshes.
+func (s *Server) watchReady() {
+	s.cfg.Telemetry.WatchSeries(telemetry.IssuesReady, func(observe func(float64, ...string)) {
+		s.each(func(pr *served) {
+			ctx, cancel := context.WithTimeout(context.Background(), issueCountTimeout)
+			defer cancel()
+			n, ok := pr.ready.get(time.Now(), func() (int, error) { return pr.store.ReadyCount(ctx) })
+			if ok {
+				observe(float64(n), pr.id)
 			}
 		})
 	})

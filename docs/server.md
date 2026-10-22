@@ -3853,6 +3853,8 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.usage.tokens` | `aries_usage_tokens_total` | counter | `project`, `kind`, `model` |
 | `aries.issue.cycle.duration` | `aries_issue_cycle_duration_seconds` | histogram, seconds | `project`, `type` |
 | `aries.issues` | `aries_issues` | gauge | `project`, `status` |
+| `aries.claims.held` | `aries_claims_held` | gauge | `project` |
+| `aries.issues.ready` | `aries_issues_ready` | gauge | `project` |
 | `aries.control.writes` | `aries_control_writes_total` | counter | `op`, `result` |
 | `aries.keys_file.writes` | `aries_keys_file_writes_total` | counter | `result` |
 | `aries.keys_file.last_write.time` | `aries_keys_file_last_write_time_seconds` | gauge, Unix seconds | none |

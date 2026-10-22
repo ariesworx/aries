@@ -297,6 +297,11 @@ func benchStore(b *testing.B, s *Store, p benchProject, hold *writerHold) {
 		{"prime", func() error { _, err := s.PrimeMemories(ctx, alice, 5); return err }},
 		{"who", func() error { _, _, err := s.WhoPage(ctx, 0, 0); return err }},
 		{"claims", func() error { _, _, err := s.ActiveClaims(ctx, 0); return err }},
+		// What a scrape asks of each open project (aries.claims.held and
+		// aries.issues.ready, internal/server's watchClaims and watchReady).
+		{"scrape/claims", func() error { _, err := s.LiveClaims(ctx); return err }},
+		{"scrape/ready", func() error { _, err := s.ReadyCount(ctx); return err }},
+		{"scrape/status", func() error { _, err := s.StatusCounts(ctx); return err }},
 	}
 	for _, r := range reads {
 		b.Run(r.name, func(b *testing.B) {

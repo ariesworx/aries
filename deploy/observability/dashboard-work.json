@@ -236,6 +236,64 @@
           "legendFormat": "{{model}} {{kind}}"
         }
       ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Live claims and ready issues against the slots",
+      "description": "Claims held and not expired, and issues Ready would list (counted at most once a minute), against the number of agents the coordinator runs at once. The slot line is a constant to edit in this panel: it is the coordinator's, not Aries's (the memory dispatch says 4). Ready issues with claims below the line are idle slots; an issue awaiting landing holds no claim.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "slots"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (project) (aries_claims_held)",
+          "legendFormat": "{{project}} claims"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (project) (aries_issues_ready)",
+          "legendFormat": "{{project}} ready"
+        },
+        {
+          "refId": "C",
+          "expr": "vector(4)",
+          "legendFormat": "slots"
+        }
+      ]
     }
   ]
 }

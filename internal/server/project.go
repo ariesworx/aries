@@ -31,6 +31,9 @@ type served struct {
 	// it has answered none, in Unix nanoseconds on the server's clock:
 	// what `aries admin status` shows as last used.
 	used atomic.Int64
+	// ready is the last count of ready issues (watchReady), kept for
+	// readyMaxAge because the ready condition reads the whole project.
+	ready readyCache
 	// tel counts the refusals at the store's caps (observeLimit); nil
 	// counts none.
 	tel *telemetry.Telemetry

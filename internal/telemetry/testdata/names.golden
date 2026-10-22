@@ -1,5 +1,6 @@
 attribute aries.claims event
 attribute aries.claims reason
+attribute aries.claims.held project
 attribute aries.clock.steps direction
 attribute aries.connections project
 attribute aries.connections.dropped reason
@@ -18,6 +19,7 @@ attribute aries.issue.cycle.duration project
 attribute aries.issue.cycle.duration type
 attribute aries.issues project
 attribute aries.issues status
+attribute aries.issues.ready project
 attribute aries.keys_file.writes result
 attribute aries.limit.refusals limit
 attribute aries.locks event
@@ -33,6 +35,7 @@ attribute aries.usage.tokens kind
 attribute aries.usage.tokens model
 attribute aries.usage.tokens project
 instrument aries.claims aries_claims_total
+instrument aries.claims.held aries_claims_held
 instrument aries.clock.behind aries_clock_behind_seconds
 instrument aries.clock.steps aries_clock_steps_total
 instrument aries.connections aries_connections
@@ -52,6 +55,7 @@ instrument aries.https.tokens aries_https_tokens_total
 instrument aries.https.upgrades aries_https_upgrades_total
 instrument aries.issue.cycle.duration aries_issue_cycle_duration_seconds
 instrument aries.issues aries_issues
+instrument aries.issues.ready aries_issues_ready
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
 instrument aries.limit.refusals aries_limit_refusals_total

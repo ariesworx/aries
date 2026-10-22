@@ -283,6 +283,8 @@ var wantKeys = map[string][]string{
 	"aries.https.cert.reloads":          {"result"},
 	"aries.issue.cycle.duration":        {"project", "type"},
 	"aries.issues":                      {"project", "status"},
+	"aries.claims.held":                 {"project"},
+	"aries.issues.ready":                {"project"},
 }
 
 // hostile are strings a client might choose, none of them a value any
@@ -558,6 +560,8 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.https.cert.reloads":          "aries_https_cert_reloads_total",
 		"aries.issue.cycle.duration":        "aries_issue_cycle_duration_seconds",
 		"aries.issues":                      "aries_issues",
+		"aries.claims.held":                 "aries_claims_held",
+		"aries.issues.ready":                "aries_issues_ready",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}
 	for _, d := range Instruments() {

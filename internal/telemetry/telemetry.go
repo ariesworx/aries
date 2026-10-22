@@ -435,12 +435,12 @@ func (t *Telemetry) Watch(i Instrument, fn func() float64) {
 // WatchSeries has fn read the gauge i, which has attributes, whenever the
 // instruments are collected: fn calls observe once for each series, with
 // its value and the values of i's attributes in order, checked as Record
-// checks them. Only [Issues] is read so; any other instrument is
-// ignored. fn runs at each export and each scrape, so it must be bounded
+// checks them. Only [Issues], [ClaimsHeld] and [IssuesReady] are read so;
+// any other instrument is ignored. fn runs at each export and each scrape, so it must be bounded
 // and safe for concurrent use. Series that more than one observation
 // names (a project past the cap on projects, all as other) are summed.
 func (t *Telemetry) WatchSeries(i Instrument, fn func(observe func(v float64, vals ...string))) {
-	if t == nil || t.mp == nil || i != Issues {
+	if t == nil || t.mp == nil || (i != Issues && i != ClaimsHeld && i != IssuesReady) {
 		return
 	}
 	sp := specs[i]
