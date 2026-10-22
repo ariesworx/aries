@@ -1,8 +1,8 @@
 # The merge rule as a setting
 
 **Design, 22 October 2026 (aries-zxxoccdq); decided the same day**
-(§10: the maintainer accepted all nine recommendations). Nothing in it
-is built; M1 starts now (§9). It compares three places the rule could
+(§10: the maintainer accepted all nine recommendations). M1 is built
+(§9, As built); nothing else in it is. It compares three places the rule could
 live, chooses the server setting, and amends Bearings' decision 17 to
 follow the rule ([bearings.md §7](bearings.md#7-decisions)).
 
@@ -370,6 +370,45 @@ where a later stage builds the full version:
 | M4 | The command reads the lock `merges/freeze`, whose release is refused to any session but a person's; and the stored opener, so the opener's class can queue | M3; aries-2qx4mlm2 | Per the lock's change: none if the release check is the store's behavior on an existing op |
 | — | The dispatcher's sweep calls M2 (aries-i6fndp4h) | M2 | None |
 | — | Bearings B3's train calls it | M3 | None |
+
+**As built (M1, 22 Oct 2026; aries-5mk74jmh).** `aries prs merges
+[--rules FILE] [PR...]`, read only ([docs/cli.md](../cli.md#the-merge-rule)):
+
+- **The package.** `internal/merges` holds the rule file's loader
+  (`rules.go`, strict: an unknown key or value is refused), the
+  product's floor (`floor.go`, §5), a pure classifier (`classify.go`),
+  the issue reader for the epic and the opener (`issue.go`), and the
+  host (`github.go`). `internal/cli/prs.go` wires it to the command.
+- **No `internal/forge` yet.** prs-check R1 has not built it, so the
+  host is a small `merges.Forge` interface over three `gh` calls, `gh
+  pr list --json …,isDraft,files`, `gh pr checks N --required` and `gh
+  pr diff N`, never `gh api`. R1's `internal/forge` can take it over
+  whole. The diff gives both sides of a rename, which the list's
+  `files` does not, and the test condition's counts; the list's paths
+  are joined to the diff's, so a path either names is classified.
+- **The rule's file.** This repository's `.aries/merges.yaml` holds the
+  two memories as the classes `docs-and-tests` (rule 4, with its
+  exceptions as `except` and `deny`) and `approved-epic` (the memory
+  `merges`, its protocol, migration, security and agent-permission
+  paths as `deny`). It is read from `origin/<default branch>` as the
+  last fetch left it, never the working tree, so a branch cannot loosen
+  its own verdict; `--rules FILE` reads a file not yet merged, and the
+  floor holds that file's path too. The memories stay the rule.
+- **The epic.** Read through `show`, with no new op: the issue, or an
+  epic above it (up to eight parents), has a human gate that blocks it
+  with the outcome `passed`, and `show` lists no open gate holding the
+  issue. A waived gate, or an epic made before the workflow and so
+  without an approval gate, does not pass.
+- **The opener.** The last `brief:` comment's fields are reported, and
+  the class that asks for an opener always holds (decision 5): so in M1
+  only `docs-and-tests` can pass, and the coordinator judges the memory
+  `merges`'s pull requests as before.
+- **Held whatever the class.** A draft, a base other than the default
+  branch, a path that cannot be classified (quoted by git past reading,
+  or not clean), and a floor path. A skipped required check is not
+  green.
+- **Not built.** `--since`, the lock `merges/freeze` (M4), `--queue`
+  (M2) and the server setting (M3).
 
 The memories stay the rule until M3 is applied; from then on each says
 only that the setting is the rule, so that there is one statement of it.

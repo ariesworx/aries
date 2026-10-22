@@ -38,6 +38,7 @@ Cost and usage:
 Gates:
   gate
   land
+  prs
   workflow
 Offline and cache:
   outbox

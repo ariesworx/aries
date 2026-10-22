@@ -71,6 +71,7 @@ var helpGroups = []helpGroup{
 	{"Gates", []helpLine{
 		{"gate", "hold issues for a gate; pass, waive, rearm (a person's)"},
 		{"land", "report landed for the default branch's commits, after a pull"},
+		{"prs", "say which open pull requests the merge rule would queue"},
 		{"workflow", "show, set (admins), diff or check the workflow"},
 	}},
 	{"Offline and cache", []helpLine{
@@ -132,6 +133,7 @@ var groupActions = map[string][]string{
 	"gate":     {"add", "pass", "fail", "waive", "rearm", "list"},
 	"lock":     {"acquire", "renew", "release", "leave", "list", "run"},
 	"dispatch": {"run", "status", "stop", "key", "brief"},
+	"prs":      {"merges"},
 }
 
 // hiddenFlags are flags that help does not list, by the flag set's name:
@@ -164,6 +166,11 @@ var examples = map[string][]example{
 		{"Say what it would start, skip and queue, and why, once", "aries dispatch run --dry-run --once"},
 		{"Stop it, interrupting its runs", "aries dispatch stop --now"},
 		{"Print the brief a coordinator sends a Desktop session", "aries dispatch brief ar-a1b2 --note 'Leave the permission list alone.'"},
+	},
+	"prs": {
+		{"The rule's verdict on every open pull request", "aries prs merges"},
+		{"Two of them, against a rule file not yet merged", "aries prs merges 312 313 --rules .aries/merges.yaml"},
+		{"As one JSON document, for a coordinator", "aries prs merges --json"},
 	},
 	"ready": {
 		{"What to work on next", "aries ready"},
