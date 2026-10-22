@@ -585,7 +585,11 @@ It departs from or settles the design here:
   work only.
 - **Claim before launch:** `start ID --for 10m` in the run's session,
   then `git worktree add` (a lost run's worktree kept aside, §9), then
-  `aries lock run dispatch/runs --capacity N --for 10m -- claude -p …`
+  `aries lock run dispatch/runs --capacity N --for 10m --grace 40s -- claude -p …`
+  (`lock run` kills its command 10 seconds after the interrupt it passes
+  on unless `--grace` says otherwise, which cut the 30 seconds of §6 to
+  10; the dispatcher asks for 40, so its SIGTERM comes first; found by
+  the failure drills, aries-vn6ecmsf, 21 October 2026)
   without `--wait`, then the `brief:` comment. A conflict skips the issue
   (`held`); a worktree or launch that fails, and a run the lock refused
   before the harness started (`refused`, told apart from a failed run by
