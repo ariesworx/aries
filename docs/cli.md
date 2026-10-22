@@ -367,7 +367,9 @@ passing, waiving and rearming. The experimental ones (`dispatch`,
 that an agent's hooks and the scheduled pull job run (`mcp`, `usage`,
 `guard`, `pull-job`) are listed by `aries help hooks`, not by `aries
 help`; each one's own `--help` works as any command's does. The main
-listing holds at most 50 commands (`TestHelpListing`). `aries help
+listing is a recorded list, `internal/cli/testdata/help-listing.golden`
+(`TestHelpListing`): a command joins it with a line in that file, which
+the maintainer approves in the pull request. `aries help
 COMMAND`, or `aries COMMAND --help` (`-h`), prints
 a command's usage, its flags with their defaults, and two or three
 examples; `aries help admin member`, or `aries gate add --help`, those

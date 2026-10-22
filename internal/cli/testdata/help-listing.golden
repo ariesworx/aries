@@ -1,0 +1,59 @@
+Issues:
+  create
+  show
+  list
+  ready
+  blocked
+  update
+  close
+  reopen
+  dep
+  label
+  comment
+  comments
+  history
+Coordination:
+  prime
+  start
+  finish
+  accept
+  handoff
+  away
+  lock
+  inbox
+  watch
+  who
+  digest
+  tui
+Memory:
+  remember
+  recall
+  memories
+  forget
+  pin
+  unpin
+Cost and usage:
+  cost
+  hours
+Gates:
+  gate
+  land
+  workflow
+Offline and cache:
+  outbox
+  cache
+  conflicts
+  resolve
+Setup:
+  setup
+  login
+  logout
+  whoami
+  upgrade
+  version
+Admin:
+  admin
+Experimental:
+  dispatch
+  outcome
+  guard

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -288,26 +289,47 @@ func TestDocsQuoteHelp(t *testing.T) {
 	}
 }
 
-// The main listing holds at most 50 commands, one line each, so that each
-// new command is weighed against the screen (answer 9 of
-// docs/design/cli-review.md, which counted 47 command lines to a 50-line
-// terminal). The whole of aries help is longer than 50 lines, with a
-// heading and a blank line for each of nine groups, and no listing with a
-// line for each command can be shorter.
+// The main listing is a recorded list, testdata/help-listing.golden: the
+// names of the commands `aries help` shows, in order, each under its
+// heading. A command is added to the listing, or taken from it, only with
+// a change to the golden file, which the maintainer approves in the pull
+// request (decision 9 of docs/design/cli-review.md): growth is asked for,
+// not allowed by room under a count. Hidden aliases (log, tick) are not
+// in it.
 func TestHelpListing(t *testing.T) {
 	t.Parallel()
-	const maxCommands = 50
 	_, out, _ := runCLI(t, "help")
-	_, under := listing(out)
+	titles, under := listing(out)
+	var got strings.Builder
 	n := 0
-	for _, g := range helpGroups {
-		n += len(under[g.title])
-	}
-	if n > maxCommands {
-		t.Errorf("aries help lists %d commands, want at most %d; move one to aries help hooks or drop it:\n%s", n, maxCommands, out)
+	for _, title := range titles {
+		if !slices.ContainsFunc(helpGroups, func(g helpGroup) bool { return g.title == title }) {
+			continue
+		}
+		fmt.Fprintf(&got, "%s:\n", title)
+		for _, line := range under[title] {
+			fmt.Fprintf(&got, "  %s\n", strings.Fields(line)[0])
+			n++
+		}
 	}
 	if n != len(commandsListed()) {
 		t.Errorf("aries help lists %d command lines, helpGroups has %d", n, len(commandsListed()))
+	}
+	const golden = "testdata/help-listing.golden"
+	if *updateGolden {
+		if err := os.WriteFile(golden, []byte(got.String()), 0o644); err != nil { //nolint:gosec // a test file in the repository
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("%v; run go test ./internal/cli -run TestHelpListing -update", err)
+	}
+	if string(want) != got.String() {
+		t.Errorf("the commands in aries help differ from %s:\n--- recorded\n%s--- listed\n%s"+
+			"if the change is wanted, run go test ./internal/cli -run TestHelpListing -update and explain the new command in the pull request, for the maintainer to approve; otherwise move it to aries help hooks or drop it",
+			golden, want, got.String())
 	}
 }
 
