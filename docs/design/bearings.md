@@ -196,6 +196,14 @@ rely on it alone.
   `bearingsd`, is then opt-in per project, and still requires green CI. The
   one exception is an epic branch: from B3 the train may merge a child with
   green CI into `epic/*`, never `main` (§3.13). Never force-push.
+  *Amended 22 Oct 2026 ([merges.md](merges.md), aries-zxxoccdq; the
+  maintainer, 20 Oct 2026: "Bearings should follow the merge rule until
+  otherwise directed"):* "a human merges" now reads: the train queues
+  into `main`'s merge queue a pull request the project's merge rule
+  passes, through the host's queue and branch protection, and a human
+  merges every other. Until the rule is a setting it is the memories
+  `dispatch` (rule 4) and `merges`; releases, tags and signing always
+  wait for a human (merges.md §5).
 - **Merging to `main` in dark-factory mode** (§3.16, decision 25; changed
   16 Oct 2026, when this said "never push to a protected branch"). With the
   project's policy at level D, the server `bearingsd`'s train merges a
@@ -425,7 +433,8 @@ a person where policy does not say otherwise.*
   (decision 14). Pushes use a bot identity that cannot bypass branch rules or
   change workflows, with short-lived tokens checked before a window opens.
 - **Merges.** Into `epic/*` with green CI when the window opts in (decision
-  16); never into `main` (decision 17).
+  16); into `main`'s merge queue only what the project's merge rule
+  passes (decision 17, amended 22 Oct 2026, [merges.md](merges.md)).
 - **Park for a person** rather than guess: any change that deletes or weakens
   a test (decision 18), any change to `go.mod` or `go.sum` (decision 19), and
   any refusal the worker cannot resolve. Parked work waits in the inbox and
@@ -1452,14 +1461,14 @@ B1) stands; D0 to D2 come after B2's governor and B3's train.
 | 7 | Epics integrate on an `epic/<id>` branch by default; small epics may opt into `integration = "trunk"` (§3.13). |
 | 8 | A human accepts discovered children; a per-epic policy may come later, once spend forecasts are trustworthy (§3.13). |
 | 9 | A person or a planning agent may plan an epic; dispatch always waits for a human to approve the plan (§3.13). |
-| 10 | From B3 the merge train may merge children with green CI into `epic/*`, never `main`, before the server runs; `main` still waits for a human. This narrows decision 2 (§3.5, §3.13). |
+| 10 | From B3 the merge train may merge children with green CI into `epic/*`, never `main`, before the server runs; `main` still waits for a human. This narrows decision 2 (§3.5, §3.13). *Amended 22 Oct 2026 with decision 17: "a human" except for what the merge rule passes.* |
 | 11 | No LLM leads unattended work. Unattended, stateless workers pull a queue people approved, inside an autonomy window; a model plans only while a person is present (§3.14). |
 | 12 | Unattended workers run on a server the team controls, not in hosted sandboxes (§3.14). |
 | 13 | B5 (server `bearingsd`) follows B1, ahead of B2–B4 (§6). |
 | 14 | Unattended runs use provider API keys only, never subscription logins (§3.14). |
 | 15 | An autonomy window lasts at most 72 hours (§3.14). |
 | 16 | A window may opt in to merging green children into `epic/*` (§3.14). |
-| 17 | Unattended work never merges into `main` (§3.14). |
+| 17 | Unattended work never merges into `main` (§3.14). *Amended 22 Oct 2026 ([merges.md](merges.md) §8, aries-zxxoccdq; the maintainer, 20 Oct 2026, answering factory-review.md question 11: "Bearings should follow the merge rule until otherwise directed"):* unattended work queues into `main`'s merge queue only a pull request the project's merge rule passes, through the host's queue and branch protection; everything else waits for a person, and releases, tags and signing always do. Until the rule is a setting it is the memories `dispatch` (rule 4) and `merges`. merges.md §8 lists which of the dispatcher's rules B0 to B3 inherit. Level D (decision 25) still adds §3.16's verification on top. |
 | 18 | A change that deletes or weakens a test parks for a person (§3.14). |
 | 19 | A change to `go.mod` or `go.sum` parks for a person (§3.14). |
 | 20 | An HTTPS transport for hosted sandboxes waits; SSH stays the only transport for now. *Superseded 15 Oct 2026 by aries.md decision 86: HTTPS is the primary transport, SSH second and off by default.* |
