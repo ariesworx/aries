@@ -90,8 +90,10 @@ type Env struct {
 	// own, so that none touches a person's keychain.
 	Credentials func(ctx context.Context) (credential.Store, error)
 	// RunProgram runs a program and waits, for `setup pull-job --write`
-	// to start the person's scheduler. Nil runs none: setup prints the
-	// commands for the person to run. cmd/aries sets RunProgram.
+	// to start the person's scheduler, and for `setup --write` to check
+	// that the aries it writes into Claude Code's guard hook runs the
+	// guard. Nil runs none: setup prints the commands for the person to
+	// run, and checks no guard. cmd/aries sets RunProgram.
 	RunProgram func(ctx context.Context, name string, args ...string) error
 	// OutcomeHost is the CI host `outcome` reads, for the repository in
 	// dir. Nil reads GitHub through gh when gh is on PATH, and no host

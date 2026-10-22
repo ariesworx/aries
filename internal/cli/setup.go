@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ariesworx/aries/internal/agentsetup"
 	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/dispatch"
 	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -131,6 +133,11 @@ func cmdSetup(ctx context.Context, r *runner, args []string) error {
 	if !*global && slices.ContainsFunc(plans, func(p setupPlan) bool { return p.Guard != "" && p.skipped == "" }) {
 		if entry.Deny, err = guardDeny(root); err != nil {
 			return err
+		}
+		if mode.write {
+			if err := r.guardRuns(ctx, entry.Command); err != nil {
+				return err
+			}
 		}
 	}
 	again := "aries setup " + names[0]
@@ -374,6 +381,27 @@ func guardDeny(root string) ([]string, error) {
 		return nil, proto.Errf(proto.CodeInvalid, "correct it, and check it with aries guard --check", guard.File+": "+err.Error())
 	}
 	return guard.Coarse(p), nil
+}
+
+// guardRuns refuses to write a guard hook whose aries cannot run it,
+// running command as the hook does, with the hook's timeout: an aries
+// from before `guard` exits 2 for the unknown command, which Claude Code
+// reads as a block of the call. The hook itself fails open then
+// (agentsetup's guard.go), so this is to tell the person now rather than
+// at each tool call. Without Env.RunProgram it runs nothing.
+func (r *runner) guardRuns(ctx context.Context, command string) error {
+	if r.env.RunProgram == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, dispatch.GuardTimeout*time.Second)
+	defer cancel()
+	err := r.env.RunProgram(ctx, command, "guard", "--hook")
+	if err == nil {
+		return nil
+	}
+	first, _, _ := strings.Cut(err.Error(), "\n")
+	return proto.Errf(proto.CodeInvalid, "upgrade it (aries upgrade), or name an aries that has guard with --command",
+		fmt.Sprintf("the guard's hook would run %s, which cannot run `guard --hook`: %s", esc(command), esc(first)))
 }
 
 // globalHookNote is said after setup adds or prints hooks in the home

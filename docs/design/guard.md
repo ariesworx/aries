@@ -725,3 +725,40 @@ aries-qdb5xj4w).** Where they depart from §6 and §8:
   ignores the key and runs a call whose guard failed, under the coarse
   lists. The brief template's line about `VAR=value` stays, so its
   version does not change here.
+
+**As built (an older aries on `PATH`, 22 October 2026;
+aries-aby3b536).** Where it departs from §3 and §6: §6's first case,
+the guard does not run, assumed that Claude Code lets the call go
+ahead. It does for most failures, but a PreToolUse hook's exit 2 is a
+block ([Hooks reference](https://code.claude.com/docs/en/hooks), "Exit
+code output", read 22 October 2026: exit 2 "blocks even when your hook
+prints JSON", and exit 0 applies the JSON printed), and exit 2 is what
+an `aries` from before the guard gives for the unknown command `guard`
+(v0.6.0 does), and what a Go program gives when it panics. A teammate
+who pulled the settings before upgrading would have had every Bash,
+Edit and Write call refused. So:
+
+- **The hook's command** that setup writes is `aries guard --hook ||
+  echo '{"systemMessage":"aries guard did not run: … fix: install or
+  upgrade aries (aries upgrade)"}'`, with `"onFailure": "continue"`:
+  an `aries` that exits other than 0 (the guard itself always exits 0),
+  or is not on `PATH`, leaves a hook that exits 0 with a message the
+  person reads and no decision, so the call goes on under Claude Code's
+  rules and the coarse deny copy, as §6 meant. `onFailure` covers a
+  hook that fails anyway, which on Windows without Git Bash, where the
+  command runs in PowerShell and Windows PowerShell 5.1 cannot parse
+  `||`, Claude Code would otherwise read as a block. Setup recognizes
+  the bare command of G2 and a fallback of any wording as its own, and
+  updates them in place, adding `onFailure` where the hook has none.
+- **`setup --write`** runs the `aries` it would write as `aries guard
+  --hook`, with the hook's timeout and no input, and refuses, writing
+  nothing, when that fails, with a fix naming `aries upgrade` and
+  `--command`. It runs it with setup's `PATH`, which may not be the
+  session's (a desktop app started from the Dock has launchd's), so it
+  is a check for the person, and the fallback is what holds.
+- **Not built:** a warning from `prime --hook`. It is run by the same
+  `aries` on `PATH`, so one that cannot run the guard cannot warn of it
+  either.
+- **Headless runs** are unchanged and fail closed: the dispatcher's
+  `--settings` hook runs its own `aries` with no fallback and
+  `"onFailure": "block"`, and a block from either hook wins.

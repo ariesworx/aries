@@ -16,8 +16,20 @@ import (
 // rule of the person's reads the same.
 
 // guardHook is the guard's PreToolUse hook: its matcher and timeout, in
-// seconds, are the design's (§3, §11).
-var guardHook = hookStyle{event: "PreToolUse", verb: "guard", matchers: []string{"Bash|Edit|Write|NotebookEdit"}, timeout: 5}
+// seconds, are the design's (§3, §11). A Desktop session fails open
+// (§6): an aries that is missing, crashes or predates `guard` (an
+// unknown command exits 2, which Claude Code reads as a block) runs
+// guardFallback instead, and onFailure "continue" lets the call go on
+// where the hook fails all the same, as on Windows without Git Bash,
+// where Claude Code otherwise blocks on any exit but 0 and 2. A headless
+// run fails closed through the dispatcher's own hook.
+var guardHook = hookStyle{event: "PreToolUse", verb: "guard", matchers: []string{"Bash|Edit|Write|NotebookEdit"}, timeout: 5,
+	fallback: guardFallback, onFailure: "continue"}
+
+// guardFallback says, in a systemMessage Claude Code shows the person,
+// that the guard did not run, and decides nothing. It holds no single
+// quote, so that it stays one word in single quotes for the shell.
+const guardFallback = `echo '{"systemMessage":"aries guard did not run: the aries on PATH is missing, failed, or predates guard; the permission rules of Claude Code still apply. fix: install or upgrade aries (aries upgrade)"}'`
 
 // guardHarness is the one harness the guard is set up for.
 const guardHarness = "claude-code"
