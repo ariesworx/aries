@@ -678,9 +678,10 @@ func (s *Server) disabledOwner(pub ssh.PublicKey) (principal string, ok bool) {
 }
 
 // refused logs a connection refused before its hello, sampled per
-// address, and counts it.
+// address and reason (behind a proxy every peer is the proxy, and one
+// kind of refusal must not hide another), and counts it.
 func (w *web) refused(ctx context.Context, addr netip.Addr, reason string) {
-	w.s.refusals.line(ctx, w.s.cfg.Logger, "https:"+addr.String(), w.s.now(), slog.LevelInfo, logs.HTTPSRefused,
+	w.s.refusals.line(ctx, w.s.cfg.Logger, "https:"+reason+"/"+addr.String(), w.s.now(), slog.LevelInfo, logs.HTTPSRefused,
 		"HTTPS connection refused", "reason", reason, "addr", addr.String())
 }
 
