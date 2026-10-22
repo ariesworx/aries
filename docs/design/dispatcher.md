@@ -397,6 +397,17 @@ Write tools and `--body-file`. Three changes:
   failing tests make the gap visible, and the run lists what it could not
   run under "Not run".
 
+**As built: brief version 3 (22 October 2026, aries-4sxq3drd).** Four
+runs (aries-ierget3t, aries-6ypz4szb, aries-bxhvim3i headless, and
+aries-x5zjzld7 in a Desktop session) waived the workflow's "CI green"
+and "Reviewed and merged" items at handoff, and the landed check then
+closed each issue with a record that said "waived" for what happened.
+Three Desktop sessions also ended a turn on a background gate and
+stalled. Template version 3 adds two lines to the steps both harnesses
+get: leave those two items open at handoff, neither ticked nor waived;
+and wait for a long command inside the turn. A store refusal of such a
+waiver is left for a later change.
+
 The shared-memory ENOSPC aries-mf2ozf4h met under the pgtest lock is not
 this change's, and is left to its own issue.
 
