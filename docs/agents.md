@@ -190,7 +190,58 @@ An older setup upgrades with `aries setup claude-code --write`. One from
 before these hooks has the session-start hook alone, and one from their
 first release runs SessionEnd async; `--check` names the hooks to fix.
 
-## The guard (Claude Code)
+## Agent metrics (Claude Code)
+
+Claude Code exports its own metrics and events over OpenTelemetry: tokens
+and cost by model, sessions, active time, each tool call's name and
+outcome, API errors. Aries sends them to the Collector of the Docker test
+server's `observe` profile (or any OTLP/HTTP endpoint) under the service
+name `aries-agents`, apart from `ariesd`'s, and
+`deploy/observability/agents-dashboard.json` shows them
+([Observe](deploy/docker.md#observe)). The variable names are those of
+[Claude Code's monitoring guide](https://code.claude.com/docs/en/monitoring-usage),
+read on 21 Oct 2026.
+
+**What is never exported.** No prompt, response, tool input or output,
+command, file text, error message or API body. Claude Code redacts them
+unless a variable asks: `OTEL_LOG_USER_PROMPTS`,
+`OTEL_LOG_ASSISTANT_RESPONSES`, `OTEL_LOG_TOOL_DETAILS`,
+`OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_RAW_API_BODIES`, and the beta traces.
+Aries sets none of them, and `internal/agenttel`'s tests fail if it
+does. Do not set them in your own environment either: a telemetry
+pipeline is copied and forwarded. The identity attributes of an account
+are off too.
+
+**Desktop sessions.** Merge this block into your user settings,
+`~/.claude/settings.json`, with the Collector's address (`internal/agenttel`'s
+`SettingsJSON` writes it, and a test holds this text to it):
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_METRICS_INCLUDE_ACCOUNT_UUID": "false",
+    "OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES": "true",
+    "OTEL_METRICS_INCLUDE_SESSION_ID": "true",
+    "OTEL_RESOURCE_ATTRIBUTES": "service.name=aries-agents,aries.path=desktop",
+    "OTEL_SERVICE_NAME": "aries-agents"
+  }
+}
+```
+
+**Headless runs.** Set `ARIES_AGENT_OTLP_ENDPOINT` where `aries dispatch
+run` starts. Each run then gets the same variables with
+`aries.path=headless` and `aries.issue=ISSUE` as resource attributes
+(`Dispatcher.runEnv`), so the dashboard splits cost by path and by issue.
+
+**Joining a run to Aries.** Every metric and event carries Claude
+Code's `session.id`. For a dispatched run that is the session id Aries
+recorded for it (`aries dispatch` logs it; the brief comment names it).
+
 
 `aries guard --hook` is a PreToolUse hook that checks each Bash, Edit and
 Write call an agent makes against one policy file, the repository's

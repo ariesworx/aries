@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/agenttel"
 	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -40,6 +41,10 @@ type Dispatcher struct {
 	// the environment runs start from.
 	Key     string
 	Environ []string
+	// AgentOTLP, when set, is the OTLP/HTTP endpoint each run exports
+	// Claude Code's metrics and events to, without content
+	// (internal/agenttel).
+	AgentOTLP string
 	// FindPostgres is optional: it returns the directory of the Postgres
 	// programs to put first on each run's PATH, or "" for none (then the
 	// brief says so). Called at each launch.
@@ -336,7 +341,7 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 	text := Brief(d.Template, st, session, dir, found)
 	model := ModelID(dec.Model)
 	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
-		Env: d.runEnv(session, pg), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
+		Env: d.runEnv(session, id, pg), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
 		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
@@ -364,8 +369,9 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 // an allow rule does not match a command that starts with an assignment.
 // It also sets ARIES_REQUIRE_POSTGRES=1, so that a test needing Postgres
 // fails rather than skips, and puts pgDir, when not empty, first on PATH,
-// so the run needs neither install-postgres.sh nor a PATH of its own.
-func (d *Dispatcher) runEnv(session, pgDir string) []string {
+// so the run needs neither install-postgres.sh nor a PATH of its own; and
+// it carries the agent-metrics variables for the run's issue.
+func (d *Dispatcher) runEnv(session, issue, pgDir string) []string {
 	var env []string
 	for _, kv := range d.Environ {
 		k, _, _ := strings.Cut(kv, "=")
@@ -389,6 +395,7 @@ func (d *Dispatcher) runEnv(session, pgDir string) []string {
 		env = withEnv(env, "PATH", path)
 	}
 	env = append(env, "ARIES_SESSION="+session)
+	env = append(env, agenttel.Env(d.AgentOTLP, agenttel.PathHeadless, issue)...)
 	if d.Key != "" {
 		env = append(env, "ANTHROPIC_API_KEY="+d.Key)
 	}

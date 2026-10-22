@@ -1,0 +1,86 @@
+{
+  "title": "Aries agents",
+  "uid": "aries-agents",
+  "tags": ["aries"],
+  "schemaVersion": 39,
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "30s",
+  "links": [{"title": "Aries dashboards", "type": "dashboards", "tags": ["aries"], "asDropdown": false}],
+  "templating": {
+    "list": [
+      {"name": "datasource", "label": "Prometheus", "type": "datasource", "query": "prometheus"},
+      {"name": "logs", "label": "Loki", "type": "datasource", "query": "loki"}
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Tokens per minute, by model and type",
+      "description": "Claude Code's own metric, claude_code.token.usage: input, output and cache tokens",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "expr": "sum by (model, type) (rate(claude_code_token_usage_tokens_total{service_name=\"aries-agents\"}[5m])) * 60",
+        "legendFormat": "{{model}} {{type}}"}]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Cost per hour in USD, by model",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [{"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "expr": "sum by (model) (increase(claude_code_cost_usage_USD_total{service_name=\"aries-agents\"}[1h]))",
+        "legendFormat": "{{model}}"}]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Cost per hour in USD, by path",
+      "description": "aries_path is desktop (a person's session) or headless (an aries dispatch run)",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "expr": "sum by (aries_path) (increase(claude_code_cost_usage_USD_total{service_name=\"aries-agents\"}[1h]))",
+        "legendFormat": "{{aries_path}}"}]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Sessions started per hour, by path",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "expr": "sum by (aries_path) (increase(claude_code_session_count_total{service_name=\"aries-agents\"}[1h]))",
+        "legendFormat": "{{aries_path}}"}]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Run duration: active seconds per session, by path",
+      "description": "claude_code.active_time.total, summed for each session and path over the range; a run's session id is the one aries dispatch recorded",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [{"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "expr": "sum by (aries_path) (increase(claude_code_active_time_total_seconds_total{service_name=\"aries-agents\"}[1h])) / sum by (aries_path) (increase(claude_code_session_count_total{service_name=\"aries-agents\"}[1h]))",
+        "legendFormat": "{{aries_path}}"}]
+    },
+    {
+      "id": 6, "type": "table", "title": "Cost by issue, last 24 hours",
+      "description": "aries_issue is set on headless runs, which carry their issue as a resource attribute",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [{"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "format": "table",
+        "expr": "sort_desc(sum by (aries_issue) (increase(claude_code_cost_usage_USD_total{service_name=\"aries-agents\", aries_issue!=\"\"}[24h])))"}]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Tool calls, by tool and outcome",
+      "description": "Events claude_code.tool_result: the tool's name and whether it succeeded; never its input or output, which are not exported",
+      "datasource": {"type": "loki", "uid": "${logs}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [{"refId": "A", "datasource": {"type": "loki", "uid": "${logs}"},
+        "expr": "sum by (tool_name, success) (count_over_time({service_name=\"aries-agents\"} | event_name=\"claude_code.tool_result\" [5m]))",
+        "legendFormat": "{{tool_name}} {{success}}"}]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "API errors, by status",
+      "description": "Events claude_code.api_error: the status code, never the error's text",
+      "datasource": {"type": "loki", "uid": "${logs}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "targets": [{"refId": "A", "datasource": {"type": "loki", "uid": "${logs}"},
+        "expr": "sum by (status_code) (count_over_time({service_name=\"aries-agents\"} | event_name=\"claude_code.api_error\" [5m]))",
+        "legendFormat": "{{status_code}}"}]
+    }
+  ]
+}
