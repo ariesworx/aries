@@ -21,9 +21,9 @@ had another name then, and its notes say Aries and `aries` today.
   cost by account, with alert rules and a dashboard.
 - Experimental, CLI only: `aries dispatch`, `aries outcome` and `aries
   guard`, a policy hook every Claude Code session can run. Also `aries
-  prs merges` (read only), `aries setup pull-job` and a reworked help.
-- Breaking: `aries dispatch run` needs `.aries/guard.yaml`; `admin
-  principal add --key` is now `--pubkey`, the old name deprecated.
+  prs merges` (read only), `aries setup pull-job` and a reworked help,
+  which deprecates `admin principal add --key` for `--pubkey`.
+- Breaking: `aries dispatch run` needs `.aries/guard.yaml`.
 - Notes: [docs/releases/v0.7.0.md](docs/releases/v0.7.0.md).
 
 ## v0.6.0 (2026-10-20)
