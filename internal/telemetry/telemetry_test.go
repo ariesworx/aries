@@ -283,6 +283,9 @@ var wantKeys = map[string][]string{
 	"aries.https.cert.reloads":          {"result"},
 	"aries.issue.cycle.duration":        {"project", "type"},
 	"aries.issues":                      {"project", "status"},
+	"aries.issue.queue.duration":        {"project", "type"},
+	"aries.issue.landing.duration":      {"project", "type"},
+	"aries.gate.wait.duration":          {"project", "kind"},
 }
 
 // hostile are strings a client might choose, none of them a value any
@@ -558,6 +561,9 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.https.cert.reloads":          "aries_https_cert_reloads_total",
 		"aries.issue.cycle.duration":        "aries_issue_cycle_duration_seconds",
 		"aries.issues":                      "aries_issues",
+		"aries.issue.queue.duration":        "aries_issue_queue_duration_seconds",
+		"aries.issue.landing.duration":      "aries_issue_landing_duration_seconds",
+		"aries.gate.wait.duration":          "aries_gate_wait_duration_seconds",
 	}
 	promType := map[Kind]string{Counter: "counter", UpDownCounter: "gauge", Gauge: "gauge", Histogram: "histogram"}
 	for _, d := range Instruments() {
@@ -571,7 +577,7 @@ func TestPrometheusNames(t *testing.T) {
 		if d.Kind == Histogram {
 			sample += "_bucket"
 			buckets := Buckets
-			if d.Name == "aries.issue.cycle.duration" {
+			if longBuckets(d.Name) {
 				buckets = CycleBuckets
 			}
 			if n := samples[d.Prometheus+"_bucket"]; n%(len(buckets)+1) != 0 {

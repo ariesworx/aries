@@ -237,6 +237,9 @@ func takeClaim(ctx context.Context, w *wtx, c claimRow, lease time.Duration) (Cl
 	}
 	if !same {
 		w.claimed(ClaimTaken, "")
+		if err := w.queued(ctx, c.Issue); err != nil {
+			return Claim{}, err
+		}
 		if err := w.event(ctx, OpClaimTake, string(c.Issue), replaced,
 			map[string]any{"epoch": c.Epoch, "expires_at": c.ExpiresAt}); err != nil {
 			return Claim{}, err

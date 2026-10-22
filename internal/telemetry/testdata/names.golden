@@ -5,6 +5,8 @@ attribute aries.connections project
 attribute aries.connections.dropped reason
 attribute aries.control.writes op
 attribute aries.control.writes result
+attribute aries.gate.wait.duration kind
+attribute aries.gate.wait.duration project
 attribute aries.gates event
 attribute aries.gates kind
 attribute aries.handshakes result
@@ -16,6 +18,10 @@ attribute aries.https.upgrades reason
 attribute aries.https.upgrades result
 attribute aries.issue.cycle.duration project
 attribute aries.issue.cycle.duration type
+attribute aries.issue.landing.duration project
+attribute aries.issue.landing.duration type
+attribute aries.issue.queue.duration project
+attribute aries.issue.queue.duration type
 attribute aries.issues project
 attribute aries.issues status
 attribute aries.keys_file.writes result
@@ -41,6 +47,7 @@ instrument aries.control.writes aries_control_writes_total
 instrument aries.db.pool.conns aries_db_pool_conns
 instrument aries.db.pool.in_use aries_db_pool_in_use
 instrument aries.db.pool.waits aries_db_pool_waits_total
+instrument aries.gate.wait.duration aries_gate_wait_duration_seconds
 instrument aries.gates aries_gates_total
 instrument aries.handshakes aries_handshakes_total
 instrument aries.https.cert.reloads aries_https_cert_reloads_total
@@ -51,6 +58,8 @@ instrument aries.https.tls_handshakes.failed aries_https_tls_handshakes_failed_t
 instrument aries.https.tokens aries_https_tokens_total
 instrument aries.https.upgrades aries_https_upgrades_total
 instrument aries.issue.cycle.duration aries_issue_cycle_duration_seconds
+instrument aries.issue.landing.duration aries_issue_landing_duration_seconds
+instrument aries.issue.queue.duration aries_issue_queue_duration_seconds
 instrument aries.issues aries_issues
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
@@ -120,6 +129,8 @@ value aries.control.writes result ok
 value aries.control.writes result stale
 value aries.control.writes result unavailable
 value aries.control.writes result version
+value aries.gate.wait.duration kind ci
+value aries.gate.wait.duration kind human
 value aries.gates event added
 value aries.gates event failed
 value aries.gates event passed
@@ -182,6 +193,18 @@ value aries.issue.cycle.duration type epic
 value aries.issue.cycle.duration type feature
 value aries.issue.cycle.duration type gate
 value aries.issue.cycle.duration type task
+value aries.issue.landing.duration type bug
+value aries.issue.landing.duration type chore
+value aries.issue.landing.duration type epic
+value aries.issue.landing.duration type feature
+value aries.issue.landing.duration type gate
+value aries.issue.landing.duration type task
+value aries.issue.queue.duration type bug
+value aries.issue.queue.duration type chore
+value aries.issue.queue.duration type epic
+value aries.issue.queue.duration type feature
+value aries.issue.queue.duration type gate
+value aries.issue.queue.duration type task
 value aries.issues status blocked
 value aries.issues status closed
 value aries.issues status deferred
