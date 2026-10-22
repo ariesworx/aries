@@ -84,7 +84,7 @@ func TestKeysFromTheStore(t *testing.T) {
 	}
 
 	fp := bob.fingerprint()
-	if got := dana.ok("admin", "principal", "add", "bob", "--key", bob.pub()); got != "principal bob added, a member of project first\nkey "+fp+" added to bob\n" {
+	if got := dana.ok("admin", "principal", "add", "bob", "--pubkey", bob.pub()); got != "principal bob added, a member of project first\nkey "+fp+" added to bob\n" {
 		t.Errorf("principal add --key: %q", got)
 	}
 	// bob works at once, as bob, with a key authorized_keys never held.
@@ -127,7 +127,9 @@ func TestKeysFromTheStore(t *testing.T) {
 
 	// A member of nothing authenticates and is refused by the project.
 	carol := w.newUser("", "")
-	dana.ok("admin", "principal", "add", "carol", "--no-project", "--key", carol.pub())
+	if r := dana.run("v0.2.0", "admin", "principal", "add", "carol", "--no-project", "--key", carol.pub()); r.code != cli.ExitOK || !strings.Contains(r.stderr, "--key is deprecated") {
+		t.Fatalf("principal add --key: exit %d, stderr %q; want it to work and say --key is deprecated", r.code, r.stderr)
+	}
 	if e := carol.refused(proto.CodeForbidden, "list"); !strings.Contains(e.Message, "carol is not a member of project") {
 		t.Errorf("a principal with a key and no membership: %+v", e)
 	}
@@ -224,7 +226,7 @@ func TestStaleKeysFileIsNotAHole(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // back to what it was
 		t.Fatal(err)
 	}
-	if r := dana.run("v0.2.0", "admin", "principal", "add", "erin", "--key", w.newUser("", "").pub()); r.code != cli.ExitOK || r.stderr != "" {
+	if r := dana.run("v0.2.0", "admin", "principal", "add", "erin", "--pubkey", w.newUser("", "").pub()); r.code != cli.ExitOK || r.stderr != "" {
 		t.Fatalf("principal add once the keys file can be written: exit %d, stderr %q; want no warning", r.code, r.stderr)
 	}
 	if sshdLetsIn(bob) || sshdLetsIn(carol) || sshdLetsIn(frank) {
@@ -433,7 +435,7 @@ func TestAdminKeyCommands(t *testing.T) {
 		{"a private key file", dana, []string{"admin", "key", "add", "bob", filepath.Join(fourth.repo, "id_ed25519")}, proto.CodeInvalid,
 			filepath.Join(fourth.repo, "id_ed25519") + " holds a private key, which never leaves this machine",
 			"give the public key instead: " + filepath.Join(fourth.repo, "id_ed25519") + ".pub"},
-		{"a private key file, with a new principal", dana, []string{"admin", "principal", "add", "hal", "--key", filepath.Join(fourth.repo, "id_ed25519")}, proto.CodeInvalid,
+		{"a private key file, with a new principal", dana, []string{"admin", "principal", "add", "hal", "--pubkey", filepath.Join(fourth.repo, "id_ed25519")}, proto.CodeInvalid,
 			filepath.Join(fourth.repo, "id_ed25519") + " holds a private key, which never leaves this machine",
 			"give the public key instead: " + filepath.Join(fourth.repo, "id_ed25519") + ".pub"},
 	} {

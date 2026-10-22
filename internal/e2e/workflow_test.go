@@ -73,7 +73,7 @@ func TestWorkflow(t *testing.T) {
 	if r := alice.run("v0.2.0", "workflow", "check", aliceFile); r.code != 1 || !strings.Contains(r.stdout, "has no workflow") {
 		t.Errorf("workflow check before a set = exit %d, %q %q; want 1, saying the server has none", r.code, r.stdout, r.stderr)
 	}
-	if out := alice.ok("admin", "workflow", "show"); !strings.Contains(out, "no workflow") {
+	if out := alice.ok("workflow", "show"); !strings.Contains(out, "no workflow") {
 		t.Errorf("workflow show before a set = %q", out)
 	}
 
@@ -101,7 +101,7 @@ func TestWorkflow(t *testing.T) {
 	}
 
 	// The admin at her terminal.
-	if out := dana.ok("admin", "workflow", "set", file); !strings.Contains(out, "workflow rev 1 set") {
+	if out := dana.ok("workflow", "set", file); !strings.Contains(out, "workflow rev 1 set") {
 		t.Errorf("workflow set = %q, want rev 1", out)
 	}
 	if out := dana.ok("admin", "workflow", "set", file, "--rev", "1"); !strings.Contains(out, "unchanged at rev 1") {
@@ -110,7 +110,7 @@ func TestWorkflow(t *testing.T) {
 	if out := alice.ok("workflow", "check", aliceFile); !strings.Contains(out, "matches the server's workflow (rev 1)") {
 		t.Errorf("workflow check after the set = %q", out)
 	}
-	show := alice.ok("admin", "workflow", "show")
+	show := alice.ok("workflow", "show")
 	for _, want := range []string{"workflow rev 1: bug, feature, task: 3 items, landed; epic: approval; chore: 1 item", "set by dana", "check: landed"} {
 		if !strings.Contains(show, want) {
 			t.Errorf("workflow show lacks %q:\n%s", want, show)
@@ -151,7 +151,7 @@ func TestWorkflow(t *testing.T) {
 	// A later set changes no issue made, and the next create takes it.
 	before := decode[proto.ShowResult](t, alice.ok("show", id, "--json"))
 	dana.writeWorkflow(t, strings.Replace(e2eWorkflow, "      - Tests run as the tiers require\n", "", 1))
-	if diff := dana.ok("admin", "workflow", "diff", file); !strings.Contains(diff, "types.default.acceptance: - Tests run as the tiers require") {
+	if diff := dana.ok("workflow", "diff", file); !strings.Contains(diff, "types.default.acceptance: - Tests run as the tiers require") {
 		t.Errorf("workflow diff = %q", diff)
 	}
 	if r := alice.run("v0.2.0", "workflow", "check", aliceFile); r.code != 0 {

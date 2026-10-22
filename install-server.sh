@@ -1626,7 +1626,7 @@ connect() {
 		say "   If machines do not trust the certificate's CA, add server.ca: the CA's certificate in PEM (docs/cli.md)."
 	fi
 	say "   Then, as $admin, in that repository: aries whoami"
-	say "   Add someone: aries admin principal add NAME --key FILE --project $project"
+	say "   Add someone: aries admin principal add NAME --pubkey FILE --project $project"
 	if [ "$ssh_on" = 1 ]; then
 		say "   Keep $admin's line in $authorized: it is the way in when nothing else is."
 	fi

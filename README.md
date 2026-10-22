@@ -119,7 +119,7 @@ binary, building from source and verifying a download by hand.
 | Track issues with types, priorities, labels, parents, dependencies and dates, and see what is ready or blocked | `create`, `ready`, `blocked`, `dep` | [Issues](docs/concepts.md#issues), [Ready and blocked](docs/concepts.md#dependencies-ready-and-blocked), [Dates](docs/concepts.md#dates) |
 | Claim an issue, then close it with a handoff note, filing what you found on the way | `start`, `finish` | [Claims](docs/concepts.md#claims-and-leases), [Start and finish](docs/concepts.md#a-session-start-and-finish) |
 | Check work against its acceptance items | `accept`, `finish --tick` | [Acceptance criteria](docs/concepts.md#acceptance-criteria) |
-| Set the acceptance items and required checks each issue type gets | `admin workflow`, `workflow check` | [The workflow](docs/concepts.md#the-workflow) |
+| Set the acceptance items and required checks each issue type gets | `workflow`, `workflow check` | [The workflow](docs/concepts.md#the-workflow) |
 | Hold work until a person approves or CI reports a check | `gate` | [Gates](docs/concepts.md#gates), [CI gates](docs/ci.md) |
 | Report what merged, from a machine or a scheduled job, for a server CI cannot reach | `land`, `setup pull-job` | [A server CI cannot reach](docs/ci.md#a-server-ci-cannot-reach) |
 | Hold a lock or a semaphore around a command | `lock run` | [Locks](docs/concepts.md#locks) |

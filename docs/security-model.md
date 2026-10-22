@@ -119,7 +119,7 @@ database under another name: its owner would then sign in as that
 principal, and a project admin, who may create a principal with keys,
 could shut a server admin out with nothing but their public key.
 ariesd therefore applies the same rule to that file: `aries admin key
-add` and `principal add --key` refuse, in the same words and after the
+add` and `principal add --pubkey` refuse, in the same words and after the
 same checks of who may add a key, a key whose line of `authorized_keys`
 forces the command for another principal. A line that forces no Aries
 command names no principal and reserves nothing. A project admin is

@@ -65,7 +65,7 @@ func TestCLIAcceptanceAndSimilar(t *testing.T) {
 	if r.code == 0 || !strings.Contains(r.stderr, "fix: tick what is met with `aries accept "+id+" 1 2`") || !strings.Contains(r.stderr, "--force") {
 		t.Fatalf("close with open items: exit %d\n%s", r.code, r.stderr)
 	}
-	if out := alice.ok("accept", id, "1"); !strings.Contains(out, "1 [x] redirects home (alice)") || strings.Contains(out, "every item") {
+	if out := alice.ok("tick", id, "1"); !strings.Contains(out, "1 [x] redirects home (alice)") || strings.Contains(out, "every item") {
 		t.Fatalf("accept 1:\n%s", out)
 	}
 	if out := alice.ok("accept", id, "2", "--waive", "covered by the e2e suite"); !strings.Contains(out, "2 [~] has a test (waived by alice: covered by the e2e suite)") ||

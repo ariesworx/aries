@@ -147,13 +147,16 @@ func TestWorkflowUsage(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"admin", "workflow"}, "admin workflow needs show, set or diff"},
+		{[]string{"admin", "workflow"}, "admin workflow needs show, set, diff or check"},
 		{[]string{"admin", "workflow", "set"}, "workflow set needs one file"},
 		{[]string{"admin", "workflow", "show", "x"}, "workflow show takes no arguments"},
 		{[]string{"admin", "workflow", "diff", "f", "--rev", "2"}, "only workflow set takes --rev"},
 		{[]string{"admin", "workflow", "apply", "f"}, `unknown workflow action "apply"`},
-		{[]string{"workflow"}, "workflow needs check"},
-		{[]string{"workflow", "set", "f"}, "a project admin applies one with `aries admin workflow set FILE`"},
+		{[]string{"workflow"}, "workflow needs show, set, diff or check"},
+		{[]string{"workflow", "set"}, "workflow set needs one file"},
+		{[]string{"workflow", "apply", "f"}, `unknown workflow action "apply"`},
+		{[]string{"workflow", "show", "x"}, "workflow show takes no arguments"},
+		{[]string{"admin", "workflow", "check"}, "workflow check needs one file"},
 		{[]string{"workflow", "check"}, "workflow check needs one file"},
 	} {
 		code, out, errb := runCLI(t, append([]string{"-C", empty}, tc.args...)...)

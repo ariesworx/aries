@@ -45,7 +45,7 @@ can read, and add it:
 
 ```sh
 ssh-keygen -t ed25519 -N '' -C sextant@aries.example.com -f /etc/sextant/id_ed25519
-aries admin principal add sextant --kind service --owner alice --key /etc/sextant/id_ed25519.pub
+aries admin principal add sextant --kind service --owner alice --pubkey /etc/sextant/id_ed25519.pub
 aries admin member add sextant --project acme     # once for each project it reads
 ```
 

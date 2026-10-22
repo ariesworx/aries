@@ -58,7 +58,7 @@ func TestAdminIdentityUsage(t *testing.T) {
 	}
 	help := helpText(t, "admin")
 	for _, want := range []string{
-		"admin principal add NAME [--key FILE]... [--project P | --no-project] [--kind person|service] [--owner NAME] [--display-name D] [--invite ADDRESS --provider P]",
+		"admin principal add NAME [--pubkey FILE]... [--project P | --no-project] [--kind person|service] [--owner NAME] [--display-name D] [--invite ADDRESS --provider P]",
 		"set NAME [--display-name D] [--kind person|service] [--owner NAME] | show NAME",
 		"admin invite add NAME ADDRESS --provider P | list [--pending] | remove ID",
 		"admin identity list NAME | remove ID",

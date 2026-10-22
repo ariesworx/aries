@@ -201,7 +201,7 @@ func printProjects(w io.Writer, res proto.ProjectsResult) {
 }
 
 // principalUsage is the usage of `aries admin principal`.
-const principalUsage = "admin principal add NAME [--key FILE]... [--project P | --no-project] [--kind person|service] [--owner NAME] [--display-name D] [--invite ADDRESS --provider P]" +
+const principalUsage = "admin principal add NAME [--pubkey FILE]... [--project P | --no-project] [--kind person|service] [--owner NAME] [--display-name D] [--invite ADDRESS --provider P]" +
 	" | list [--created-by NAME] [-n N] [--after NAME] | set NAME [--display-name D] [--kind person|service] [--owner NAME] | show NAME | disable NAME | enable NAME | whois STAND-IN"
 
 func adminPrincipal(ctx context.Context, r *runner, args []string) error {
@@ -212,7 +212,8 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 	createdBy := fs.String("created-by", "", "list the principals this principal created")
 	fs.StringVar(&add.Project, "project", "", "the project the new principal joins: a UUID or a name (default: this repository's)")
 	fs.BoolVar(&add.Unassigned, "no-project", false, "add the principal to no project (server admins only)")
-	fs.Var(&keyFiles, "key", "a public key file to add with the principal, such as ~/.ssh/id_ed25519.pub, or - for standard input (repeatable)")
+	fs.Var(&keyFiles, "pubkey", "a public key file to add with the principal, such as ~/.ssh/id_ed25519.pub, or - for standard input (repeatable)")
+	fs.Var(&keyFiles, "key", "the old name of --pubkey")
 	kind := fs.String("kind", "", "person (the default) or service; a service needs --owner")
 	owner := fs.String("owner", "", "the person a service answers to")
 	display := fs.String("display-name", "", "what people see beside the name; empty clears it (principal set)")
@@ -272,7 +273,7 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 		printPrincipalShow(r.env.Stdout, out)
 		return nil
 	case "add":
-		if err := only(fs, usage, "principal add", "project", "no-project", "key", "kind", "owner", "display-name", "invite", "provider"); err != nil {
+		if err := only(fs, usage, "principal add", "project", "no-project", "pubkey", "key", "kind", "owner", "display-name", "invite", "provider"); err != nil {
 			return err
 		}
 		switch {
@@ -286,6 +287,9 @@ func adminPrincipal(ctx context.Context, r *runner, args []string) error {
 			return usagef(usage, "--invite needs --provider, the provider the address signs in at")
 		case add.Invite == "" && add.Provider != "":
 			return usagef(usage, "--provider is for --invite ADDRESS")
+		}
+		if set(fs, "key") {
+			_, _ = fmt.Fprintln(r.env.Stderr, "aries: --key is deprecated and will be removed after 1.x; use --pubkey (--key-file is unchanged)")
 		}
 		add.Kind, add.Owner, add.DisplayName = *kind, *owner, *display
 		add.Name = pos[1]

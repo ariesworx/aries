@@ -1492,7 +1492,7 @@ Where the key and its principal are recorded depends on the server:
 | | A server of one project | A server of [many projects](#serving-many-projects) |
 |---|---|---|
 | A key is | A line of `~aries/.ssh/authorized_keys` whose forced command names the principal ([step 6](#6-let-the-first-principal-in)) | A row of the control store, which ariesd writes to a file sshd reads ([Keys from the store](#keys-from-the-store)). A line of `authorized_keys` still works too |
-| Add someone | Append a line, on the server. A principal may have several, one per key | `aries admin principal add NAME --key FILE`, from anywhere |
+| Add someone | Append a line, on the server. A principal may have several, one per key | `aries admin principal add NAME --pubkey FILE`, from anywhere |
 | Add a key | Append a line | `aries admin key add NAME FILE` |
 | Remove a key | Delete its line. That stops new connections; to end open sessions too, stop the bridges: `pkill -f -- 'stdio --principal bob$'` | `aries admin key remove FINGERPRINT`, which also closes the connections that key signed in |
 | Remove someone | Delete their lines, then `pkill` as above | `aries admin principal disable NAME`, or `member remove NAME` for one project: their connections close and their claims end at once |
@@ -1813,7 +1813,7 @@ enforce.
    not start, and the error's `fix:` says what to change.
 
 4. **Add someone**, from any repository connected to the server, and
-   have them run a command: `aries admin principal add bob --key
+   have them run a command: `aries admin principal add bob --pubkey
    bob.pub`, then `aries ready` as bob. `aries admin status` shows the file,
    how many keys it holds and when it was written.
 
@@ -2023,7 +2023,7 @@ person.
 | `aries admin principal disable NAME`, `enable NAME` | Server admins; a project admin, for a principal within their reach |
 | `aries admin member add NAME`, `remove NAME` | Server admins; the project's admins |
 | `aries admin member list` | Server admins; the project's admins |
-| `aries admin principal add NAME --key FILE`, `key add NAME FILE`, `key remove FINGERPRINT` | Server admins; a project admin, for a principal within their reach. Never for one's own account |
+| `aries admin principal add NAME --pubkey FILE`, `key add NAME FILE`, `key remove FINGERPRINT` | Server admins; a project admin, for a principal within their reach. Never for one's own account |
 | `aries admin key list NAME` | Server admins; an admin of an active project NAME belongs to, with or without reach over NAME; NAME themselves |
 | `aries admin principal add NAME --kind`, `--owner`, `--display-name` | As `principal add` |
 | `aries admin principal set NAME`, `invite add`, `invite list`, `invite remove ID`, `identity remove ID`, `principal add NAME --invite` | Server admins. Never an invitation onto one's own principal ([Identities and invitations](#identities-and-invitations)) |
@@ -2139,7 +2139,7 @@ person.
   reason, even where they may not add or remove NAME's keys.
 - **A new person** takes one command once sshd reads ariesd's keys file
   ([Keys from the store](#keys-from-the-store)): `aries admin principal add
-  NAME --key FILE`, with the `.pub` file they sent you. `--key` may be
+  NAME --pubkey FILE`, with the `.pub` file they sent you. `--pubkey` may be
   given more than once. Someone the server already knows joins another
   project with `member add NAME`.
 - **A new project.** `aries admin project add NAME` records the project,
@@ -2417,7 +2417,7 @@ their access meanwhile, before it serves its first request.
 ## A project's workflow
 
 A project's [workflow](concepts.md#the-workflow) is a document a project
-admin applies with `aries admin workflow set FILE`, from their own
+admin applies with `aries workflow set FILE`, from their own
 terminal: the acceptance items the server adds to every issue it
 creates, by type; the checks it requires before an issue closes, whose
 passing report closes it; the close-out lines it shows when work ends (they are shown, not
@@ -2460,8 +2460,8 @@ create the limit refuses is refused whole. Neither adds an op, an
 argument or a protocol version.
 
 ```sh
-aries admin workflow diff .aries/workflow.yaml
-aries admin workflow set .aries/workflow.yaml --rev 3
+aries workflow diff .aries/workflow.yaml
+aries workflow set .aries/workflow.yaml --rev 3
 aries workflow check .aries/workflow.yaml   # exits 1 when the server's differs
 ```
 
@@ -2990,7 +2990,7 @@ limits:
 | `holders_per_lock` | 64 | The capacity a lock may be given, holders at once (at most 1000). More is refused with `invalid` |
 | `waiters_per_lock` | 100 | Places in one lock's queue (at most 1000). One more is refused with `busy` |
 | `lock_waits_per_principal` | 20 | Places one principal has in all of a project's queues, from every session (at most 1000). One more is refused with `busy`, and its fix says to leave a queue (`aries lock leave NAME`) or raise the limit. A principal's holds need no cap of their own: `locks_per_project` times `holders_per_lock` bounds them |
-| `workflow_bytes` | 16384 | Bytes of the project's [workflow](concepts.md#the-workflow) as the server keeps it (at most 65536); every `create` reads it. A larger one is refused with `invalid` at `aries admin workflow set` |
+| `workflow_bytes` | 16384 | Bytes of the project's [workflow](concepts.md#the-workflow) as the server keeps it (at most 65536); every `create` reads it. A larger one is refused with `invalid` at `aries workflow set` |
 | `workflow_items_per_type` | 20 | Default acceptance items in one profile of the workflow (at most 100). More are refused with `invalid` at set. The items an issue ends with, its own and the workflow's, are capped by `acceptance_items_per_issue`: a `create` past it is refused with `invalid`, naming both counts |
 | `workflow_checks_per_type` | 5 | Required checks in one profile of the workflow (at most `checks_per_issue`, since each is a CI gate on the issue). More are refused with `invalid` at set |
 | `workflow_closeout_per_type` | 20 | Close-out lines in one profile of the workflow (at most 100). More are refused with `invalid` at set |
