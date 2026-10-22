@@ -278,6 +278,17 @@ func (o storeObserver) IssueCycled(typ store.IssueType, took time.Duration) {
 	o.tel.Record(telemetry.IssueCycleDuration, took.Seconds(), o.project, string(typ))
 }
 
+// IssueClosed counts a close. The type and the reason are the store's own
+// closed lists, and a close's free text is never passed.
+func (o storeObserver) IssueClosed(typ store.IssueType, why string) {
+	o.tel.Record(telemetry.IssuesClosed, 1, o.project, string(typ), why)
+}
+
+// IssueReopened counts a reopen, by the store's closed list of reasons.
+func (o storeObserver) IssueReopened(typ store.IssueType, why string) {
+	o.tel.Record(telemetry.IssuesReopened, 1, o.project, string(typ), why)
+}
+
 // IssueQueued records how long an issue waited for its first start.
 func (o storeObserver) IssueQueued(typ store.IssueType, took time.Duration) {
 	o.tel.Record(telemetry.IssueQueueDuration, took.Seconds(), o.project, string(typ))

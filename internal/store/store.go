@@ -453,6 +453,12 @@ type wtx struct {
 	// cycles are the start-to-close times of the issues the attempt
 	// closed, for the observer once it commits.
 	cycles []cycle
+	// outcomes are the closes and reopens the attempt made, for the
+	// observer once it commits.
+	outcomes []statusChange
+	// closingPass is set while the closing pass closes an issue, which is
+	// what makes a close landed for the observer: the close's reason is text.
+	closingPass bool
 	// stages are the queue, landing and gate waits the attempt found, for
 	// the observer once it commits.
 	stages []stage
@@ -873,6 +879,13 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 		for _, c := range w.cycles {
 			o.IssueCycled(c.typ, c.took)
+		}
+		for _, c := range w.outcomes {
+			if c.closed {
+				o.IssueClosed(c.typ, c.why)
+			} else {
+				o.IssueReopened(c.typ, c.why)
+			}
 		}
 		for _, st := range w.stages {
 			switch st.kind {

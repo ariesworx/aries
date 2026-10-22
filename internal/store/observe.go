@@ -61,6 +61,62 @@ type Observer interface {
 	// how long the gate was open on the store's clock, from its add or
 	// its last rearm.
 	GateWaited(kind GateKind, took time.Duration)
+	// IssueClosed reports a close that committed, of an issue of the given
+	// type, and why as a closed list ([CloseLanded], [CloseForced] or
+	// [CloseOther]): a close's own reason text is never reported.
+	IssueClosed(issueType IssueType, why string)
+	// IssueReopened reports a reopen that committed, of an issue of the
+	// given type, and why as a closed list ([ReopenCheckFailed] or
+	// [ReopenOther]).
+	IssueReopened(issueType IssueType, why string)
+}
+
+// Why an issue closed or reopened, as an [Observer] is told: the closing
+// pass of the check landed (ReasonLanded), a close that overrode open
+// acceptance items, checks or reviews, and a revert (ReasonCheckFailed).
+const (
+	CloseLanded       = "landed"
+	CloseForced       = "forced"
+	CloseOther        = "other"
+	ReopenCheckFailed = "check_failed"
+	ReopenOther       = "other"
+)
+
+// statusChange is one close or reopen an attempt made, reported once the
+// attempt commits.
+type statusChange struct {
+	typ    IssueType
+	closed bool
+	why    string
+}
+
+// noteOutcome notes a close or reopen written by setStatus, for the store's
+// observer: why comes from the event's extra fields and from whether the
+// closing pass (closingPass) is closing, never from a close's reason text.
+func (w *wtx) noteOutcome(op Op, is Issue, extra map[string]any) {
+	if is.Type == TypeGate {
+		return // a gate's own passes and rearms are bookkeeping, not work
+	}
+	switch op {
+	case OpIssueClose:
+		why := CloseOther
+		_, acc := extra["acceptance_overridden"]
+		_, chk := extra["checks_overridden"]
+		_, rev := extra["reviews_overridden"]
+		switch {
+		case acc || chk || rev:
+			why = CloseForced
+		case w.closingPass:
+			why = CloseLanded
+		}
+		w.outcomes = append(w.outcomes, statusChange{is.Type, true, why})
+	case OpIssueReopen:
+		why := ReopenOther
+		if extra["reason"] == ReasonCheckFailed {
+			why = ReopenCheckFailed
+		}
+		w.outcomes = append(w.outcomes, statusChange{is.Type, false, why})
+	}
 }
 
 // Tracer is told where a write's time goes, as it goes, under the

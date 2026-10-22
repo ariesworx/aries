@@ -283,6 +283,8 @@ var wantKeys = map[string][]string{
 	"aries.https.cert.reloads":          {"result"},
 	"aries.issue.cycle.duration":        {"project", "type"},
 	"aries.issues":                      {"project", "status"},
+	"aries.issues.closed":               {"project", "type", "reason"},
+	"aries.issues.reopened":             {"project", "type", "reason"},
 	"aries.issue.queue.duration":        {"project", "type"},
 	"aries.issue.landing.duration":      {"project", "type"},
 	"aries.gate.wait.duration":          {"project", "kind"},
@@ -561,6 +563,8 @@ func TestPrometheusNames(t *testing.T) {
 		"aries.https.cert.reloads":          "aries_https_cert_reloads_total",
 		"aries.issue.cycle.duration":        "aries_issue_cycle_duration_seconds",
 		"aries.issues":                      "aries_issues",
+		"aries.issues.closed":               "aries_issues_closed_total",
+		"aries.issues.reopened":             "aries_issues_reopened_total",
 		"aries.issue.queue.duration":        "aries_issue_queue_duration_seconds",
 		"aries.issue.landing.duration":      "aries_issue_landing_duration_seconds",
 		"aries.gate.wait.duration":          "aries_gate_wait_duration_seconds",
@@ -1096,6 +1100,34 @@ func TestExportCanceledAtStop(t *testing.T) {
 				t.Errorf("export failure logged = %t, want %t:\n%s", logged, tc.dropped > 0, log)
 			}
 		})
+	}
+}
+
+// A reason of a close or a reopen outside its list is recorded as other,
+// so no free text becomes an attribute.
+func TestIssueOutcomeReasonsAreFixed(t *testing.T) {
+	t.Parallel()
+	tel, m, err := NewManual(Config{PerProject: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	tel.Record(IssuesClosed, 1, "", "bug", CloseLanded)
+	tel.Record(IssuesClosed, 1, "", "bug", CloseForced)
+	tel.Record(IssuesClosed, 1, "", "bug", "free text of a person")
+	tel.Record(IssuesClosed, 1, "", "bug", ReopenCheckFailed)
+	tel.Record(IssuesReopened, 1, "", "bug", ReopenCheckFailed)
+	tel.Record(IssuesReopened, 1, "", "bug", CloseLanded)
+	snap := collect(t, m)
+	for name, want := range map[string]map[string]float64{
+		"aries.issues.closed":   {CloseLanded: 1, CloseForced: 1, Other: 2},
+		"aries.issues.reopened": {ReopenCheckFailed: 1, Other: 1},
+	} {
+		for reason, n := range want {
+			if v := snap.Sum(name, "reason", reason); v != n {
+				t.Errorf("%s reason %s = %v, want %v", name, reason, v, n)
+			}
+		}
 	}
 }
 

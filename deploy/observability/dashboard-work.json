@@ -338,6 +338,224 @@
           "legendFormat": "{{kind}} p90"
         }
       ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Issues closed a day, by reason",
+      "description": "landed: the closing pass of the check landed. forced: a close that overrode open items or checks. other: every other close.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Revert rate",
+      "description": "Reopens by a failed check over closes that landed, a day at a time. Empty when nothing landed.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total{reason=\"check_failed\"}[1d])) / sum(increase(aries_issues_closed_total{reason=\"landed\"}[1d]))",
+          "legendFormat": "revert rate"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Reverts and landed closes a day",
+      "description": "The counts behind the revert rate.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total{reason=\"check_failed\"}[1d]))",
+          "legendFormat": "reverts"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(aries_issues_closed_total{reason=\"landed\"}[1d]))",
+          "legendFormat": "landed closes"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Reopen rate",
+      "description": "Reopens of every reason over closes of every reason, a day at a time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total[1d])) / sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "reopen rate"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Reopens and closes a day",
+      "description": "The counts behind the reopen rate.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_reopened_total[1d]))",
+          "legendFormat": "reopens"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "closes"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Forced share of closes",
+      "description": "Closes that overrode open items or checks over all closes, a day at a time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_closed_total{reason=\"forced\"}[1d])) / sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "forced share"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Forced closes and closes a day",
+      "description": "The counts behind the forced share.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 72
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(aries_issues_closed_total{reason=\"forced\"}[1d]))",
+          "legendFormat": "forced"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(aries_issues_closed_total[1d]))",
+          "legendFormat": "closes"
+        }
+      ]
     }
   ]
 }

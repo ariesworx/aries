@@ -3853,6 +3853,8 @@ seconds and `_total` to a counter, and gives a histogram `_bucket`,
 | `aries.usage.tokens` | `aries_usage_tokens_total` | counter | `project`, `kind`, `model` |
 | `aries.issue.cycle.duration` | `aries_issue_cycle_duration_seconds` | histogram, seconds | `project`, `type` |
 | `aries.issues` | `aries_issues` | gauge | `project`, `status` |
+| `aries.issues.closed` | `aries_issues_closed_total` | counter | `project`, `type`, `reason` |
+| `aries.issues.reopened` | `aries_issues_reopened_total` | counter | `project`, `type`, `reason` |
 | `aries.issue.queue.duration` | `aries_issue_queue_duration_seconds` | histogram, seconds | `project`, `type` |
 | `aries.issue.landing.duration` | `aries_issue_landing_duration_seconds` | histogram, seconds | `project`, `type` |
 | `aries.gate.wait.duration` | `aries_gate_wait_duration_seconds` | histogram, seconds | `project`, `kind` |
@@ -3898,6 +3900,8 @@ What each counts:
 | `issue.landing.duration` | Recorded when the closing pass of a required check closes an issue (the check `landed`, say): the time from its last handoff with state `done` to the close, on the server's clock, by the issue's `type`. It is the wait for review and merge. An issue closed any other way records nothing, and neither does one with no such handoff. Same buckets |
 | `gate.wait.duration` | Recorded when a gate is passed or waived: the time from its add, or its last rearm, to the decision, on the server's clock, by the gate's `kind` (`human` or `ci`). A CI failure does not restart it; a rearm does. Same buckets |
 | `issues` | Issues by `status` (`open`, `in_progress`, `blocked`, `deferred` or `closed`), counted when the metrics are collected: one grouped count of the project's `issues` table for each project whose store is open, which a scrape never opens, so a project with no connection lately has no series. It is counted rather than kept as a counter the writes adjust, because the table is the truth, so a count can drift from nothing and needs no rebuilding at open; the cost is one indexed scan of the status column for each open project at each scrape, which at the limits of a project is a few milliseconds. A count that fails or takes over 3 seconds leaves that project out of that collection |
+| `issues.closed` | Each close that committed, once, by the issue's `type` and a `reason` from a fixed list: `landed` (the closing pass of the check `landed`), `forced` (a close that recorded `acceptance_overridden`, `checks_overridden` or `reviews_overridden`) and `other` (every other close). A close's own reason text is never an attribute, so a close that says "landed" in words is `other`. A gate's own issue, which a report or a rearm closes and reopens, is not counted |
+| `issues.reopened` | Each reopen that committed, once, by `type` and a `reason`: `check_failed` (a revert: a failing report of the check after the closing pass) and `other` (every other reopen, a person's or a gate's rearm). Revert rate is `check_failed` reopens over `landed` closes; the work dashboard shows both with their counts |
 | `lock.wait.duration` | Each grant to a place in a lock's queue: how long the place waited, on the server's time. The buckets end at 10 seconds, so most waits for a deploy or a merge fall past the last |
 | `control.writes` | With `control_schema`: each `aries admin` change, refused ones included |
 | `keys_file.writes` | With `control_schema`: each time the keys file was written, or could not be. A file that already held the right keys is not a write |

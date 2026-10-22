@@ -335,6 +335,7 @@ func (w *wtx) landing(ctx context.Context, g *gateRow, rc *requiredCheck, passed
 	case len(held) > 0:
 		what += fmt.Sprintf("; held by gate %s, then finish it", held[0])
 	default:
+		w.closingPass = true
 		if _, err := closeTx(ctx, w, is, ReasonLanded, false); err != nil {
 			return nil, err
 		}
