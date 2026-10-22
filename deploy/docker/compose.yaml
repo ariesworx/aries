@@ -229,6 +229,7 @@ services:
       - ../observability/dashboard.json:/etc/aries/dashboards/aries.json:ro
       - ../observability/dashboard-requests.json:/etc/aries/dashboards/aries-requests.json:ro
       - ../observability/dashboard-traces-logs.json:/etc/aries/dashboards/aries-traces-logs.json:ro
+      - ../observability/dashboard-work.json:/etc/aries/dashboards/aries-work.json:ro
     healthcheck:
       test: ["CMD", "test", "-e", "/tmp/ready"]
       start_period: 120s

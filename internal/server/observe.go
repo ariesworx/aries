@@ -272,6 +272,12 @@ func (o storeObserver) UsageAdded(_ context.Context, _ store.Actor, u []store.Us
 	}
 }
 
+// IssueCycled records how long a closed issue took from its first start.
+// The type is the store's own, a closed list.
+func (o storeObserver) IssueCycled(typ store.IssueType, took time.Duration) {
+	o.tel.Record(telemetry.IssueCycleDuration, took.Seconds(), o.project, string(typ))
+}
+
 // storeTracer is a store's [store.Tracer]: a span for each attempt of a
 // write, for its wait for the writer and for the migrations of an open, under the span of whatever asked for the work.
 type storeTracer struct {

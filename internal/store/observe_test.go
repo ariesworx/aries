@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"testing"
@@ -19,6 +20,98 @@ type seen struct {
 	locks   []string // "change", or "grant:waited"
 	gates   []string // "change:kind:gate"
 	usage   []string // "model in= out= cw= cr="
+	cycles  []string // "type took"
+}
+
+func (o *seen) IssueCycled(typ IssueType, took time.Duration) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.cycles = append(o.cycles, fmt.Sprintf("%s %s", typ, took))
+}
+
+// takeCycles returns the cycles seen since the last call.
+func (o *seen) takeCycles() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	c := o.cycles
+	o.cycles = nil
+	return c
+}
+
+// A close of an issue that was started reports the time from its first
+// start to the close on the store's clock; a close of one never started
+// reports none; a reopened issue counts again from its next start.
+func TestObserverIssueCycled(t *testing.T) {
+	t.Parallel()
+	obs := &seen{}
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now, Observer: obs})
+	ctx := t.Context()
+
+	a := mustCreate(t, s, NewIssue{Title: "a", Type: TypeBug})
+	if _, _, err := s.StartIssue(ctx, alice, a.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(3 * time.Hour)
+	if _, _, err := s.StartIssue(ctx, bob, a.ID, 0, true); err != nil { // a later take is not the first start
+		t.Fatal(err)
+	}
+	clk.add(time.Hour)
+	if _, err := s.CloseIssue(ctx, dana, a.ID, 0, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeCycles(), []string{"bug 4h0m0s"}; !slices.Equal(got, want) {
+		t.Errorf("a started issue closed: cycles = %v, want %v", got, want)
+	}
+
+	b := mustCreate(t, s, NewIssue{Title: "b"})
+	clk.add(time.Hour)
+	if _, err := s.CloseIssue(ctx, dana, b.ID, 0, "no need"); err != nil {
+		t.Fatal(err)
+	}
+	if got := obs.takeCycles(); len(got) != 0 {
+		t.Errorf("an issue closed unstarted: cycles = %v, want none", got)
+	}
+
+	// Reopened, started again 2h later and closed 30m after that.
+	if _, err := s.ReopenIssue(ctx, dana, a.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(2 * time.Hour)
+	if _, _, err := s.StartIssue(ctx, alice, a.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(30 * time.Minute)
+	if _, err := s.CloseIssue(ctx, dana, a.ID, 0, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := obs.takeCycles(), []string{"bug 30m0s"}; !slices.Equal(got, want) {
+		t.Errorf("a reopened issue closed: cycles = %v, want %v", got, want)
+	}
+}
+
+// StatusCounts matches the issues the store holds, with one row a status.
+func TestStatusCounts(t *testing.T) {
+	t.Parallel()
+	s := openStore(t, newDSN(t), Options{})
+	ctx := t.Context()
+	a := mustCreate(t, s, NewIssue{Title: "a"})
+	mustCreate(t, s, NewIssue{Title: "b"})
+	c := mustCreate(t, s, NewIssue{Title: "c"})
+	if _, _, err := s.StartIssue(ctx, alice, a.ID, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseIssue(ctx, dana, c.ID, 0, "done"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.StatusCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[Status]int{StatusOpen: 1, StatusInProgress: 1, StatusClosed: 1}
+	if !maps.Equal(got, want) {
+		t.Errorf("StatusCounts() = %v, want %v", got, want)
+	}
 }
 
 func (o *seen) Wrote(took time.Duration) {
