@@ -359,11 +359,23 @@ aries [-C DIR] [--json] [--no-queue] COMMAND [ARGS]
 ```
 
 `aries help` lists the commands by task: issues, coordination, memory,
-cost and usage, gates, offline and cache, setup, and admin, with a line
-for each. `aries help COMMAND`, or `aries COMMAND --help` (`-h`), prints
+cost and usage, gates, offline and cache, setup, admin, and
+experimental, with a line for each. A command only a person runs says
+"(a person's)" in its line: `away`, `hours`, `resolve`, and `gate` for
+passing, waiving and rearming. The experimental ones (`dispatch`,
+`outcome`, `guard`) are not yet kept by the v1.0.0 freeze. The commands
+that an agent's hooks and the scheduled pull job run (`mcp`, `usage`,
+`guard`, `pull-job`) are listed by `aries help hooks`, not by `aries
+help`; each one's own `--help` works as any command's does. The main
+listing holds at most 50 commands (`TestHelpListing`). `aries help
+COMMAND`, or `aries COMMAND --help` (`-h`), prints
 a command's usage, its flags with their defaults, and two or three
 examples; `aries help admin member`, or `aries gate add --help`, those
-of one subcommand. Help asked for exits 0; a bare `aries` prints the
+of one subcommand. For `gate`, `lock` and `dispatch`, asked for no
+action, it lists the flags of every action. `aries help` with a name
+that is no command or topic is a mistake (exit 2). `--json` and
+`--no-queue` may precede the action of `gate`, `lock` and `dispatch` as
+they may follow it (`aries gate --json list`). Help asked for exits 0; a bare `aries` prints the
 list and exits 2, as a mistake on the command line does
 ([Exit codes](#exit-codes)). Help is wrapped to 80 columns:
 

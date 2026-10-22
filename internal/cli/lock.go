@@ -39,6 +39,7 @@ const (
 // the server cannot be reached: a script fails before its critical
 // section, not inside it.
 func cmdLock(ctx context.Context, r *runner, args []string) error {
+	args = r.leading(args)
 	if len(args) == 0 {
 		return usagef(lockUsage, "lock needs acquire, renew, release, leave, list or run")
 	}

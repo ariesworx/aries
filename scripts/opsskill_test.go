@@ -325,9 +325,15 @@ func ariesUsage(t *testing.T) []usagePath {
 		}
 		return out.String()
 	}
+	// The commands that hooks and jobs run are in `aries help hooks`, and
+	// guard is in both.
 	var names []string
-	for _, m := range regexp.MustCompile(`(?m)^  ([a-z][a-z0-9-]*) `).FindAllStringSubmatch(help(), -1) {
-		names = append(names, m[1])
+	for _, listing := range []string{help(), help("hooks")} {
+		for _, m := range regexp.MustCompile(`(?m)^  ([a-z][a-z0-9-]*) `).FindAllStringSubmatch(listing, -1) {
+			if !slices.Contains(names, m[1]) {
+				names = append(names, m[1])
+			}
+		}
 	}
 	if len(names) < 10 {
 		t.Fatalf("aries help lists %d commands: %v", len(names), names)

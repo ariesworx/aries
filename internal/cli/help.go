@@ -48,9 +48,8 @@ var helpGroups = []helpGroup{
 		{"finish", "close your issue with a handoff note and discovered work"},
 		{"accept", "tick, untick or waive an issue's acceptance items"},
 		{"handoff", "leave a note for whoever continues; --release lets it go"},
-		{"away", "extend all your claims, before you go offline"},
+		{"away", "extend all your claims, before you go offline (a person's)"},
 		{"lock", "take, renew, release or list a lock; run a command under one"},
-		{"dispatch", "experimental: start agent runs on ready issues, within a budget"},
 		{"inbox", "list your unread lost claims, handoffs, mentions, assignments"},
 		{"watch", "print inbox items and, with --events, issue events"},
 		{"who", "list the agents at work and the issues each holds"},
@@ -67,36 +66,77 @@ var helpGroups = []helpGroup{
 	}},
 	{"Cost and usage", []helpLine{
 		{"cost", "report the cost of tokens, and the hours logged"},
-		{"hours", "log your hours on an issue, undo an entry, or list entries"},
-		{"usage", "send a session's token counts (run by the agent's hooks)"},
-		{"outcome", "experimental: record what an issue's outcome took, once"},
+		{"hours", "log your hours on an issue, undo or list entries (a person's)"},
 	}},
 	{"Gates", []helpLine{
-		{"gate", "hold issues until a person passes a gate or CI reports a check"},
+		{"gate", "hold issues for a gate; pass, waive, rearm (a person's)"},
 		{"land", "report landed for the default branch's commits, after a pull"},
-		{"pull-job", "one run of the scheduled pull job (see setup pull-job)"},
 		{"workflow", "check that the server's workflow is the one in a file"},
 	}},
 	{"Offline and cache", []helpLine{
 		{"outbox", "list, retry or drop the writes waiting for the server"},
 		{"cache", "show or clear what this machine keeps of what was read"},
 		{"conflicts", "list offline updates parked against others' changes"},
-		{"resolve", "resolve a conflict: mine, theirs, new text, or as proposed"},
+		{"resolve", "resolve a conflict: mine, theirs, new text, proposed (a person's)"},
 	}},
 	{"Setup", []helpLine{
 		{"setup", "set agents up: MCP config, instruction pointer, session hook"},
 		{"login", "sign in at the server's identity provider, for the day"},
 		{"logout", "end your sign-in, and remove it from this machine"},
 		{"whoami", "say who the server takes you for, and how you signed in"},
-		{"mcp", "serve the MCP tools for an agent on stdin and stdout"},
-		{"guard", "check agents' tool calls against the repository's policy"},
 		{"upgrade", "replace aries with the latest verified release"},
 		{"version", "print the aries version"},
 	}},
 	{"Admin", []helpLine{
 		{"admin", "prices, plans, projects, principals, keys, workflow (admins)"},
 	}},
+	{"Experimental", []helpLine{
+		{"dispatch", "start agent runs on ready issues, within a budget"},
+		{"outcome", "record what an issue's outcome took, once"},
+		{"guard", "check agents' tool calls against the repository's policy"},
+	}},
 }
+
+// hookCommands are the commands that an agent's hooks and the scheduled
+// job run, which `aries help hooks` lists and `aries help` does not. Each
+// one's own --help works as any command's does. guard is also under
+// Experimental.
+var hookCommands = []helpLine{
+	{"mcp", "serve the MCP tools for an agent on stdin and stdout"},
+	{"usage", "send a session's token counts (run by the agent's hooks)"},
+	{"guard", "check an agent's tool call against the policy (--hook)"},
+	{"pull-job", "one run of the scheduled pull job (see setup pull-job)"},
+}
+
+// adminSummaries are the one-line summaries of the groups of `aries admin`,
+// which `aries help admin GROUP` prints in place of the whole command's.
+var adminSummaries = map[string]string{
+	"price":     "list model prices, or set one from a date",
+	"plan":      "list subscription plans, or set one",
+	"project":   "add, list, archive or activate a project on this server",
+	"principal": "add, list, change, show, disable or enable a principal; find one by stand-in",
+	"member":    "add, list or remove the members of a project",
+	"key":       "add, list or remove a principal's public keys",
+	"invite":    "invite a person by address, list the invitations, or remove one",
+	"identity":  "list or remove the identities a principal signs in with",
+	"signin":    "list a principal's sign-ins, or end one",
+	"trust":     "the rules by which a service principal signs in with its platform's token",
+	"workflow":  "show the project's workflow, set it from a file, or diff a file against it",
+	"status":    "what the server says of itself: projects, connections, stores and Postgres",
+}
+
+// groupActions are the actions of the commands that read an action before
+// any flag (gate, lock, dispatch), for the flags `aries help COMMAND`
+// lists (TestHelpGroupActions holds them to the commands).
+var groupActions = map[string][]string{
+	"gate":     {"add", "pass", "fail", "waive", "rearm", "list"},
+	"lock":     {"acquire", "renew", "release", "leave", "list", "run"},
+	"dispatch": {"run", "status", "stop", "key", "brief"},
+}
+
+// hiddenFlags are flags that help does not list, by the flag set's name:
+// create's --id is for a script that imports issues (decision 88).
+var hiddenFlags = map[string][]string{"create": {"id"}}
 
 // example is one example in a command's help: what it does, and the
 // command line. Examples name only example.com, alice and bob, and each
@@ -356,6 +396,7 @@ func (r *runner) help(w io.Writer) {
 		}
 	}
 	_, _ = fmt.Fprint(w, `
+`+"`aries help hooks` lists the commands that hooks and scheduled jobs run."+`
 Global flags (--json and --no-queue may also follow the command):
   -C DIR      run as if started in DIR
   --json      print exactly one JSON document, errors included
@@ -364,6 +405,15 @@ Global flags (--json and --no-queue may also follow the command):
 `+"`aries help COMMAND`, or `aries COMMAND --help`, shows its flags and examples."+`
 Exit codes: 0 ok, 1 failure, 2 usage, 3 protocol refused.
 `)
+}
+
+// hooksHelp prints the commands that hooks and jobs run, to w.
+func (r *runner) hooksHelp(w io.Writer) {
+	_, _ = fmt.Fprintln(w, "Commands that an agent's hooks and the scheduled pull job run:")
+	for _, l := range hookCommands {
+		_, _ = fmt.Fprintf(w, "  %-10s %s\n", l.name, l.brief)
+	}
+	_, _ = fmt.Fprintln(w, "\n`aries help COMMAND`, or `aries COMMAND --help`, shows its flags and examples.")
 }
 
 // helpFlags are the ways of asking for help that the flag package takes.
@@ -388,8 +438,9 @@ func helpAsked(args []string) bool {
 // the command's name, a subcommand among them (`aries help admin member`,
 // `aries gate add --help`): c runs with them and -h, which its flag set,
 // or its subcommand's, answers before anything else is done, so the help
-// lists the flags of the one asked. A command that dispatches before it
-// parses (gate, lock, admin) gets its own help, without flags.
+// lists the flags of the one asked. A command that reads an action before
+// any flag (gate, lock, dispatch), asked for none, lists the flags of all
+// its actions.
 func (r *runner) commandHelp(ctx context.Context, c *command, args []string) int {
 	r.helping = true
 	var asked []string
@@ -405,9 +456,29 @@ func (r *runner) commandHelp(ctx context.Context, c *command, args []string) int
 	usage, fs := c.usage, (*flag.FlagSet)(nil)
 	if ue, ok := errors.AsType[*usageError](err); ok && ue.flags != nil {
 		usage, fs = ue.usage, ue.flags
+	} else if len(asked) == 0 && groupActions[c.name] != nil {
+		fs = r.actionFlags(ctx, c)
 	}
 	r.printCommandHelp(r.env.Stdout, c, usage, fs, asked)
 	return ExitOK
+}
+
+// actionFlags is a flag set of the flags of all of c's actions, the first
+// of a name giving its description.
+func (r *runner) actionFlags(ctx context.Context, c *command) *flag.FlagSet {
+	all := flag.NewFlagSet(c.name, flag.ContinueOnError)
+	for _, action := range groupActions[c.name] {
+		ue, ok := errors.AsType[*usageError](c.run(ctx, r, []string{action, "-h"}))
+		if !ok || ue.flags == nil {
+			continue
+		}
+		ue.flags.VisitAll(func(f *flag.Flag) {
+			if all.Lookup(f.Name) == nil {
+				all.Var(f.Value, f.Name, f.Usage)
+			}
+		})
+	}
+	return all
 }
 
 // printCommandHelp prints a command's usage, summary, flags and examples:
@@ -421,7 +492,11 @@ func (r *runner) printCommandHelp(w io.Writer, c *command, usage string, fs *fla
 		writeUnits(w, lead, strings.Repeat(" ", len(lead)+2), usageUnits(piece))
 	}
 	_, _ = fmt.Fprintln(w)
-	writeWrapped(w, "", "", c.summary)
+	summary := c.summary
+	if of, ok := adminSummaries[firstOf(sub)]; ok && c.name == "admin" {
+		summary = of
+	}
+	writeWrapped(w, "", "", summary)
 	if fs != nil {
 		lines := flagLines(fs, usage)
 		if len(lines) > 0 {
@@ -452,6 +527,14 @@ func (r *runner) printCommandHelp(w io.Writer, c *command, usage string, fs *fla
 	}
 }
 
+// firstOf is the first of words, or "".
+func firstOf(words []string) string {
+	if len(words) == 0 {
+		return ""
+	}
+	return words[0]
+}
+
 // commandExamples are the command's examples of the subcommand sub
 // names (admin member, gate add), or all of them when sub names none, or
 // none has an example.
@@ -462,11 +545,13 @@ func commandExamples(c *command, sub []string) []example {
 	}
 	var of []example
 	for _, e := range all {
-		if strings.HasPrefix(e.line, "aries "+c.name+" "+sub[0]+" ") {
+		if line := e.line + " "; strings.HasPrefix(line, "aries "+c.name+" "+sub[0]+" ") {
 			of = append(of, e)
 		}
 	}
-	if len(of) == 0 {
+	if len(of) == 0 && c.name != "admin" {
+		// Another subcommand's examples would mislead for admin's, whose
+		// groups have little in common.
 		return all
 	}
 	return of
@@ -506,7 +591,7 @@ func flagLines(fs *flag.FlagSet, usage string) [][2]string {
 	var entries []*entry
 	byValue := map[uintptr]*entry{}
 	fs.VisitAll(func(f *flag.Flag) {
-		if f.Name == "json" || f.Name == "no-queue" {
+		if f.Name == "json" || f.Name == "no-queue" || slices.Contains(hiddenFlags[fs.Name()], f.Name) {
 			return
 		}
 		var key uintptr
@@ -547,7 +632,7 @@ func flagLines(fs *flag.FlagSet, usage string) [][2]string {
 		}
 		does := e.does
 		switch def := e.flags[0].DefValue; def {
-		case "", "0", "false", "[]":
+		case "", "0", "0s", "false", "[]":
 		default:
 			does += " (default " + def + ")"
 		}
@@ -570,7 +655,7 @@ func placeholder(f *flag.Flag, usage string) (value string, named bool) {
 		if word != "-"+f.Name && word != "--"+f.Name {
 			continue
 		}
-		next := strings.TrimRight(strings.TrimSuffix(strings.TrimRight(words[i+1], "]"), "..."), "]")
+		next := trimClosers(strings.TrimSuffix(trimClosers(words[i+1]), "..."))
 		if next != "" && !strings.HasPrefix(next, "-") && !strings.HasPrefix(next, "|") &&
 			(strings.ContainsAny(next, "ABCDEFGHIJKLMNOPQRSTUVWXYZ|")) {
 			return next, true
@@ -587,6 +672,15 @@ func placeholder(f *flag.Flag, usage string) (value string, named bool) {
 		}
 	}
 	return "VALUE", false
+}
+
+// trimClosers removes the closing brackets of word that no opening
+// bracket in it matches: "L[,L]]" is "L[,L]".
+func trimClosers(word string) string {
+	for strings.HasSuffix(word, "]") && strings.Count(word, "]") > strings.Count(word, "[") {
+		word = strings.TrimSuffix(word, "]")
+	}
+	return word
 }
 
 // usageUnits are a usage line's words, with each bracketed group one

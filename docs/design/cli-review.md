@@ -693,8 +693,12 @@ accepting the coordinator's recommendation on each:
    the admin check on `set` kept on the server; `admin workflow …` stays
    as an alias (P7).
 8. **`tick` is an alias of `accept`**; `accept` stays (P12).
-9. **`aries help` is held to 50 lines** by a test beside `TestHelpFits`
-   (P2).
+9. **`aries help` is held to 50 command lines** by a test beside
+   `TestHelpFits` (P2). Amended when slice 1 was built: the decision first
+   said 50 lines, but the headings, the usage line, the hooks pointer, the
+   global flags and the exit codes bring the screen to 78, and this review
+   counted command lines only. The maintainer chose to hold the commands to
+   50 (aries-2basuc7q).
 
 ## 6. Slices
 
