@@ -29,6 +29,7 @@ const dispatchUsage = "dispatch run [--dry-run] [--once] [--capacity N] [--cap T
 // takes over its loop, which lives in internal/dispatch. Here is only its
 // wiring to the process. CLI only (rule 12).
 func cmdDispatch(ctx context.Context, r *runner, args []string) error {
+	args = r.leading(args)
 	if len(args) == 0 {
 		return usagef(dispatchUsage, "dispatch needs run, status, stop, key or brief")
 	}

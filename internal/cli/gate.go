@@ -25,6 +25,7 @@ const gateUsage = "gate add --blocks ID [--approver P]... [--title T]" +
 // person's act at the moment they make it, and a CI job's report is its
 // run's, which ends.
 func cmdGate(ctx context.Context, r *runner, args []string) error {
+	args = r.leading(args)
 	if len(args) == 0 {
 		return usagef(gateUsage, "gate needs add, pass, fail, waive, rearm or list")
 	}

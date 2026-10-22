@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -122,8 +123,9 @@ func TestDispatchHelpSaysExperimental(t *testing.T) {
 	if out := helpText(t, "dispatch"); !strings.Contains(out, "experimental") {
 		t.Errorf("aries help dispatch:\n%s", out)
 	}
-	if out := helpText(t); !strings.Contains(out, "dispatch experimental") {
-		t.Errorf("aries help:\n%s", out)
+	_, top, _ := runCLI(t, "help")
+	if _, under := listing(top); !slices.ContainsFunc(under["Experimental"], func(l string) bool { return strings.HasPrefix(l, "  dispatch ") }) {
+		t.Errorf("aries help lists dispatch under Experimental:\n%s", top)
 	}
 }
 

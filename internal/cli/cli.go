@@ -144,7 +144,7 @@ var commands []command
 func init() {
 	commands = []command{
 		{"create", "create TITLE... [-p N] [-t TYPE] [--body TEXT|-] [--parent ID] [--label L]... [--defer-until DATE] [--due DATE]", "create an issue and print its id", cmdCreate},
-		{"show", "show ID [--compact]", "show an issue and its dependencies", cmdShow},
+		{"show", "show ID [--compact]", "show an issue with its checklist, dependencies and gates", cmdShow},
 		{"list", "list [--status S,S] [--all] [-t TYPE] [-p N,N] [--assignee A] [--parent ID] [--label L]... [-n N] [--cursor C]", "list issues (open ones unless --status or --all)", cmdList},
 		{"ready", "ready [-n N]", "list issues nothing holds back", cmdReady},
 		{"blocked", "blocked [-n N]", "list issues held back by open blockers", cmdBlocked},
@@ -166,7 +166,7 @@ func init() {
 		{"accept", "accept ID N... [--undo | --waive REASON]", "tick acceptance items; --undo unticks, --waive waives them for a reason", cmdAccept},
 		{"handoff", "handoff ID NOTE...|- [--state S] [--next TEXT] [--branch B] [--worktree DIR] [--to P] [--release] [--epoch N]", "leave a note for whoever continues; --release lets it go", cmdHandoff},
 		{"inbox", "inbox [--all] [-n N] [--ack ID]... [--ack-all]", "list your unread lost claims, handoffs, mentions and assignments; --ack marks read", cmdInbox},
-		{"watch", "watch", "print inbox items as they arrive, until interrupted", cmdWatch},
+		{"watch", "watch [--events]", "print inbox items as they arrive, until interrupted", cmdWatch},
 		{"tui", "tui", "show a live board: ready, held and blocked issues and recent events, until q", cmdTUI},
 		{"away", "away DURATION", "extend all your claims, e.g. before going offline (1m to the server's away_max, 7d by default)", cmdAway},
 		{"digest", "digest [--since 24h|7d|DATE|TIME] [--by PRINCIPAL] [--label L]", "summarize what closed, started, stalled, is blocked and was handed off", cmdDigest},
@@ -333,6 +333,11 @@ func Run(ctx context.Context, args []string, env Env) int {
 			if c := lookup(args[1]); c != nil {
 				return r.commandHelp(ctx, c, args[2:])
 			}
+			if args[1] == "hooks" {
+				r.hooksHelp(env.Stdout)
+				return ExitOK
+			}
+			return r.fail(usagef("help [COMMAND|hooks]", "unknown help topic %q", args[1]))
 		}
 		r.help(env.Stdout)
 		if len(args) == 0 {
@@ -613,6 +618,24 @@ func (r *runner) newFlags(name string) *flag.FlagSet {
 	fs.BoolVar(&r.json, "json", r.json, "print one JSON document")
 	fs.BoolVar(&r.noQueue, "no-queue", r.noQueue, "fail, and queue nothing, when the server cannot be reached")
 	return fs
+}
+
+// leading consumes --json and --no-queue from the front of the arguments
+// of a command that reads its action first (gate, lock, dispatch), so that
+// they may precede the action as they may follow it.
+func (r *runner) leading(args []string) []string {
+	for len(args) > 0 {
+		switch args[0] {
+		case "--json", "-json":
+			r.json = true
+		case "--no-queue", "-no-queue":
+			r.noQueue = true
+		default:
+			return args
+		}
+		args = args[1:]
+	}
+	return args
 }
 
 // parse parses flags anywhere among the arguments; everything after "--" is

@@ -147,7 +147,7 @@ func (q *watchQueue) put(p proto.Push) {
 // committed on an issue, the watching principal's own included, as
 // {"op":"event","event":{…}}. After a resync it watches again.
 func cmdWatch(ctx context.Context, r *runner, args []string) error {
-	const usage = "watch"
+	const usage = "watch [--events]"
 	fs := r.newFlags("watch")
 	events := fs.Bool("events", false, "also print every issue event")
 	pos, err := parse(fs, args, usage)
