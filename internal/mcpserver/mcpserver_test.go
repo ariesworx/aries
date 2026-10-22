@@ -224,7 +224,9 @@ func TestTools(t *testing.T) {
 	// its description and trimming handoff's and digest's. Decision 76
 	// raised it to 3,000 for stage 6's agent tools: the gate tool and
 	// create's and update's dates (G0), a cross-project link, and
-	// reservations. Counted is
+	// reservations. aries-pidxyzub spent about 110 of it on descriptions
+	// that tell finish, handoff and close apart and say what waived and
+	// take are for (TestDescriptionsSteer). Counted is
 	// what a model reads: names, descriptions and input schemas;
 	// annotations steer the harness's approval prompts.
 	type seen struct {
