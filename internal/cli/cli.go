@@ -16,6 +16,7 @@ import (
 	"github.com/ariesworx/aries/internal/client"
 	"github.com/ariesworx/aries/internal/credential"
 	"github.com/ariesworx/aries/internal/mcpserver"
+	"github.com/ariesworx/aries/internal/merges"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/outcome"
 	"github.com/ariesworx/aries/internal/proto"
@@ -99,6 +100,9 @@ type Env struct {
 	// dir. Nil reads GitHub through gh when gh is on PATH, and no host
 	// otherwise.
 	OutcomeHost func(dir string) outcome.Host
+	// MergesForge is the CI host `prs merges` reads, for the repository
+	// at dir. Nil reads GitHub through the gh on PATH.
+	MergesForge func(dir string) merges.Forge
 }
 
 // usageError is a mistake on the command line. usage is the usage line
@@ -154,6 +158,7 @@ func init() {
 		{"land", landUsage, "report landed for the commits of the default branch since the last reported, for a server CI cannot reach; run it after git pull", cmdLand},
 		{"gate", gateUsage, "hold issues back until a person passes a gate, or CI reports a check: add, pass, fail, waive, rearm or list gates", cmdGate},
 		{"workflow", workflowCmdUsage, "show the project's workflow, set it from FILE (admins), diff or check FILE against it; check exits 1 when it differs", cmdWorkflow},
+		{"prs", prsUsage, "read only: say which open pull requests the merge rule would let be queued, and for each held one the condition that failed", cmdPrs},
 		{"lock", lockUsage, "take, renew, release or list a lock, a leased mutex or semaphore for a deploy or a merge; run a command under one", cmdLock},
 		{"dispatch", dispatchUsage, "experimental, macOS and Linux: start headless agent runs on ready issues, within a budget, until stopped; status, stop, and the API key it gives them", cmdDispatch},
 		{"dep", depUsage, "add or remove a dependency: FROM depends on TO", cmdDep},

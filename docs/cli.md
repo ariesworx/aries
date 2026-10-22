@@ -373,11 +373,11 @@ the maintainer approves in the pull request. `aries help
 COMMAND`, or `aries COMMAND --help` (`-h`), prints
 a command's usage, its flags with their defaults, and two or three
 examples; `aries help admin member`, or `aries gate add --help`, those
-of one subcommand. For `gate`, `lock` and `dispatch`, asked for no
-action, it lists the flags of every action. `aries help` with a name
+of one subcommand. For `gate`, `lock`, `dispatch` and `prs`, asked for
+no action, it lists the flags of every action. `aries help` with a name
 that is no command or topic is a mistake (exit 2). `--json` and
-`--no-queue` may precede the action of `gate`, `lock` and `dispatch` as
-they may follow it (`aries gate --json list`). Help asked for exits 0; a bare `aries` prints the
+`--no-queue` may precede the action of `gate`, `lock`, `dispatch` and
+`prs` as they may follow it (`aries gate --json list`). Help asked for exits 0; a bare `aries` prints the
 list and exits 2, as a mistake on the command line does
 ([Exit codes](#exit-codes)). Help is wrapped to 80 columns:
 
@@ -585,6 +585,68 @@ starts no run, and the claim is released saying so.
 decision: ids, rules, numbers and paths, a brief's SHA-256, never its
 text, a key or an issue's text; a `--dry-run` creates no log and writes
 no line), and each run's output under `runs/`.
+
+### The merge rule
+
+`aries prs merges [--rules FILE] [PR...]` prints, for each open pull
+request, whether the project's merge rule would let it be queued
+without a person, and for one it holds, the condition that failed
+([design](design/merges.md)). It is read only: it queues, merges and
+writes nothing. It reads the CI host through the `gh` on PATH, signed
+in as you, in this repository (`gh pr list`, `gh pr checks --required`
+and `gh pr diff`, never `gh api`), and each pull request's issue,
+named by its branch, from the server. It is CLI only, never an MCP
+tool, and needs no newer server.
+
+```text
+$ aries prs merges
+rule .aries/merges.yaml at origin/main, version 1, sha256 2593b03d5453
+queue #312 docs-and-tests
+hold #313 floor: go.mod (dependency files)
+hold #314 approved-epic opener: unverified (brief harness=claude-code-desktop session=local_1); docs-and-tests paths: internal/cli/cli.go (not allowed)
+the opener is unverified until briefs are stored, so no class that asks for it passes
+```
+
+The rule is the file `.aries/merges.yaml` on the default branch, as
+the last fetch left it (`origin/HEAD`), or `--rules FILE`, for a file
+not yet merged. Without either, every pull request is held. PR numbers
+limit it to those pull requests; one that is not open is held. `--json`
+prints one document: the rule's source, version and SHA-256, and for
+each pull request its number, URL, issue, `queue`, the class that
+passed it, the opener as read (`verified` is always false) and the
+reasons it is held.
+
+The file has a `version: 1`, named `classes`, an optional `floor:` of
+paths that it adds to the product's floor, and `holds: draft`. A class
+names the conditions it checks, and `checks: green` is required of
+each:
+
+| Condition | Passes when |
+|---|---|
+| `checks: green` | Every required check passed on the head commit. A failed, pending, skipped or cancelled check holds, and so does a pull request with no required check reported |
+| `epic: approved` | The issue, or an epic above it, has a human gate blocking it that passed (the workflow's approval), and no open gate holds the issue. A waived gate is no approval |
+| `paths:` | Every changed path, both sides of a rename, matches `allow` and not `except`, and none matches `deny`. Patterns are read from the repository's top; `**` is any number of directories |
+| `tests: no-deletions` | No test file (`*_test.go`) loses a line or gains a `t.Skip` |
+| `opener:` | Never, until briefs are stored: who started the session that opened the pull request has no trusted source yet, so the opener is reported as unverified and holds the class |
+
+A pull request is queued when one class passes it, in name order, and
+nothing holds it whatever the class: a draft, a base other than the
+default branch, a path it cannot classify, or a path of the floor. The
+floor is built into `aries`, and no file lifts it: releases and signing
+(`internal/release/**`, the release tools, `RELEASING.md`,
+`CHANGELOG.md`, `docs/releases/**`, `install*.sh`), CI workflows
+(`.github/workflows/**`, `.github/actions/**`, `.github/CODEOWNERS`),
+dependency files (`go.mod` and `go.sum` anywhere, `deps.allow`,
+`.github/dependabot.yml`), what agents may run (`.aries/guard.yaml`,
+`.aries/brief.txt`, `.claude/settings*.json`, `.codex/config.toml`,
+`.gemini/settings.json`), and the rule's own file, `.aries/merges.yaml`
+or the `--rules` file in the repository.
+
+It fails closed. A pull request whose checks, diff or issue cannot be
+read is held, with the reason: an unknown key or value in the file is
+refused, a diff `gh` cannot give (one too large, say) holds, and an
+issue the server cannot be reached for holds every class that asks for
+the epic.
 
 ### See what is happening
 

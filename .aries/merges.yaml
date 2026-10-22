@@ -1,0 +1,71 @@
+# The merge rule (docs/design/merges.md): which pull requests the
+# coordinator may queue without asking. `aries prs merges` reads it from
+# the default branch and prints a verdict on each open pull request; it
+# queues nothing yet (slice M1). Until the server setting is applied
+# (M3), the memories `dispatch` (rule 4) and `merges` remain the rule,
+# and this file follows them.
+#
+# Patterns are read from the repository's top; ** is any number of
+# directories. The product's floor (releases and signing, CI workflows,
+# dependency files, what agents may run, and this file) is built into
+# aries and held whatever this file says.
+version: 1
+classes:
+  # The memory `dispatch`, rule 4: guides under docs/ and tests.
+  docs-and-tests:
+    checks: green
+    paths:
+      allow:
+        - docs/**/*.md
+        - "**/*_test.go"
+        - "**/testdata/**"
+      except:
+        - docs/design/**
+        - docs/releases/**
+        - docs/server.md
+        - docs/security-model.md
+        - "**/names_test.go"
+        - scripts/**
+        - "**/*.golden"
+      deny:
+        - "*.md"
+        - .github/**
+        - deps.allow
+        - go.mod
+        - go.sum
+        - internal/release/**
+        - internal/tools/**
+        - deploy/**
+        - install*.sh
+        - scripts/**
+    tests: no-deletions
+  # The memory `merges`: an issue under an epic the maintainer approved,
+  # opened by a session the maintainer started. The opener has no
+  # trusted source until briefs are stored (aries-2qx4mlm2), so this
+  # class holds on it, and the coordinator's judgment covers it.
+  approved-epic:
+    checks: green
+    epic: approved
+    opener:
+      harness: [claude-code-desktop]
+    paths:
+      deny:
+        # The protocol (AGENTS.md rule 10) and the migrations (rule 9).
+        - internal/proto/**
+        - internal/store/migrations/**
+        - internal/store/controlmigrations/**
+        # Security-sensitive code.
+        - internal/keyproof/**
+        - internal/dpop/**
+        - internal/jose/**
+        - internal/oidc/**
+        - internal/credential/**
+        - internal/server/signin*.go
+        - internal/server/exchange*.go
+        - internal/server/trust*.go
+        - internal/server/https*.go
+        - internal/secretscan/**
+        - internal/safetext/**
+        # What an unattended agent may run.
+        - internal/dispatch/claude.go
+holds: draft
