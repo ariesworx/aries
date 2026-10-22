@@ -320,10 +320,15 @@ const readyFilter = readyWhere + `
 ORDER BY i.priority, i.created_at, i.id`
 
 // readyWhere is readyFilter's condition alone, which ReadyCount counts.
+// The three sets that hold an issue back are one union under NOT EXISTS,
+// not three NOT INs: the planner cannot estimate a recursive CTE, and
+// with NOT IN it left the deferred set as a subplan rescanned for each
+// open issue (1.2 s at 50,000 issues), and with a NOT EXISTS for each set
+// joined the blocked set by nested loop (3 s). Over the union it is one
+// hash anti join (35 ms).
 const readyWhere = `WHERE i.status = 'open' AND i.template = FALSE AND i.type <> 'gate'
-  AND i.id NOT IN (SELECT id FROM blocked)
-  AND i.id NOT IN (SELECT id FROM deferred)
-  AND i.id NOT IN (SELECT id FROM waiting)`
+  AND NOT EXISTS (SELECT 1 FROM (SELECT id FROM blocked UNION SELECT id FROM deferred UNION SELECT id FROM waiting) held
+    WHERE held.id = i.id)`
 
 // clampLimit returns def when n is not positive, and otherwise n capped
 // at maxN.

@@ -746,3 +746,34 @@ func TestObserverGateWait(t *testing.T) {
 		t.Errorf("waived human gate: stages = %v, want %v", got, want)
 	}
 }
+
+// An issue held back by more than one of blocking, deferral and an unclosed
+// child is held back once: ReadyCount and Ready agree on a project where
+// the three sets overlap.
+func TestReadyCountOverlappingHolds(t *testing.T) {
+	t.Parallel()
+	clk := &clock{t: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
+	s := openStore(t, newDSN(t), Options{Now: clk.now})
+	ctx := t.Context()
+	future := clk.now().Add(time.Hour)
+	blocker := mustCreate(t, s, NewIssue{Title: "blocker"})
+	free := mustCreate(t, s, NewIssue{Title: "free"})
+	both := mustCreate(t, s, NewIssue{Title: "blocked and deferred", Type: TypeEpic, DeferUntil: &future})
+	mustCreate(t, s, NewIssue{Title: "child of both", ParentID: both.ID})
+	if err := s.AddDep(ctx, alice, both.ID, blocker.ID, DepBlocks, ""); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.ReadyCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.Ready(ctx, alice, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The blocker is ready, and so is free; "both" and its child (which
+	// inherits the block and the deferral) are not.
+	if n != 2 || len(list) != 2 {
+		t.Errorf("ReadyCount = %d, Ready = %d issues; want 2 and 2 (%s, %s)", n, len(list), blocker.ID, free.ID)
+	}
+}
