@@ -1017,6 +1017,7 @@ func TestMetricsOfWork(t *testing.T) {
 		{"aries.issues", []string{"project", project, "status", "open"}, 1},
 		{"aries.issues", []string{"project", project, "status", "in_progress"}, 1},
 		{"aries.issues", []string{"project", project, "status", "closed"}, 2},
+		{"aries.issues.closed", []string{"project", project, "type", "task", "reason", "other"}, 2},
 	})
 	if n := snap.Observations("aries.issue.cycle.duration"); n != 1 {
 		t.Errorf("cycle durations = %d, want 1: the issue closed unstarted has none", n)

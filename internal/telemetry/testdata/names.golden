@@ -18,6 +18,12 @@ attribute aries.issue.cycle.duration project
 attribute aries.issue.cycle.duration type
 attribute aries.issues project
 attribute aries.issues status
+attribute aries.issues.closed project
+attribute aries.issues.closed reason
+attribute aries.issues.closed type
+attribute aries.issues.reopened project
+attribute aries.issues.reopened reason
+attribute aries.issues.reopened type
 attribute aries.keys_file.writes result
 attribute aries.limit.refusals limit
 attribute aries.locks event
@@ -52,6 +58,8 @@ instrument aries.https.tokens aries_https_tokens_total
 instrument aries.https.upgrades aries_https_upgrades_total
 instrument aries.issue.cycle.duration aries_issue_cycle_duration_seconds
 instrument aries.issues aries_issues
+instrument aries.issues.closed aries_issues_closed_total
+instrument aries.issues.reopened aries_issues_reopened_total
 instrument aries.keys_file.last_write.time aries_keys_file_last_write_time_seconds
 instrument aries.keys_file.writes aries_keys_file_writes_total
 instrument aries.limit.refusals aries_limit_refusals_total
@@ -187,6 +195,21 @@ value aries.issues status closed
 value aries.issues status deferred
 value aries.issues status in_progress
 value aries.issues status open
+value aries.issues.closed reason forced
+value aries.issues.closed reason landed
+value aries.issues.closed type bug
+value aries.issues.closed type chore
+value aries.issues.closed type epic
+value aries.issues.closed type feature
+value aries.issues.closed type gate
+value aries.issues.closed type task
+value aries.issues.reopened reason check_failed
+value aries.issues.reopened type bug
+value aries.issues.reopened type chore
+value aries.issues.reopened type epic
+value aries.issues.reopened type feature
+value aries.issues.reopened type gate
+value aries.issues.reopened type task
 value aries.keys_file.writes result failed
 value aries.keys_file.writes result ok
 value aries.limit.refusals limit auth_failures_per_minute

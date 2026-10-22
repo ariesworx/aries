@@ -976,6 +976,7 @@ func setStatus(ctx context.Context, w *wtx, before Issue, op Op, args []any, ext
 			return Issue{}, err
 		}
 	}
+	w.noteOutcome(op, out, extra)
 	return out, w.issueEvent(ctx, op, before, out, extra)
 }
 
