@@ -7,8 +7,9 @@ the tools options. I feel like this tool is getting very complicated."
 This document inventories every command, subcommand and flag of `aries`
 as of `main` at e2eda2a, says where it has grown harder than it needs to
 be, and ranks proposals by what each saves a person against what it
-breaks, with how each would be staged. The questions at the end are for
-the maintainer. **It decides nothing, and nothing in it is built.**
+breaks, with how each would be staged. The questions it raised were
+answered by the maintainer the same day (§5, Decisions), and §6 cuts
+the accepted proposals into two slices. **Nothing in it is built yet.**
 
 It follows [surface-review.md](surface-review.md) (15 October 2026),
 whose §1 reviewed the same surface for what v1.0.0 would freeze, and
@@ -468,26 +469,31 @@ line; `help`, `-h` and `--version` in the global block.
 
 ### P2. Mark what is not for everyday use, in the listing (F24-F29, F34)
 
-Keep the eight task headings, and move the lines a person never types to
-two headings at the end: **Run by hooks and jobs** (`mcp`, `usage`,
-`guard`, `pull-job`, with `prime --hook` and `land --hook` named in
-`prime`'s and `land`'s lines) and **Experimental** (`dispatch`,
-`outcome`). Put `login`, `logout`, `whoami` under a heading **Sign in**
+**As decided (§5, answers 1, 2, 3 and 5).** Keep the eight task
+headings. Take the lines a person never types out of the main listing:
+`mcp`, `usage`, `guard` and `pull-job` are listed by `aries help hooks`
+alone, each one's own `--help` keeps working, and the main listing ends
+with one line pointing at `aries help hooks`; `prime --hook` and `land
+--hook` stay named in `prime`'s and `land`'s lines. Add one heading at
+the end, **Experimental**, for `dispatch`, `outcome` and, for now,
+`guard` (which the hooks listing also carries): the label means the
+v1.0.0 freeze does not keep it yet, and `guard`'s comes off once it has
+run a while here and in the dispatcher. `dispatch` and `outcome` keep
+their names. Put `login`, `logout`, `whoami` under a heading **Sign in**
 with `who` staying where it is, or move `who` beside `whoami`. Mark
-person-only commands in their one line, as `close` marks `--force`:
-`away`, `hours`, `gate pass|waive|rearm`, `resolve` ("from your own
-terminal").
+person-only commands with a short phrase in their one line, "(a
+person's)", as `close` marks `--force`: `away`, `hours`, `gate
+pass|waive|rearm`, `resolve`; not a column.
 
-- Saves: a person reads 47 lines of commands they might type before the
-  6 they will not; an agent sees which lines are not its own.
+- Saves: a person reads 47 lines of commands they might type and none
+  they will not; an agent sees which lines are not its own.
 - Breaks: nothing a program calls. `TestHelpGroups` names the eight
   headings (`help_test.go:36`) and `docs/cli.md:361-363` lists them;
-  both change in the same pull request.
-- Staging: one pull request. If instead the hook and job commands are
-  taken *out* of `aries help` (listed by `aries help hooks` alone),
-  that is also one pull request, but it hides `pull-job` from the person
-  who wonders what their scheduler is running: the heading is the better
-  first step.
+  both change in the same pull request, and `TestHelpFits` gains `help
+  hooks`.
+- Staging: one pull request, with P1 and the 50-line height test
+  (answer 9): a test beside `TestHelpFits` that holds `aries help` to 50
+  lines, so that the next command is weighed against the screen.
 
 ### P3. One repeatable form for `--tag` and `--label`, a default for `cost --since` (F15, F21)
 
@@ -540,23 +546,27 @@ Make `memories` a hidden alias of `recall` and drop its line from help.
 
 ### P7. Bring the workflow's read-only commands together (F5, F33)
 
-`workflow check FILE` stays. Add `workflow show` and `workflow diff
-FILE` as the member's view, and keep `admin workflow show|diff` as
-aliases; `admin workflow set` stays admin's.
+**As decided (§5, answer 7).** The `workflow` group holds `show`,
+`diff FILE`, `check FILE` and `set FILE [--rev N]`, so the workflow has
+one home; the admin check on `set` stays on the server, where it is
+(`workflow.set` is refused to anyone but a project admin or server
+admin, from their own terminal). `admin workflow show|diff|set` stays as
+an alias.
 
-- Saves: a member finds the project's workflow under one word.
-- Breaks: `docs/cli.md:617` and the guides that name it; the ops skill does not
-  cite `admin workflow`. Nothing in CI calls `admin workflow`.
-- Staging: additive first (new names, old kept); the `admin` aliases
-  can be unlisted at 1.0 and removed at 2.0.
+- Saves: a member finds the project's workflow under one word, and an
+  admin applies it from the same group.
+- Breaks: `docs/cli.md:446`, `:617` and the guides that name `admin
+  workflow`; the ops skill does not cite it, and nothing in CI calls it.
+- Staging: additive first (new names, the `admin` forms kept and
+  unlisted); the aliases can be removed at 2.0.
 
 ### P8. One word for the private key file (F9)
 
-Rename `setup --key-file` and `pull-job --key-file` to `--sign-in-key
-PATH`, or rename `admin principal add --key FILE` to `--pubkey FILE`;
-either way the two stop sharing a stem. The second is cheaper: `--key`
-is on one admin command and the ops skill does not cite it, while
-`--key-file` is in `docs/agents.md` (4 sites), the ops skill
+**As decided (§5, answer 6).** `admin principal add --key FILE` becomes
+`--pubkey FILE`, and `--key-file` keeps its name on `setup` and
+`pull-job`, so the two stop sharing a stem. This is the cheaper side:
+`--key` is on one admin command and the ops skill does not cite it,
+while `--key-file` is in `docs/agents.md` (4 sites), the ops skill
 (`setup --global --key-file`) and `setup`'s desktop entries.
 
 - Saves: a confusion that costs a person one failed command and a read
@@ -577,7 +587,10 @@ Accept `--by P` on `outbox` beside `--principal P`, and say in help that
 - Breaks: nothing; `--principal` stays on `outbox` as an alias.
 - Staging: one pull request.
 
-### P10. Join the landing entry points (F3)
+### P10. Join the landing entry points (F3): dropped
+
+**Dropped (§5, answer 4): `pull-job --run` stays where it is.** Kept
+here as it was proposed, for the record.
 
 Make `pull-job --run` a form of `land`: `aries land --pull [--remote
 NAME]` does what `pull-job --run` does, and `setup pull-job` writes that
@@ -599,7 +612,11 @@ line. Keep `pull-job --run` as a hidden alias.
   help at the price of an alias that never goes: ranked here, not
   higher, for that reason.
 
-### P11. Mark `dispatch` as what it is in the name (F28, F29)
+### P11. Mark `dispatch` as what it is in the name (F28, F29): dropped
+
+**Dropped (§5, answer 3): no `x` namespace. The Experimental heading
+of P2 is enough, and `dispatch` and `outcome` keep their names.** Kept
+here as it was proposed, for the record.
 
 Put the experimental commands under one word, `aries x dispatch …` and
 `aries x outcome …`, with `dispatch` and `outcome` kept as hidden
@@ -622,9 +639,11 @@ stops changing when an experiment does.
 
 ### P12. Rename the verbs that do not say what they do (F30)
 
-`accept` to `tick` (with `--undo`, `--waive` unchanged), `usage` to
-`usage --hook` only (already so; just the heading of P2), and leave
-`prime`, `away`, `land`, `digest` alone.
+**As decided (§5, answer 8).** `tick` becomes an alias of `accept`
+(with `--undo`, `--waive` unchanged); `accept` stays, listed, and
+`tick` is hidden, as `log` is for `hours`. `usage` is a hook's alone
+already (the hooks listing of P2), and `prime`, `away`, `land`,
+`digest` are left alone.
 
 - Saves: one misreading (`accept`). `prime`, `away` and `land` are in
   every guide, the hooks (`prime --hook` at 18 sites in `agentsetup`),
@@ -632,12 +651,10 @@ stops changing when an experiment does.
   release of aliases in `.claude/settings.json` files on every
   contributor's machine for a word that is explained on the next line
   of help.
-- Breaks (for `accept`): `docs/cli.md:407` and the guides that name
-  it; no program calls it; the MCP `finish` tool is
-  unaffected.
-- Staging: alias through 1.x. Ranked last because the saving is one
-  word and the help line already explains it; it is here so the
-  maintainer can decide it rather than have it missing.
+- Breaks: nothing. `accept` keeps its name and its line; `tick` is
+  additive, and the MCP `finish` tool is unaffected.
+- Staging: one pull request, in the second slice (§6). Ranked last
+  because the saving is one word and the help line already explains it.
 
 ### Not proposed
 
@@ -654,39 +671,44 @@ stops changing when an experiment does.
 - **`pin`/`unpin` under `memory`**: surface-review.md question 4 kept
   them at the top level while memories are the only pinnable thing.
 
-## 5. Questions for the maintainer
+## 5. Decisions (maintainer, 22 October 2026)
 
-None is decided here.
+The maintainer answered the review's nine questions the same day,
+accepting the coordinator's recommendation on each:
 
-1. **Headings or hiding?** P2 keeps every command in `aries help` under
-   two more headings. Should the hook and job commands (`mcp`, `usage`,
-   `guard`, `pull-job`) leave the listing instead, reachable by `aries
-   help hooks` and their own `--help`?
-2. **Is `guard` experimental?** It is decided and built; `dispatch` and
-   `outcome` carry the label and `guard` does not. If the label means
-   "the v1.0.0 freeze does not keep it", does `guard` get it, or does
-   the label mean "not yet decided"?
-3. **An `x` namespace for experiments (P11), or wait for Bearings?** If
-   B0 is months away the namespace earns its keep; if weeks, the alias
-   is churn.
-4. **How long must `pull-job --run` answer (P10)?** The job entries on
-   contributors' machines are the one caller `aries upgrade` cannot
-   reach. Is "`setup pull-job --write` rewrites it, and the guide says
-   to run that after an upgrade" an acceptable staging, or does the
-   alias stay for good?
-5. **Should `aries help` show a person-only mark?** P2 proposes a phrase
-   in the one line; an alternative is a column (`person`, `admin`,
-   `hook`) that `TestHelpFits` would have to make room for in 80
-   columns.
-6. **`--key` or `--key-file` (P8): which side moves?** The review
-   favors renaming the admin flag, which has fewer callers; the
-   maintainer may prefer the private-key flag to carry the clearer name
-   (`--sign-in-key`), since it is the one people set in their own
-   files.
-7. **`workflow` as the member's group (P7):** should `admin workflow
-   set` move too, keeping the admin check on the server, so that the
-   workflow has one home? Rule 12 keeps settings CLI only either way.
-8. **`accept` to `tick` (P12):** worth an alias, or leave it?
-9. **Should the top-level listing be held to a height** (a test that
-   `aries help` fits 50 lines, as `TestHelpFits` holds width), so that
-   the next feature's command is weighed against the screen?
+1. **Hide the hook and job commands.** `mcp`, `usage`, `guard --hook`
+   and `pull-job --run` leave the main listing and are listed by `aries
+   help hooks`; each one's own `--help` keeps working (P2).
+2. **`guard` is experimental for now.** It carries the label, meaning
+   the v1.0.0 freeze does not keep it yet; the label comes off once it
+   has run a while here and in the dispatcher (P2).
+3. **No `x` namespace.** P11 is dropped: an Experimental heading is
+   enough, and `dispatch` and `outcome` keep their names.
+4. **`pull-job --run` stays where it is.** P10 is dropped.
+5. **The person-only mark is a phrase, not a column.** "(a person's)"
+   in the command's one line (P2).
+6. **`--pubkey`.** `admin principal add --key` becomes `--pubkey`, and
+   `--key-file` keeps its name (P8).
+7. **The `workflow` group holds `show`, `diff`, `check` and `set`**, with
+   the admin check on `set` kept on the server; `admin workflow …` stays
+   as an alias (P7).
+8. **`tick` is an alias of `accept`**; `accept` stays (P12).
+9. **`aries help` is held to 50 lines** by a test beside `TestHelpFits`
+   (P2).
+
+## 6. Slices
+
+- **Slice 1, nothing breaks:** P1's help repairs; P2's headings, with
+  the hook and job commands behind `aries help hooks`, the Experimental
+  heading (`dispatch`, `outcome`, `guard`) and the "(a person's)" marks;
+  and the 50-line height test. One pull request, no alias, no
+  deprecation line; `TestHelpGroups`, `TestHelpFits` and
+  `docs/cli.md:361-368` change with it.
+- **Slice 2, the renames and their aliases:** `--pubkey` with `--key`
+  kept hidden (P8); the `workflow` group with `admin workflow …` kept
+  as an alias (P7); `tick` as an alias of `accept` (P12). Each alias
+  stays through 1.x, with a line in the release notes; the docs that
+  name the old forms change in the same pull request.
+
+P3, P4, P5, P6 and P9 were not asked about and stand as proposed; none
+breaks anything and each is one pull request when taken.
