@@ -68,6 +68,11 @@ type Spec struct {
 	// Capacity and Lease are the lock's.
 	Capacity int
 	Lease    time.Duration
+	// Policy is the run's snapshot of the policy, which Env names to the
+	// guard (guard.EnvPolicy); Allowed and Denied are Claude Code's tool
+	// lists rendered from it.
+	Policy          string
+	Allowed, Denied []string
 }
 
 // Process is a launched or adopted run.
@@ -104,6 +109,9 @@ type Git interface {
 	OnRemote(ctx context.Context, branch string) (bool, error)
 	// RemoteHead is the remote default branch's commit.
 	RemoteHead(ctx context.Context) (string, error)
+	// Policy is the remote default branch's .aries/guard.yaml as of the
+	// last fetch, and whether it has one.
+	Policy(ctx context.Context) (b []byte, present bool, err error)
 }
 
 // Checks are a PR's checks, summed up.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ariesworx/aries/internal/agenttel"
 	"github.com/ariesworx/aries/internal/brief"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -338,10 +339,17 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		d.say("no Postgres found for %s: the run starts with a note in its brief (scripts/install-postgres.sh installs one)", id)
 		found = strings.TrimSpace(found + "\n" + NoPostgresNote)
 	}
+	snap, pol, err := d.snapshot(ctx, session)
+	if err != nil {
+		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
+		d.release(ctx, id, session, "aries dispatch did not start the run: "+err.Error())
+		return skip(RuleLaunch, err.Error())
+	}
 	text := Brief(d.Template, st, session, dir, found)
 	model := ModelID(dec.Model)
 	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
-		Env: d.runEnv(session, id, pg), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
+		Env: append(d.runEnv(session, id, pg), guard.EnvPolicy+"="+snap), Log: filepath.Join(d.RunLogs, session+".log"),
+		Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease, Policy: snap, Allowed: guard.Allowed(pol), Denied: guard.Coarse(pol)}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
 		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
@@ -360,6 +368,32 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 	d.say("start %s (model %s, session %s, pid %d)", id, model, session, run.PID)
 	d.log(record{Event: "start", Issue: id, Session: session, Model: model, PID: run.PID, Path: dir, Branch: st.Branch, Brief: brief.Hash(text)})
 	return dec
+}
+
+// snapshot takes the run's snapshot of the policy, from the remote
+// default branch as the worktree's fetch left it, marked headless, into
+// the run's log directory, outside its worktree, and returns its path
+// and the policy as the guard will read it (docs/design/guard.md §8). A
+// branch with no policy file, or one the guard cannot read, starts no
+// run (decision 4).
+func (d *Dispatcher) snapshot(ctx context.Context, session string) (string, *guard.Policy, error) {
+	b, present, err := d.Git.Policy(ctx)
+	switch {
+	case err != nil:
+		return "", nil, fmt.Errorf("%s could not be read from the default branch: %w", guard.File, err)
+	case !present:
+		return "", nil, fmt.Errorf("the default branch has no %s, so no run starts; add one by pull request (docs/design/guard.md §4 has a starting one)", guard.File)
+	}
+	snap := guard.Snapshot(guard.Headless, b, true)
+	pol, _, err := guard.ReadSnapshot(snap)
+	if err != nil {
+		return "", nil, fmt.Errorf("the default branch's policy cannot be used: %w; correct it by pull request (aries guard --check)", err)
+	}
+	path := filepath.Join(d.RunLogs, session+".guard.yaml")
+	if err := guard.WriteSnapshot(path, snap); err != nil {
+		return "", nil, fmt.Errorf("the run's snapshot of %s could not be written: %w", guard.File, err)
+	}
+	return path, pol, nil
 }
 
 // runEnv is a run's environment: the dispatcher's, without a session or

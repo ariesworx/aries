@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ariesworx/aries/internal/agentsetup"
 	"github.com/ariesworx/aries/internal/guard"
 )
 
@@ -66,4 +67,44 @@ func TestGuardAllowsWorkersCommands(t *testing.T) {
 			t.Errorf("%s does not allow %q in a headless run: %s (%s) %s", guard.File, c, v.Answer, v.Rule, v.Reason)
 		}
 	}
+}
+
+// The repository's own Claude Code settings, once `aries setup
+// claude-code --write` has given them the guard, hold the coarse copy of
+// every deny rule .aries/guard.yaml has, so that a change to the policy
+// that leaves them behind fails here (docs/design/guard.md §8, decision
+// 5). The dispatcher renders its --disallowedTools from the same
+// function at each launch (internal/dispatch's TestRunReadsPolicySnapshot).
+func TestGuardSettingsInStep(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join("..", guard.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := guard.Load(b)
+	if err != nil {
+		t.Fatalf("%s: %v", guard.File, err)
+	}
+	settings, err := os.ReadFile(filepath.Join("..", ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := agentsetup.DefaultEntry
+	e.Deny = guard.Coarse(p)
+	for _, tg := range agentsetup.Agents["claude-code"].Targets(false) {
+		if tg.Kind != agentsetup.KindGuard {
+			continue
+		}
+		hooked := len(tg.MissingHooks(settings, e)) == 0
+		missing := tg.MissingDeny(settings, e)
+		switch {
+		case hooked && len(missing) > 0:
+			t.Errorf(".claude/settings.json runs the guard but lacks %d of %s's deny rules, %q first: run `aries setup claude-code --write`",
+				len(missing), guard.File, missing[0])
+		case !hooked && len(missing) < len(e.Deny):
+			t.Errorf(".claude/settings.json holds the guard's deny rules but not its hook: run `aries setup claude-code --write`")
+		}
+		return
+	}
+	t.Fatal("Claude Code has no guard target")
 }

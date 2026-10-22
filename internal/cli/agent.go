@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/ariesworx/aries/internal/agentsetup"
 	"github.com/ariesworx/aries/internal/client"
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/mcpserver"
 	"github.com/ariesworx/aries/internal/offline"
 	"github.com/ariesworx/aries/internal/proto"
@@ -111,6 +114,10 @@ func (r *runner) primeHook(ctx context.Context, agent agentsetup.Agent) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
+	note := ""
+	if agent.Name == "claude-code" {
+		note = r.guardSnapshot(ctx, in)
+	}
 	text, err := r.primeText(ctx)
 	if errors.Is(err, client.ErrNoConfig) {
 		return // not an aries repository: nothing to say
@@ -118,7 +125,59 @@ func (r *runner) primeHook(ctx context.Context, agent agentsetup.Agent) {
 	if err != nil {
 		text = hookFailure(err)
 	}
-	r.emit(agent.HookOutput(text))
+	r.emit(agent.HookOutput(text + note))
+}
+
+// guardSnapshot takes the Desktop session's snapshot of the guard's
+// policy (docs/design/guard.md §8): the default branch's .aries/guard.yaml
+// as origin has it, never the worktree's, which the agent can edit, kept
+// under the data directory by the hook's session id, where `aries guard
+// --hook` finds it. Outside a git repository, or with no session id, it
+// takes none. It returns a line for the session's context when the guard
+// cannot apply what it took, or "": the guard says the same on each call
+// (§6). A repository whose origin has no default branch gets the
+// built-in denies, as one with no policy file does.
+func (r *runner) guardSnapshot(ctx context.Context, in hookInput) string {
+	dir := in.Cwd
+	if dir == "" {
+		dir = r.dir
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil || in.SessionID == "" {
+		return ""
+	}
+	top := guard.Top(abs)
+	if top == "" {
+		return ""
+	}
+	fail := func(why string) string { return "aries guard: policy not applied: " + why + "\n" }
+	data, err := offline.DataDir(r.env.GOOS, r.env.Getenv, r.env.UserHomeDir)
+	if err != nil {
+		return fail("aries has no data directory to keep the session's snapshot in")
+	}
+	path, err := guard.SnapshotPath(data, in.SessionID)
+	if err != nil {
+		return fail(err.Error())
+	}
+	base, _ := gitx.DefaultBranch(ctx, top)
+	if base == "" {
+		base = "main"
+	}
+	b, present, err := gitx.ShowFile(ctx, top, "origin/"+base, guard.File)
+	note := ""
+	if err != nil {
+		b, present = nil, false
+		note = "aries guard: origin/" + base + " not found, so only the built-in denies apply; fetch origin and start a new session\n"
+	}
+	snap := guard.Snapshot(guard.Desktop, b, present)
+	guard.PruneSnapshots(data, r.env.Now().Add(-guard.SnapshotAge))
+	if err := guard.WriteSnapshot(path, snap); err != nil {
+		return fail("the session's snapshot could not be written")
+	}
+	if _, _, err := guard.ReadSnapshot(snap); err != nil {
+		return fail(err.Error())
+	}
+	return note
 }
 
 // hookFailure is the hook's one-line note on a failed prime. The message

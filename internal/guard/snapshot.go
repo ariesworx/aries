@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // EnvPolicy names a headless run's snapshot: the dispatcher sets it in
@@ -94,4 +95,27 @@ func WriteSnapshot(path string, b []byte) error {
 		return err
 	}
 	return os.Rename(f.Name(), path)
+}
+
+// SnapshotAge is how long a Desktop session's snapshot is kept after it
+// was last taken; a session resumed later takes it again at its start.
+const SnapshotAge = 30 * 24 * time.Hour
+
+// PruneSnapshots removes the snapshots under the data directory last
+// written before cutoff, so that one per session does not pile up. The
+// denial count is kept. A failure is ignored: pruning changes no answer.
+func PruneSnapshots(dataDir string, cutoff time.Time) {
+	dir := SnapshotDir(dataDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }

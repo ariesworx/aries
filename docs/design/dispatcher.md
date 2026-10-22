@@ -662,7 +662,14 @@ It departs from or settles the design here:
   `scripts/leftovers.sh` are left out: each runs the command after it,
   which Claude Code does not match against the deny list, so a rule for
   either would allow any command (the gate reaches leftovers.sh). `TestDefaultPermissions` holds one row per
-  command form to Claude Code's documented rules.
+  command form to Claude Code's documented rules. Since G3 of the guard (22 October 2026, aries-qdb5xj4w;
+  [guard.md](guard.md) §8, §14) `DefaultAllowed` and `DefaultDenied`
+  are gone: each run's lists are rendered from its snapshot of the
+  remote default branch's `.aries/guard.yaml`, taken at launch, and the
+  run gets `aries guard --hook` through `--settings`, failing closed;
+  `dispatch run` refuses a checkout without the file, and a branch
+  without it starts no run. `TestDefaultPermissions` now holds the rows
+  to the lists rendered from the repository's policy.
 - **CI results** are read from `gh pr view BRANCH` for each ended run,
   and count once per run. Auth is read from the run's JSON result or
   output (an invalid key, `/login`, OAuth, 401, a low credit balance).

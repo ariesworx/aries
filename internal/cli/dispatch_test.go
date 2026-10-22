@@ -271,6 +271,21 @@ func TestDispatchDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(e.dir, ".aries", "brief.txt"), string(tmpl))
+	// Without the guard's policy it refuses too (docs/design/guard.md,
+	// decision 4), and with one it cannot load.
+	if code, out, errb := e.run(t, "dispatch", "run", "--dry-run", "--once"); code != ExitFailure ||
+		!strings.Contains(out+errb, ".aries/guard.yaml is missing") || !strings.Contains(out+errb, "fix: add .aries/guard.yaml") {
+		t.Errorf("no policy: exit %d, %q %q", code, out, errb)
+	}
+	writeFile(t, filepath.Join(e.dir, ".aries", "guard.yaml"), "version: 1\nalow: []\n")
+	if code, out, errb := e.run(t, "dispatch", "run", "--dry-run", "--once"); code != ExitFailure || !strings.Contains(out+errb, `unknown key "alow"`) {
+		t.Errorf("a bad policy: exit %d, %q %q", code, out, errb)
+	}
+	pol, err := os.ReadFile(filepath.Join("..", "..", ".aries", "guard.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(e.dir, ".aries", "guard.yaml"), string(pol))
 	bin := t.TempDir()
 	e.aries = filepath.Join(bin, "aries")
 	if err := os.WriteFile(e.aries, []byte(standinAries), 0o700); err != nil { //nolint:gosec // a script the test runs

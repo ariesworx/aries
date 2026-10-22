@@ -40,7 +40,8 @@ import (
 type hookStyle struct {
 	// event is the key under "hooks" that lists the event's hooks.
 	event string
-	// verb is the aries command the hook runs with --hook: prime or usage.
+	// verb is the aries command the hook runs with --hook: prime, usage
+	// or guard.
 	verb string
 	// flat puts hooks straight in the event's list, not in groups.
 	flat bool
@@ -105,7 +106,7 @@ var (
 	shellSafe = lazyregexp.New(`^[A-Za-z0-9_./:@%+=,-]+$`)
 	// hookCmd splits a hook's command into its program, one word as
 	// shellQuote writes it, and its verb.
-	hookCmd = lazyregexp.New(`^([A-Za-z0-9_./:@%+=,-]+|'(?:[^']|'\\'')*') (prime|usage) --hook(?:=[a-z][a-z-]*)?$`)
+	hookCmd = lazyregexp.New(`^([A-Za-z0-9_./:@%+=,-]+|'(?:[^']|'\\'')*') (prime|usage|guard) --hook(?:=[a-z][a-z-]*)?$`)
 )
 
 // shellQuote quotes s for the POSIX shell the harness runs hooks with.

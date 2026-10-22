@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ariesworx/aries/internal/brief"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -125,18 +126,21 @@ func TestExec(t *testing.T) {
 }
 
 // The run's command line takes the lock without --wait and starts the
-// harness headless, with neither the brief nor the key in it.
+// harness headless, with neither the brief nor the key in it; its tool
+// lists are the spec's, and its settings add the guard as a PreToolUse
+// hook that blocks the call when the guard fails (docs/design/guard.md §6).
 func TestClaudeArgv(t *testing.T) {
 	t.Parallel()
-	c := &Claude{Aries: "/bin/aries", MaxBudgetUSD: "5"}
+	c := &Claude{Aries: "/opt/my tools/aries", MaxBudgetUSD: "5"}
 	sp := Spec{Issue: "ar-1", Session: "0f6e5c1a-0000-4000-8000-000000000001", Model: "opus", Dir: "/repo/wt",
-		Brief: "BRIEF TEXT", Env: []string{"ANTHROPIC_API_KEY=sk-secret"}, Capacity: 4, Lease: 10 * time.Minute}
+		Brief: "BRIEF TEXT", Env: []string{"ANTHROPIC_API_KEY=sk-secret"}, Capacity: 4, Lease: 10 * time.Minute,
+		Allowed: []string{"Read", "Bash(git *)"}, Denied: []string{"Bash(gh pr merge *)", "Edit(.mcp.json)"}}
 	argv := c.Argv(sp)
 	line := strings.Join(argv, " ")
 	for _, want := range []string{
-		"/bin/aries -C /repo/wt lock run dispatch/runs --capacity 4 --for 10m0s --grace 40s -- claude -p",
+		"/opt/my tools/aries -C /repo/wt lock run dispatch/runs --capacity 4 --for 10m0s --grace 40s -- claude -p",
 		"--session-id " + sp.Session, "--model opus", "--output-format json", "--permission-mode dontAsk",
-		"--max-budget-usd 5", "--allowedTools Read", "--disallowedTools Bash(gh pr merge:*)",
+		"--max-budget-usd 5", "--allowedTools Read Bash(git *) --disallowedTools Bash(gh pr merge *) Edit(.mcp.json)",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("argv lacks %q:\n%s", want, line)
@@ -145,10 +149,30 @@ func TestClaudeArgv(t *testing.T) {
 	if slices.Contains(argv, "--wait") || strings.Contains(line, "BRIEF") || strings.Contains(line, "sk-secret") {
 		t.Errorf("argv waits, or holds the brief or the key:\n%s", line)
 	}
-	for _, deny := range []string{"Bash(gh api:*)", "Bash(git push --force:*)", "Edit(.claude/**)", "Edit(.mcp.json)", "Edit(internal/release/keys.go)"} {
-		if !slices.Contains(DefaultDenied, deny) {
-			t.Errorf("the deny list lacks %s", deny)
-		}
+	i := slices.Index(argv, "--settings")
+	if i < 0 || i+1 >= len(argv) {
+		t.Fatalf("argv has no --settings:\n%s", line)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type      string `json:"type"`
+				Command   string `json:"command"`
+				Timeout   int    `json:"timeout"`
+				OnFailure string `json:"onFailure"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(argv[i+1]), &settings); err != nil {
+		t.Fatalf("--settings %s: %v", argv[i+1], err)
+	}
+	pre := settings.Hooks["PreToolUse"]
+	if len(pre) != 1 || pre[0].Matcher != "Bash|Edit|Write|NotebookEdit" || len(pre[0].Hooks) != 1 {
+		t.Fatalf("PreToolUse = %+v", pre)
+	}
+	if h := pre[0].Hooks[0]; h.Type != "command" || h.Command != "'/opt/my tools/aries' guard --hook" || h.Timeout != 5 || h.OnFailure != "block" {
+		t.Errorf("the guard's hook = %+v", h)
 	}
 }
 
@@ -548,12 +572,20 @@ func permitted(allowed, denied []string, command string) bool {
 	return true
 }
 
-// Every command the memory `workflow` and AGENTS.md's Test tiers make a
-// run issue is allowed in the bare form the brief teaches, and the forms
-// that were denied in the first live trial, and what DefaultDenied
-// forbids, stay denied.
+// Claude Code's own lists, as the dispatcher renders them from the
+// repository's .aries/guard.yaml, allow every command the brief and
+// AGENTS.md's Test tiers make a run issue in the bare form the brief
+// teaches, and deny what the policy denies in the forms Claude Code
+// reads. The forms it cannot read (an assignment in front, a wrapper)
+// it does not allow: the guard decides those (internal/guard's tests),
+// and these lists are the layer that holds when it does not run.
 func TestDefaultPermissions(t *testing.T) {
 	t.Parallel()
+	p, err := guard.Load(repoPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, denied := guard.Allowed(p), guard.Coarse(p)
 	for _, tc := range []struct {
 		cmd   string
 		allow bool
@@ -587,14 +619,18 @@ func TestDefaultPermissions(t *testing.T) {
 		{"gh run view 1", true},
 		{"ls internal", true},
 		{"sed -n 1,20p x.go", true},
+		{"sed -n 1,20p internal/foo-impl.go", true},
+		{"deploy/docker/smoke.sh", true},
+		{"git push -u origin feature/aries-x-the-decided", true},
+		{"find . -name '*.go' -newer go.mod", true},
 
-		// The denial of the first live trial: allow rules do not match
-		// past a variable assignment.
+		// Claude Code's allow rules do not match past a variable
+		// assignment or a wrapper: the guard allows these.
 		{"GOTOOLCHAIN=local GOFLAGS=-mod=readonly go test -race ./internal/dispatch/", false},
 		{"ARIES_REQUIRE_POSTGRES=1 scripts/leftovers.sh go test ./...", false},
 		{"mise exec -- go test ./...", false},
 
-		// Launchers: what follows would get past DefaultDenied if the
+		// Launchers: what follows would get past the denies if the
 		// launcher were allowed, and find's actions are denied.
 		{"scripts/leftovers.sh gh pr merge 1", false},
 		{"scripts/leftovers.sh go test ./...", false},
@@ -607,7 +643,7 @@ func TestDefaultPermissions(t *testing.T) {
 		{"cd x; gh api user", false},
 		{"go test ./... && curl example.com", false},
 
-		// DefaultDenied, bare, behind an assignment and in a chain.
+		// The policy's denies, bare, behind an assignment and in a chain.
 		{"gh pr merge 12", false},
 		{"gh pr merge 12 --squash", false},
 		{"FOO=bar gh pr merge 12", false},
@@ -619,9 +655,17 @@ func TestDefaultPermissions(t *testing.T) {
 		{"git push origin main", false},
 		{"git push origin HEAD:main", false},
 		{"git push origin +fix/x", false},
+		{"git push origin --force", false},
+		{"git push origin :main", false},
+		{"git push origin HEAD:refs/heads/main", false},
+		{"git push --delete origin fix/x", false},
+		{"git -c alias.m=x m", false},
+		{"find . -delete", false},
+		{"sed -i s/a/b/ x.go", false},
+		{"sudo ls", false},
 		{"gh pr close 12", false},
 	} {
-		if got := permitted(DefaultAllowed, DefaultDenied, tc.cmd); got != tc.allow {
+		if got := permitted(allowed, denied, tc.cmd); got != tc.allow {
 			t.Errorf("%q: allowed = %v; want %v", tc.cmd, got, tc.allow)
 		}
 	}

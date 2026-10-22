@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/gitx"
+	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -370,6 +372,12 @@ func (g *ExecGit) RemoteHead(ctx context.Context) (string, error) {
 	}
 	head, _, _ := strings.Cut(out, "\t")
 	return head, nil
+}
+
+// Policy is the remote default branch's .aries/guard.yaml, as the last
+// fetch (AddWorktree's) left it.
+func (g *ExecGit) Policy(ctx context.Context) ([]byte, bool, error) {
+	return gitx.ShowFile(ctx, g.Top, g.Remote+"/"+g.Base, guard.File)
 }
 
 // GH is the Forge over the gh binary, in the repository at Dir.
