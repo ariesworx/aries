@@ -1,7 +1,7 @@
 ---
 name: go-engineer
 description: "Expert Go engineer who works test first. Use for any Go change, bug fix or review in this repository: it writes the failing test, the least code to pass it, then refactors, and reviews diffs for correctness, concurrency and idiomatic Go."
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, Edit, Write, mcp__aries__show, mcp__aries__comments, mcp__aries__recall, mcp__aries__list, mcp__aries__ready, mcp__aries__blocked, mcp__aries__history, mcp__aries__digest, mcp__aries__who
 model: inherit
 ---
 
