@@ -23,7 +23,7 @@ stage is in progress.
 <!-- aries:begin -->
 ## Issue tracking: aries
 Track work with the `aries` MCP tools; never shell out to `aries` for it.
-Call `prime` when a session starts, unless its output is already in context; then `start` takes an issue and `finish` closes it with a handoff note.
+Call `prime` when a session starts, unless its output is already in context; then `start` takes an issue. End with `handoff` and state `done`; use `finish` only where nothing waits on a check, a review or a person.
 <!-- aries:end -->
 
 This repository is tracked in Aries by those who run a server for it.
