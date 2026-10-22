@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -39,6 +40,10 @@ type Dispatcher struct {
 	// the environment runs start from.
 	Key     string
 	Environ []string
+	// FindPostgres is optional: it returns the directory of the Postgres
+	// programs to put first on each run's PATH, or "" for none (then the
+	// brief says so). Called at each launch.
+	FindPostgres func() string
 	// State is read and changed in place; Save writes it.
 	State *State
 	Save  func(*State) error
@@ -320,10 +325,18 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		d.release(ctx, id, session, "aries dispatch could not make the run's worktree: "+err.Error())
 		return skip(RuleLaunch, "the worktree failed: "+err.Error())
 	}
+	pg := ""
+	if d.FindPostgres != nil {
+		pg = d.FindPostgres()
+	}
+	if pg == "" {
+		d.say("no Postgres found for %s: the run starts with a note in its brief (scripts/install-postgres.sh installs one)", id)
+		found = strings.TrimSpace(found + "\n" + NoPostgresNote)
+	}
 	text := Brief(d.Template, st, session, dir, found)
 	model := ModelID(dec.Model)
 	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
-		Env: d.runEnv(session), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
+		Env: d.runEnv(session, pg), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
 		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
@@ -349,7 +362,10 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 // the run's session and the key, and the Go variables the gate sets
 // (AGENTS.md, Commands), so that no command needs them written in front:
 // an allow rule does not match a command that starts with an assignment.
-func (d *Dispatcher) runEnv(session string) []string {
+// It also sets ARIES_REQUIRE_POSTGRES=1, so that a test needing Postgres
+// fails rather than skips, and puts pgDir, when not empty, first on PATH,
+// so the run needs neither install-postgres.sh nor a PATH of its own.
+func (d *Dispatcher) runEnv(session, pgDir string) []string {
 	var env []string
 	for _, kv := range d.Environ {
 		k, _, _ := strings.Cut(kv, "=")
@@ -362,6 +378,16 @@ func (d *Dispatcher) runEnv(session string) []string {
 	}
 	env = withEnv(env, "GOTOOLCHAIN", "local")
 	env = withEnv(env, "GOFLAGS", "-mod=readonly")
+	env = withEnv(env, "ARIES_REQUIRE_POSTGRES", "1")
+	if pgDir != "" {
+		path := pgDir
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok && v != "" {
+				path += string(os.PathListSeparator) + v
+			}
+		}
+		env = withEnv(env, "PATH", path)
+	}
 	env = append(env, "ARIES_SESSION="+session)
 	if d.Key != "" {
 		env = append(env, "ANTHROPIC_API_KEY="+d.Key)
