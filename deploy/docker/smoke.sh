@@ -1279,7 +1279,7 @@ carol_fp=$(ssh-keygen -lf "$work/keys/carol.pub" | cut -d' ' -f2)
 carol_re=$(sed 's/[+/.]/[&]/g' <<<"$carol_fp")
 yaml_for "$project" >"$work/carol/.aries.yaml"
 refuse "a key nobody added" 'accepted no key: aries offered SHA256:' carol ready
-expect "principal add --pubkey" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
+expect "principal add --key (deprecated, still works)" "^key $carol_re added to carol\$" alice admin principal add carol --key "$work/keys/carol.pub"
 if "${compose[@]}" exec -T aries grep -q carol /state/ssh/authorized_keys; then
   fail "carol has a line in authorized_keys; her key was to be in the control database alone"
 fi
