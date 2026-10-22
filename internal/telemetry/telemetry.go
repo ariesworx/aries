@@ -287,8 +287,19 @@ func newPull(errs *errlog) (http.Handler, sdkmetric.Reader, error) {
 	return promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorLog: promLog{errs}, Timeout: scrapeTimeout}), exp, nil
 }
 
+// longBuckets reports whether the histogram named name measures work's
+// time, which runs to days, and so has [CycleBuckets].
+func longBuckets(name string) bool {
+	for _, i := range []Instrument{IssueCycleDuration, IssueQueueDuration, IssueLandingDuration, GateWaitDuration} {
+		if specs[i].name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // histogramBuckets gives each of ariesd's histograms its buckets:
-// [CycleBuckets] to the issues' cycle time, which runs to days, and
+// [CycleBuckets] to the work's times, which run to days, and
 // [Buckets] to every other. It is one view, since two that match an
 // instrument would each make a stream of it.
 func histogramBuckets(i sdkmetric.Instrument) (sdkmetric.Stream, bool) {
@@ -296,7 +307,7 @@ func histogramBuckets(i sdkmetric.Instrument) (sdkmetric.Stream, bool) {
 		return sdkmetric.Stream{}, false
 	}
 	b := Buckets
-	if i.Name == specs[IssueCycleDuration].name {
+	if longBuckets(i.Name) {
 		b = CycleBuckets
 	}
 	return sdkmetric.Stream{Name: i.Name, Description: i.Description, Unit: i.Unit,

@@ -278,6 +278,23 @@ func (o storeObserver) IssueCycled(typ store.IssueType, took time.Duration) {
 	o.tel.Record(telemetry.IssueCycleDuration, took.Seconds(), o.project, string(typ))
 }
 
+// IssueQueued records how long an issue waited for its first start.
+func (o storeObserver) IssueQueued(typ store.IssueType, took time.Duration) {
+	o.tel.Record(telemetry.IssueQueueDuration, took.Seconds(), o.project, string(typ))
+}
+
+// IssueLanded records how long a landed issue waited from its last done
+// handoff to the close.
+func (o storeObserver) IssueLanded(typ store.IssueType, took time.Duration) {
+	o.tel.Record(telemetry.IssueLandingDuration, took.Seconds(), o.project, string(typ))
+}
+
+// GateWaited records how long a gate was open when it was passed or
+// waived. The kind is the store's own, a closed list.
+func (o storeObserver) GateWaited(kind store.GateKind, took time.Duration) {
+	o.tel.Record(telemetry.GateWaitDuration, took.Seconds(), o.project, string(kind))
+}
+
 // storeTracer is a store's [store.Tracer]: a span for each attempt of a
 // write, for its wait for the writer and for the migrations of an open, under the span of whatever asked for the work.
 type storeTracer struct {

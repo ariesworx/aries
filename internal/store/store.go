@@ -453,6 +453,9 @@ type wtx struct {
 	// cycles are the start-to-close times of the issues the attempt
 	// closed, for the observer once it commits.
 	cycles []cycle
+	// stages are the queue, landing and gate waits the attempt found, for
+	// the observer once it commits.
+	stages []stage
 }
 
 // exec runs a mutating statement.
@@ -870,6 +873,16 @@ func (s *Store) writeOnce(ctx context.Context, actor Actor, settle bool, fn func
 		}
 		for _, c := range w.cycles {
 			o.IssueCycled(c.typ, c.took)
+		}
+		for _, st := range w.stages {
+			switch st.kind {
+			case "queue":
+				o.IssueQueued(IssueType(st.typ), st.took)
+			case "landing":
+				o.IssueLanded(IssueType(st.typ), st.took)
+			case "gate":
+				o.GateWaited(GateKind(st.typ), st.took)
+			}
 		}
 	}
 	// Counted after the commit: every watch subscribed before it is

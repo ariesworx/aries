@@ -119,6 +119,19 @@ const (
 	// status. It is watched ([Telemetry.WatchSeries]), one count of the
 	// issues' statuses for each open project at each collection.
 	Issues
+	// IssueQueueDuration is how long an issue waited for its first
+	// start, from its creation, or its defer_until if later, on the
+	// store's clock, recorded at that start: project, type. Its buckets
+	// are [CycleBuckets].
+	IssueQueueDuration
+	// IssueLandingDuration is how long an issue waited from its last
+	// handoff with state done to the close by its closing pass, on the
+	// store's clock: project, type. Its buckets are [CycleBuckets].
+	IssueLandingDuration
+	// GateWaitDuration is how long a gate was open when it was passed or
+	// waived, from its add or its last rearm, on the store's clock:
+	// project, kind. Its buckets are [CycleBuckets].
+	GateWaitDuration
 
 	numInstruments
 )
@@ -452,6 +465,10 @@ var specs = [numInstruments]spec{
 
 	IssueCycleDuration: {name: "aries.issue.cycle.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's first start since it was last opened to its close; an issue closed unstarted has none."},
 	Issues:             {name: "aries.issues", kind: Gauge, watched: true, attrs: []attr{attrProject, attrStatus}, desc: "Issues by project and status, counted at each collection from the open projects."},
+
+	IssueQueueDuration:   {name: "aries.issue.queue.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's creation, or its defer_until if later, to its first start."},
+	IssueLandingDuration: {name: "aries.issue.landing.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrType}, desc: "Time from an issue's last handoff with state done to its close by the closing pass."},
+	GateWaitDuration:     {name: "aries.gate.wait.duration", unit: "s", kind: Histogram, attrs: []attr{attrProject, attrGateKind}, desc: "Time a gate was open, from its add or last rearm to its pass or waiver."},
 }
 
 // Description is one instrument as the documentation and the tests list
