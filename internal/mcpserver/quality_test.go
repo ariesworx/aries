@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -157,5 +159,60 @@ func TestAcceptanceErrorNamesTheArguments(t *testing.T) {
 		"fix: call finish with ticked: [numbers met] and waived: {number: reason} for the rest; show lists the items"
 	if got := text(t, res); got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// The descriptions tell the tools that end a session apart, and waiving
+// apart from leaving an item open (aries-pidxyzub): finish is for the
+// issue the agent holds and names handoff for when a check or a review
+// still has to pass; handoff says it stops without closing; close names
+// finish for one's own issue; waived is for an item that does not apply,
+// and the instructions say an item that is a person's or CI's stays open;
+// take says it is for the agent's own stopped session.
+func TestDescriptionsSteer(t *testing.T) {
+	t.Parallel()
+	cs, _ := connect(t)
+	res, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := map[string]*mcp.Tool{}
+	for _, tool := range res.Tools {
+		tools[tool.Name] = tool
+	}
+	param := func(tool, field string) string {
+		t.Helper()
+		var s struct {
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
+		}
+		b, err := json.Marshal(tools[tool].InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(b, &s); err != nil {
+			t.Fatal(err)
+		}
+		return s.Properties[field].Description
+	}
+	for _, tc := range []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"finish", tools["finish"].Description, []string{"hold", "handoff"}},
+		{"handoff", tools["handoff"].Description, []string{"without closing", "done"}},
+		{"close", tools["close"].Description, []string{"finish"}},
+		{"finish.waived", param("finish", "waived"), []string{"does not apply"}},
+		{"handoff.waived", param("handoff", "waived"), []string{"does not apply"}},
+		{"start.take", param("start", "take"), []string{"stopped"}},
+		{"instructions", Instructions, []string{"does not apply", "stays open", "handoff with state done"}},
+	} {
+		for _, want := range tc.want {
+			if !strings.Contains(tc.text, want) {
+				t.Errorf("%s = %q, want it to say %q", tc.name, tc.text, want)
+			}
+		}
 	}
 }

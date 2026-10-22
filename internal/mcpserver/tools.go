@@ -38,7 +38,7 @@ type IDIn struct {
 // ShowIn reads one issue.
 type ShowIn struct {
 	ID   string `json:"id"`
-	Full bool   `json:"full,omitempty"`
+	Full bool   `json:"full,omitempty" jsonschema:"whole texts"`
 }
 
 // LimitIn bounds a list.
@@ -237,7 +237,7 @@ type PageIn struct {
 // StartIn takes an issue.
 type StartIn struct {
 	ID   string `json:"id,omitempty"`
-	Take bool   `json:"take,omitempty"`
+	Take bool   `json:"take,omitempty" jsonschema:"take over from your own stopped session"`
 }
 
 // FinishIn closes an issue with what the next person needs.
@@ -247,7 +247,7 @@ type FinishIn struct {
 	Handoff    string            `json:"handoff,omitempty"`
 	Discovered []DiscoveredIn    `json:"discovered,omitempty"`
 	Ticked     []int             `json:"ticked,omitempty"`
-	Waived     map[string]string `json:"waived,omitempty" jsonschema:"item: reason"`
+	Waived     map[string]string `json:"waived,omitempty" jsonschema:"item: why it does not apply"`
 	HandoffFieldsIn
 
 	idem string
@@ -282,7 +282,7 @@ type HandoffIn struct {
 	Release bool   `json:"release,omitempty" jsonschema:"let others start it"`
 	// Ticked and Waived settle items, with state done.
 	Ticked []int             `json:"ticked,omitempty"`
-	Waived map[string]string `json:"waived,omitempty" jsonschema:"item: reason"`
+	Waived map[string]string `json:"waived,omitempty" jsonschema:"item: why it does not apply"`
 	HandoffFieldsIn
 
 	idem string
@@ -629,7 +629,7 @@ func (s *Server) register() {
 			}
 			return p, err
 		})
-	add(s, tool{name: "inbox", desc: "Lost claims, handoffs, mentions, assignments; ack marks read.", ann: idem, retry: true,
+	add(s, tool{name: "inbox", desc: "Yours: lost claims, handoffs, mentions, assignments; ack marks read.", ann: idem, retry: true,
 		showsInbox: true, cached: true},
 		func(ctx context.Context, c Conn, in InboxIn) (Inbox, error) { return inbox(ctx, c, in) })
 	add(s, tool{name: "start", desc: "Take an issue (default: top ready).", ann: write},
@@ -640,7 +640,7 @@ func (s *Server) register() {
 			}
 			return out, err
 		})
-	add(s, tool{name: "finish", desc: "Close your issue: tick items, hand off, file new work.", ann: write, retry: true,
+	add(s, tool{name: "finish", desc: "Close the issue you hold; refused until a required check or review passes: end with handoff state done then.", ann: write, retry: true,
 		enums: enums{"discovered.type": issueTypes, "state": states}},
 		func(ctx context.Context, c Conn, in FinishIn) (Finished, error) {
 			args := proto.FinishArgs{ID: in.ID, Epoch: s.claims.epoch(in.ID), Reason: in.Reason, Handoff: in.Handoff,
@@ -662,7 +662,7 @@ func (s *Server) register() {
 			}
 			return finished(out), err
 		})
-	add(s, tool{name: "handoff", desc: "Note for whoever continues.", ann: write, retry: true,
+	add(s, tool{name: "handoff", desc: "Stop without closing: note for whoever continues; state done when the work is done and a check or person closes it.", ann: write, retry: true,
 		enums: enums{"state": states}},
 		func(ctx context.Context, c Conn, in HandoffIn) (Handed, error) {
 			var out proto.HandoffResult
@@ -737,7 +737,7 @@ func (s *Server) register() {
 	add(s, tool{name: "update", desc: "Change the fields given; empty clears assignee, owner, parent, dates.", ann: write,
 		enums: enums{"status": setStatuses, "type": issueTypes}},
 		func(ctx context.Context, c Conn, in UpdateIn) (Updated, error) { return update(ctx, c, in) })
-	add(s, tool{name: "close", desc: "Close a finished issue.", ann: write},
+	add(s, tool{name: "close", desc: "Close without a handoff (a duplicate, obsolete); finish the one you hold.", ann: write},
 		func(ctx context.Context, c Conn, in CloseIn) (Closed, error) {
 			var out proto.CloseResult
 			err := c.Call(ctx, proto.OpClose, proto.CloseArgs{ID: in.ID, Rev: in.Rev, Reason: in.Reason}, &out)
@@ -805,7 +805,7 @@ func (s *Server) register() {
 		func(ctx context.Context, c Conn, in PageIn) (Comments, error) { return comments(ctx, c, in) })
 	add(s, tool{name: "history", desc: "An issue's newest changes.", ann: readOnly, retry: true},
 		func(ctx context.Context, c Conn, in PageIn) (History, error) { return history(ctx, c, in) })
-	add(s, tool{name: "gate", desc: "Hold blocks back until a person passes the gate (approvers, else admins); list open gates.",
+	add(s, tool{name: "gate", desc: "add: hold issue blocks back until a person passes it (approvers, else admins); list: open gates.",
 		ann: write, retry: true, enums: enums{"action": gateActions}},
 		func(ctx context.Context, c Conn, in GateIn) (any, error) { return gate(ctx, c, in) })
 	s.registerMemory()

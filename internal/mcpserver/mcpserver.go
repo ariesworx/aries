@@ -80,7 +80,9 @@ const Instructions = "Issue tracker shared by every agent and person on this pro
 	"Call prime at the start of a session. Take work with start (the top ready issue, or an id): " +
 	"it claims the issue while this session runs and returns it, its acceptance items, its last handoff and a branch name. Comment as you go. " +
 	"End with finish: it closes the issue, records your handoff and files work you discovered. " +
-	"Each acceptance item must be met (finish's ticked) or waived with a reason (waived); finish and close refuse while one is open. " +
+	"Where the project's workflow requires a check or a review first, finish is refused: end with handoff with state done, and the check's pass or the review closes the issue. " +
+	"Tick an acceptance item you met (ticked); waive one only because it does not apply (waived, with the reason); " +
+	"an item that is a person's or CI's (a review, a merge, a passing run) stays open for them. finish and close refuse while an item is open. " +
 	"create and show name similar closed issues: read them before duplicating work. " +
 	"To stop without closing, call handoff (release lets another start it). " +
 	"For a standup or status report, call digest and write the narrative from it; who lists the agents at work. " +
