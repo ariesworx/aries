@@ -764,10 +764,10 @@ func (a *authServer) failed(r *http.Request) {
 }
 
 // refused logs a refusal of the authorization server, sampled per
-// address, with no token, code or address in it.
+// address and reason, with no token or code in it.
 func (a *authServer) refused(r *http.Request, provider, reason string) {
 	addr := peerAddr(r.RemoteAddr)
-	a.s.refusals.line(r.Context(), a.s.cfg.Logger, "signin:"+addr.String(), a.s.now(), slog.LevelInfo, logs.SignInRefused,
+	a.s.refusals.line(r.Context(), a.s.cfg.Logger, "signin:"+reason+"/"+addr.String(), a.s.now(), slog.LevelInfo, logs.SignInRefused,
 		"sign-in refused", "reason", reason, "provider", provider, "addr", addr.String())
 }
 

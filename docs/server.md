@@ -2966,7 +2966,7 @@ limits:
 | `db_conns_per_server` | 32 | Connections to Postgres in ariesd's one pool, which every project's store and the control store share ([One writer for each project](#one-writer-for-each-project)); ariesd holds one more for the writers' locks. A request that finds every one in use waits for one, which the status report and `aries.db.pool.waits` count. Postgres's `max_connections` must leave room for them |
 | `db_conns_per_project` | 8 | Connections one project's reads hold at once, so that a busy project leaves the pool to the others; its writes hold one more. At most `db_conns_per_server` |
 | `writes_per_second`, `write_burst` | 10, 100 | Each principal's write token bucket: writes a second, and how many at once. Reads are not counted |
-| `refusal_logs_per_minute` | 20 | Refusal log lines per principal a minute |
+| `refusal_logs_per_minute` | 20 | Refusal log lines per principal a minute; those of HTTPS and sign-in refusals per address and reason, so behind a proxy one kind of refusal cannot hide another |
 | `records_per_usage_call` | 500 | Token usage records in one `usage` call |
 | `usage_per_day` | 50000 | Token usage records one principal may add in 24 hours, counted by when the server stored them. Per principal, because a client can name any number of sessions |
 | `paths_per_issue` | 200 | Paths one issue keeps, declared and from commits, and the commit paths one `renew`, `finish` or `handoff` records. Too many declared paths are refused with `invalid`; past the cap, commit paths keep the request's first (most recent) and the issue's most recently recorded, and the request still succeeds |
