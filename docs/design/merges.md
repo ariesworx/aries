@@ -1,9 +1,10 @@
 # The merge rule as a setting
 
-**Design, 22 October 2026 (aries-zxxoccdq), proposed.** Nothing in it
-is built, and none of §10's questions is decided. It compares three
-places the rule could live, recommends one, and amends Bearings'
-decision 17 to follow the rule ([bearings.md §7](bearings.md#7-decisions)).
+**Design, 22 October 2026 (aries-zxxoccdq); decided the same day**
+(§10: the maintainer accepted all nine recommendations). Nothing in it
+is built; M1 starts now (§9). It compares three places the rule could
+live, chooses the server setting, and amends Bearings' decision 17 to
+follow the rule ([bearings.md §7](bearings.md#7-decisions)).
 
 ## 1. Why
 
@@ -67,7 +68,7 @@ be trusted.
 | **Epic approval** | The issue is an epic the maintainer approved, or a bug or task under one | The server: the issue's parent and the epic's approval gate (aries.md §21.6), which passes from the session `cli` only (decision 68) | The approvers the workflow names | High: an agent cannot pass a human gate |
 | **Opener** | "A session the maintainer started opened it"; later a dispatcher run the maintainer started | Today only the `brief:` comment on the issue (the memory `briefs`), which names the harness and session; the host's author is the same account for every session | Any member's agent can post a comment | **Low** until aries-2qx4mlm2 stores briefs with the principal and session that started them (§6) |
 | **Draft** | Not a draft | `forge.Open()`'s `isDraft` | Whoever can mark it | High: the queue refuses a draft whatever the classifier says |
-| **Hold or freeze** | No hold on this pull request, no release freeze on any | Today a draft (one pull request) and the conversation (a freeze). Proposed: a lock, `merges/freeze`, as `dispatch/pause` pauses the dispatcher (Q6) | A person | Medium: a lock any member can take is a stop, which is safe; one any member can release is not (Q6) |
+| **Hold or freeze** | No hold on this pull request, no release freeze on any | A draft holds one pull request; the lock `merges/freeze` holds them all, as `dispatch/pause` pauses the dispatcher (decision 6) | Any member or agent may take the lock; only a person releases it | High: taking it only stops merges, and releasing it is a person's act |
 | **The always-human floor** | Releases, tags, signing, the release notes; and the rule's own file and the files that govern agents (§5) | Built into the classifier, not the setting | Nobody, short of a release | High |
 
 Two inputs need a person's act on the server (epic approval, a freeze);
@@ -147,7 +148,7 @@ classes:
         - internal/store/controlmigrations/**
         - internal/keyproof/**
         # … the rest of the memory's list
-holds: draft                 # a draft is a hold; plus the freeze (Q6)
+holds: draft                 # a draft is a hold; plus the lock merges/freeze
 ```
 
 A pull request is queued when one class passes it and the floor does
@@ -203,7 +204,7 @@ setting needs a write and a read, as `workflow.set` and `workflow` are:
 two new ops, so rule 10's bump, the first protocol after 10. prs-check.md
 slice R0b already needs the same for `prs`. Two ways to pay once:
 
-- **A generic pair** (recommended): `setting.set {name, document, rev}`
+- **A generic pair** (chosen, decision 2): `setting.set {name, document, rev}`
   and `setting {name}`, for named project documents the server stores,
   validates by name and logs as `setting.set` with before and after.
   `prs` and `merges` are its first two names, and a later one (a
@@ -223,28 +224,39 @@ land in the same release.
 
 ## 5. The floor: what no setting lifts
 
-Built into the classifier, in every placement, held whatever a class
-says:
+*Decided 22 Oct 2026 (decision 4):* the floor is in two parts.
 
-- **Releases, tags, signing and the release notes** (the memory
-  `merges`: "always"; AGENTS.md rule 3): `internal/release/**`,
-  `.github/workflows/release.yml`, `install*.sh`, `RELEASING.md`,
-  `CHANGELOG.md`, `docs/releases/**`.
-- **The rules that govern agents**: the merge rule's own file,
-  `.aries/workflow.yaml`, `.aries/guard.yaml`, `.aries/brief.txt`, and
-  `.claude/settings*.json`. A rule that could queue its own loosening
-  would be no rule. Under B this is what keeps the file a person's;
-  under A it keeps the file and the server's copy from drifting by an
-  unreviewed merge.
-- **`.github/**`**, which holds the workflows and the branch protection
-  the queue relies on.
+**The product's floor**, built into the classifier for every project,
+held whatever a class says; a project's setting may add to it and never
+shorten it:
 
-A project may add to the floor and never shorten it; the list is the
-classifier's, not this repository's, so its paths are written as a
-default another project's setting extends (the `.aries/` files and
-`.github/` are anyone's; `internal/release` is this repository's and
-belongs in its setting's deny list instead). Q4 asks where that line
-falls.
+- **Releases and signing** (the memory `merges`: "always"; AGENTS.md
+  rule 3): the release workflow, tags, the release notes and the
+  release and signing code.
+- **CI workflows**: `.github/workflows/**`, which hold the checks and
+  the branch protection the queue relies on.
+- **Dependency files**: `go.mod`, `go.sum` and `deps.allow` (rule 4: an
+  agent never adds a dependency).
+- **What agents may run**: the guard policy (`.aries/guard.yaml`), the
+  brief template (`.aries/brief.txt`) and the harnesses' settings
+  (`.claude/settings*.json` and their kin for other harnesses).
+- **The merge rule's own file** (`.aries/merges.yaml`). A rule that
+  could queue its own loosening would be no rule; it also keeps the
+  file and the server's copy from drifting by an unreviewed merge.
+
+The product names these by role, and a project whose files sit
+elsewhere names its paths in its setting; for this repository the
+defaults above are the paths.
+
+**This repository's defaults**, in its own `.aries/merges.yaml`, as
+deny lists of its classes: its security-sensitive paths
+(`internal/keyproof`, `dpop`, `jose`, `oidc`, `credential`, the
+server's sign-in, exchange, trust and HTTPS key proof, `secretscan`,
+`safetext`), the protocol (`internal/proto`, rule 10) and the
+migrations (`internal/store/migrations`, `controlmigrations`, rule 9).
+They are this repository's judgment, not every project's, so they live
+in its file, where a change to them is reviewed and applied like any
+change to the rule.
 
 ## 6. The opener, and why it is the weak input
 
@@ -257,24 +269,30 @@ the memory `briefs` asks for, whose first line names
 
 That comment is any member's to write. An agent that posts a `brief:`
 line on its own issue makes its pull request look like one the
-maintainer started. Until aries-2qx4mlm2 stores the brief with the
-principal and session that started the run, as a record an agent cannot
-write for itself, the classifier can only:
+maintainer started. The merge queue's rerun of CI does not cover this:
+it is a question of who should have been trusted, not of whether the
+code passes.
 
-- read the condition from the comment and **say so** in every verdict
-  that relied on it (`opener: brief comment, not verified`), and
-- refuse the condition where the comment's author is the issue's own
-  claimant, which catches the plain case and not a determined one.
+*Decided 22 Oct 2026 (decision 5):* until aries-2qx4mlm2 stores the
+brief with the principal and session that started the run, as a record
+an agent cannot write for itself, **an unverified opener never
+queues**. The command reads the `brief:` comment, reports the opener as
+`unverified` in its verdict, and holds any pull request whose only
+passing class needs the opener. The coordinator's judgment covers the
+memory `merges`'s condition (4) meanwhile, as it does today; once briefs
+are stored, the command reads the stored record and the condition
+becomes mechanical.
 
-The merge queue's rerun of CI does not cover this: it is a question of
-who should have been trusted, not of whether the code passes. Q5 asks
-whether the class that needs it waits for the stored brief.
+## 7. Chosen: the server setting
 
-## 7. Recommendation
-
-**A, the server setting, applied from a file in the repository, and
-evaluated by one client command** (§3), with the generic setting pair
-of §4.
+*Decided 22 Oct 2026 (decisions 1 to 3).* **A, the server setting,
+applied from a file in the repository, and evaluated by one client
+command** (§3), with the generic `setting.set` and `setting` pair of
+§4, shared with `prs`, not a section of the workflow document. Project
+admins apply it for now, from the session `cli`, each change recorded
+as a `setting.set` event; it moves under the enterprise `policy` role
+(enterprise review E6) when that role exists. The reasons it was
+recommended:
 
 - **The authority is the server's.** Of the three, only A puts the
   change in a person's act that no agent can take and that the project's
@@ -297,8 +315,8 @@ of §4.
 Against it: the most work, a protocol bump, and an apply step a person
 must remember after the file's pull request merges, until Bearings'
 `policy-apply` does it. The first slices (§9) need none of that: the
-command can run read-only against a local file before the setting
-exists, as `aries prs check` runs from flags before R0b.
+command runs read-only against a local file before the setting exists,
+as `aries prs check` runs from flags before R0b.
 
 **What this says for where project rules live** (guard.md decision 8,
 which waited on this issue): a **team standard that grants authority**
@@ -338,7 +356,7 @@ where a later stage builds the full version:
 | The sweep's resume and rework rules (§8) | **B1** | Patrol (§3.3) and handoff (§3.6) |
 | Never run `aries land`; landing from the session `cli` (§8) | **B0** | Unchanged until a server CI reaches reports `landed` itself |
 | Queueing merges under the merge rule (§8, this design) | **B3** | The train in queue mode (§3.5), calling the classifier of §3 |
-| Conflicts: merge `origin/main`, never rebase a pushed branch (the memory `workflow` step 5) | **B3** | Conflicts with §3.4's "by rebasing" (Q8) |
+| Conflicts: merge `origin/main`, never rebase a pushed branch (the memory `workflow` step 5) | **B3** | Unchanged; bearings.md §3.4 is amended to match (decision 8) |
 | The state file and `log.jsonl` (§9, §12) | Not inherited | Typed state as Aries events (§3.2) |
 
 ## 9. Slices
@@ -346,40 +364,28 @@ where a later stage builds the full version:
 | Slice | What | Needs | Protocol |
 |---|---|---|---|
 | M0 | This design, answered | The maintainer | — |
-| M1 | `aries prs merges`, read only, with the rule from a local file (`--rules FILE`) and the floor built in: both memories' conditions as classes, `forge.Files` and the diff check, fail closed, `--json`. The coordinator runs it instead of judging and pastes its verdicts | M0; prs-check R1's `internal/forge` | None |
+| M1 | **Starts now** (decision 7): `aries prs merges`, read only, with the rule from a local file (`--rules FILE`) and the product's floor built in: both memories' conditions as classes, `forge.Files` and the diff check, the opener reported unverified, fail closed, `--json`. The coordinator runs it beside its judgment and pastes its verdicts. It widens nothing, so it does not wait for the trial's evidence; widening the rule still does (the memory `holds` item 3) | M0; prs-check R1's `internal/forge` | None |
 | M2 | `--queue` and the `merge:` comment on each issue it queues; the memory `merges` points at the command | M1 | None |
-| M3 | The setting: `setting.set` and `setting` (or the workflow section, Q2), `aries admin merges set|show|diff`, `aries merges check FILE`, validation, the event, limits; the command reads the server's copy | M1; joins R0b's bump | One bump, shared |
-| M4 | The freeze lock and the stored opener, as Q5 and Q6 answer | M3; aries-2qx4mlm2 | Per the answer |
+| M3 | The setting: `setting.set` and `setting`, `aries admin merges set|show|diff`, `aries merges check FILE`, validation, the `setting.set` event, limits; the command reads the server's copy | M1; joins R0b's bump | One bump, shared |
+| M4 | The command reads the lock `merges/freeze`, whose release is refused to any session but a person's; and the stored opener, so the opener's class can queue | M3; aries-2qx4mlm2 | Per the lock's change: none if the release check is the store's behavior on an existing op |
 | — | The dispatcher's sweep calls M2 (aries-i6fndp4h) | M2 | None |
 | — | Bearings B3's train calls it | M3 | None |
 
 The memories stay the rule until M3 is applied; from then on each says
 only that the setting is the rule, so that there is one statement of it.
 
-## 10. Questions for the maintainer
+## 10. Decisions (maintainer, 22 Oct 2026)
 
-None is decided here.
+The maintainer accepted all nine recommendations (a comment on
+aries-zxxoccdq, 22 October 2026). The questions as they were put are in
+this file's history.
 
-1. **Placement:** the server setting applied from a file (§7), the
-   repository file alone (B), or rules in code (C)?
-2. **One bump:** a generic `setting.set` and `setting` pair shared with
-   `prs`, or a `merges:` section of the workflow document (§4)?
-3. **Who may apply it:** project admins, as the workflow, or a role of
-   its own (the `policy` role of enterprise review E6), since it grants
-   authority to merge?
-4. **The floor:** is §5's list right, and which of its entries are the
-   product's (any project) and which only this repository's?
-5. **The opener:** until briefs are stored (aries-2qx4mlm2), does the
-   memory `merges`'s class run with the condition read from the `brief:`
-   comment and marked unverified, or wait (§6)?
-6. **The freeze:** a lock `merges/freeze` that any member may take and
-   only a person may release, a field of the setting, or the draft alone
-   as today?
-7. **Evidence before widening:** the memory `holds` item 3 makes any
-   widening wait for the trial and a week of outcome records. Does M1,
-   which codes the rules without widening them, wait too?
-8. **Rebase or merge:** Bearings §3.4 resolves conflicts "by rebasing";
-   the memory `workflow` step 5 merges `origin/main` and never rebases a
-   pushed branch. Which does B3's train inherit?
-9. **The command's name:** `aries prs merges`, a `--merges` section of
-   `aries prs check`, or a command of its own?
+1. **Placement:** A, a server setting applied from a reviewed file in the repository, evaluated by one client command (§7).
+2. **One bump:** a generic `setting.set` and `setting` pair, shared with `prs`, not a section of the workflow document (§4).
+3. **Who applies it:** project admins for now, each change recorded as an event; it moves under the enterprise `policy` role (E6) when that role exists (§7).
+4. **The floor** splits in two: the product's, for every project (releases and signing, CI workflows, dependency files, what agents may run, the merge rule's own file), and this repository's defaults in its file (its security-sensitive paths, the protocol, the migrations) (§5).
+5. **The opener:** until briefs are stored (aries-2qx4mlm2), the command reports it as unverified and does not queue on it; the coordinator's judgment covers it meanwhile (§6).
+6. **The freeze:** a lock `merges/freeze` that any member or agent may take and only a person may release; a draft stays the hold for one pull request (§2, M4).
+7. **Evidence:** M1 does not wait for the trial, since it is read-only and widens nothing; widening the rule still waits (the memory `holds` item 3) (§9).
+8. **Rebase or merge:** B3's train merges `origin/main` and never rebases a pushed branch, as the memory `workflow` step 5 says; bearings.md §3.4 is amended to match (§8).
+9. **The name:** `aries prs merges`; `aries merges check FILE` stays free for M3 (§3, §9).

@@ -173,7 +173,11 @@ Go handlers on the event stream replace LLM watchdog roles:
 
 Every agent works in its own worktree and branch, and conflicts are resolved at
 the pull request by rebasing. That is the safety net, and the first stages
-rely on it alone.
+rely on it alone. *Amended 22 Oct 2026 ([merges.md](merges.md) decision 8,
+aries-zxxoccdq):* a conflict is resolved by merging `origin/main` into the
+branch, keeping both sides, and never by rebasing a pushed branch, as the
+memory `workflow` step 5 has every session do; the train (§3.5, B3) does the
+same.
 
 - **Log every conflict.** When a branch conflicts, `bearingsd` records an event
   with the issues and files involved, and the rework it cost in tokens.
