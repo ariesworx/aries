@@ -185,6 +185,7 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 		RunLogs:     paths.Runs,
 		Key:         key,
 		Environ:     env,
+		AgentOTLP:   envValue(env, "ARIES_AGENT_OTLP_ENDPOINT"),
 		State:       state,
 		Save:        save,
 		StopRequest: func() string { return dispatch.ReadStop(paths.Stop) },
@@ -209,6 +210,16 @@ func openLog(paths dispatch.Paths) (*os.File, error) {
 		return nil, err
 	}
 	return os.OpenFile(paths.Log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+}
+
+// envValue is the value of name in env (NAME=value strings), or "".
+func envValue(env []string, name string) string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			return v
+		}
+	}
+	return ""
 }
 
 // dispatchKey reads the API key from the credential store, and says

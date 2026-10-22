@@ -787,3 +787,31 @@ func TestAdopt(t *testing.T) {
 		t.Errorf("did not start ar-2, whose run ended: %q", w.calls.all())
 	}
 }
+
+// With an agent-metrics endpoint, a run exports Claude Code's metrics to
+// it, tagged with its issue and as headless; the dispatcher's own
+// CLAUDE_CODE_ variables still do not pass; with none, nothing is set.
+func TestRunEnvAgentTelemetry(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	d, _ := w.dispatcher(DefaultConfig())
+	env := d.runEnv("s-1", "ar-1")
+	if slices.ContainsFunc(env, func(kv string) bool {
+		return strings.HasPrefix(kv, "OTEL_") || strings.HasPrefix(kv, "CLAUDE_CODE_ENABLE")
+	}) {
+		t.Errorf("no endpoint, but telemetry is set: %q", env)
+	}
+	d.AgentOTLP = "http://127.0.0.1:4318"
+	env = d.runEnv("s-1", "ar-1")
+	for _, want := range []string{"CLAUDE_CODE_ENABLE_TELEMETRY=1", "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318",
+		"OTEL_RESOURCE_ATTRIBUTES=service.name=aries-agents,aries.path=headless,aries.issue=ar-1"} {
+		if !slices.Contains(env, want) {
+			t.Errorf("the run's environment lacks %s: %q", want, env)
+		}
+	}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "OTEL_LOG_") || strings.Contains(kv, "CLAUDE_CODE_SESSION_ID") {
+			t.Errorf("the run's environment has %s", kv)
+		}
+	}
+}

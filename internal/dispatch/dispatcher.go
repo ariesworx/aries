@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/agenttel"
 	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
@@ -39,6 +40,10 @@ type Dispatcher struct {
 	// the environment runs start from.
 	Key     string
 	Environ []string
+	// AgentOTLP, when set, is the OTLP/HTTP endpoint each run exports
+	// Claude Code's metrics and events to, without content
+	// (internal/agenttel).
+	AgentOTLP string
 	// State is read and changed in place; Save writes it.
 	State *State
 	Save  func(*State) error
@@ -323,7 +328,7 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 	text := Brief(d.Template, st, session, dir, found)
 	model := ModelID(dec.Model)
 	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
-		Env: d.runEnv(session), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
+		Env: d.runEnv(session, id), Log: filepath.Join(d.RunLogs, session+".log"), Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
 		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
@@ -349,7 +354,7 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 // the run's session and the key, and the Go variables the gate sets
 // (AGENTS.md, Commands), so that no command needs them written in front:
 // an allow rule does not match a command that starts with an assignment.
-func (d *Dispatcher) runEnv(session string) []string {
+func (d *Dispatcher) runEnv(session, issue string) []string {
 	var env []string
 	for _, kv := range d.Environ {
 		k, _, _ := strings.Cut(kv, "=")
@@ -363,6 +368,7 @@ func (d *Dispatcher) runEnv(session string) []string {
 	env = withEnv(env, "GOTOOLCHAIN", "local")
 	env = withEnv(env, "GOFLAGS", "-mod=readonly")
 	env = append(env, "ARIES_SESSION="+session)
+	env = append(env, agenttel.Env(d.AgentOTLP, agenttel.PathHeadless, issue)...)
 	if d.Key != "" {
 		env = append(env, "ANTHROPIC_API_KEY="+d.Key)
 	}
