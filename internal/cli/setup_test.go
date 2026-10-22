@@ -71,7 +71,7 @@ func TestSetupWriteIsIdempotent(t *testing.T) {
 		note  string
 	}{
 		{name: "claude-code", files: map[string]string{".mcp.json": `"type": "stdio"`, "CLAUDE.md": "<!-- aries:begin -->",
-			".claude/settings.json": `"command": "aries guard --hook"`}, parts: 4, note: "approve"},
+			".claude/settings.json": `"command": "aries guard --hook || echo `}, parts: 4, note: "approve"},
 		{name: "codex", files: map[string]string{".codex/config.toml": "[mcp_servers.aries]", "AGENTS.md": "<!-- aries:end -->",
 			".codex/hooks.json": `"command": "aries prime --hook=codex"`}, note: "/hooks"},
 		{name: "gemini", files: map[string]string{".gemini/settings.json": `"command": "aries prime --hook=gemini"`, "GEMINI.md": "`prime`"},

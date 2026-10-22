@@ -31,10 +31,11 @@ import (
 //
 // A hook is Aries's when its whole command is one that setup writes:
 // a single program word, bare or single-quoted as shellQuote writes it,
-// naming aries or the program setup was given, then the hook's verb (prime
-// or usage) and --hook, with or without =AGENT. Any other hook, a
-// person's compound command that ends in `aries prime --hook` included, is
-// left alone.
+// naming aries or the program setup was given, then the hook's verb (prime,
+// usage or guard) and --hook, with or without =AGENT, and for a style
+// with a fallback, with or without ` || echo '…'` after it. Any other
+// hook, a person's compound command that ends in `aries prime --hook`
+// included, is left alone.
 
 // hookStyle is how one harness writes one of Aries's hooks.
 type hookStyle struct {
@@ -60,6 +61,13 @@ type hookStyle struct {
 	version int
 	// own: the file is Aries's alone, deleted when Remove empties it.
 	own bool
+	// fallback, when set, is an echo the command runs after `||`, when
+	// aries exits other than 0: what the harness reads instead of
+	// aries's exit code.
+	fallback string
+	// onFailure is written as Claude Code's "onFailure" in a new hook,
+	// and in one of Aries's that has none; "" writes none.
+	onFailure string
 }
 
 var (
@@ -105,8 +113,8 @@ var (
 	// shellQuote leaves bare.
 	shellSafe = lazyregexp.New(`^[A-Za-z0-9_./:@%+=,-]+$`)
 	// hookCmd splits a hook's command into its program, one word as
-	// shellQuote writes it, and its verb.
-	hookCmd = lazyregexp.New(`^([A-Za-z0-9_./:@%+=,-]+|'(?:[^']|'\\'')*') (prime|usage|guard) --hook(?:=[a-z][a-z-]*)?$`)
+	// shellQuote writes it, its verb, and any fallback after it.
+	hookCmd = lazyregexp.New(`^([A-Za-z0-9_./:@%+=,-]+|'(?:[^']|'\\'')*') (prime|usage|guard) --hook(?:=[a-z][a-z-]*)?( \|\| echo '[^']*')?$`)
 )
 
 // shellQuote quotes s for the POSIX shell the harness runs hooks with.
@@ -126,11 +134,14 @@ func HookCommand(e Entry, harness string) string {
 
 // command is the command the hook runs: e's program, quoted for the
 // shell, then the style's verb and --hook=harness, or bare --hook for
-// Claude Code.
+// Claude Code, then the style's fallback.
 func (s hookStyle) command(e Entry, harness string) string {
 	cmd := shellQuote(e.Command) + " " + s.verb + " --hook"
 	if harness != "claude-code" {
 		cmd += "=" + harness
+	}
+	if s.fallback != "" {
+		cmd += " || " + s.fallback
 	}
 	return cmd
 }
@@ -199,7 +210,8 @@ func hookParts(h object) (cmd string, ok bool) {
 
 // ours reports whether h is this style's Aries hook: it runs exactly
 // s.command(e, harness), or one program word as shellQuote writes it,
-// naming aries or e's program, then s.verb --hook with or without =AGENT.
+// naming aries or e's program, then s.verb --hook with or without =AGENT,
+// and, for a style with a fallback, with or without one of any wording.
 func (s hookStyle) ours(h object, e Entry, harness string) bool {
 	cmd, ok := hookParts(h)
 	if !ok {
@@ -209,7 +221,8 @@ func (s hookStyle) ours(h object, e Entry, harness string) bool {
 		return true
 	}
 	m := hookCmd.FindStringSubmatch(cmd)
-	return m != nil && m[2] == s.verb && (program(m[1]) == "aries" || program(m[1]) == program(e.Command))
+	return m != nil && m[2] == s.verb && (m[3] == "" || s.fallback != "") &&
+		(program(m[1]) == "aries" || program(m[1]) == program(e.Command))
 }
 
 // exact reports whether h runs exactly the command setup writes, async
@@ -226,12 +239,15 @@ func async(h object) bool {
 	return ok && json.Unmarshal(raw, &b) == nil && b
 }
 
-// fix is h, one of this style's hooks, with the command setup writes. A
-// hook async where the style is not, or the reverse, also gets the
-// style's async setting and timeout, which go together; its other keys
-// are kept.
+// fix is h, one of this style's hooks, with the command setup writes,
+// and the style's onFailure where h has none. A hook async where the
+// style is not, or the reverse, also gets the style's async setting and
+// timeout, which go together; its other keys are kept.
 func (s hookStyle) fix(h object, e Entry, harness string) object {
 	h = h.set("command", mustJSON(s.command(e, harness)))
+	if _, ok := h.get("onFailure"); s.onFailure != "" && !ok {
+		h = h.set("onFailure", mustJSON(s.onFailure))
+	}
 	if async(h) == s.async {
 		return h
 	}
@@ -387,6 +403,9 @@ func (s hookStyle) entry(e Entry, harness string) json.RawMessage {
 	}
 	if s.timeout > 0 {
 		o = o.set("timeout", mustJSON(s.timeout))
+	}
+	if s.onFailure != "" {
+		o = o.set("onFailure", mustJSON(s.onFailure))
 	}
 	return o.marshal()
 }

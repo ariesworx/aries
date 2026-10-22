@@ -1,6 +1,11 @@
 package agentsetup
 
 import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -57,8 +62,9 @@ func TestGuard(t *testing.T) {
         "hooks": [
           {
             "type": "command",
-            "command": "aries guard --hook",
-            "timeout": 5
+            "command": ` + string(mustJSON("aries guard --hook || "+guardFallback)) + `,
+            "timeout": 5,
+            "onFailure": "continue"
           }
         ]
       }
@@ -129,9 +135,146 @@ func TestGuardIsClaudeCodeProjects(t *testing.T) {
 		}
 	}
 	snip := guardOf(t, "claude-code").Snippet(Entry{Command: "/opt/star fix/aries", Deny: []string{"Bash(gh api *)"}})
-	for _, want := range []string{`"command": "'/opt/star fix/aries' guard --hook"`, `"Bash(gh api *)"`, `"PreToolUse"`} {
+	for _, want := range []string{`"command": "'/opt/star fix/aries' guard --hook || echo `, `"Bash(gh api *)"`, `"PreToolUse"`} {
 		if !strings.Contains(snip, want) {
 			t.Errorf("snippet lacks %s:\n%s", want, snip)
 		}
+	}
+}
+
+// guardHookOf is the one guard hook in settings: its command and its
+// onFailure.
+func guardHookOf(t *testing.T, settings []byte) (command, onFailure string) {
+	t.Helper()
+	var doc struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Hooks []struct {
+					Command   string `json:"command"`
+					OnFailure string `json:"onFailure"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(settings, &doc); err != nil {
+		t.Fatalf("settings: %v\n%s", err, settings)
+	}
+	if pre := doc.Hooks.PreToolUse; len(pre) != 1 || len(pre[0].Hooks) != 1 {
+		t.Fatalf("settings hold %d PreToolUse groups, want one with one hook:\n%s", len(pre), settings)
+	}
+	h := doc.Hooks.PreToolUse[0].Hooks[0]
+	return h.Command, h.OnFailure
+}
+
+// The guard's hook, run as Claude Code runs a shell-form hook (`sh -c`),
+// never blocks a call when the aries on PATH cannot run the guard: one
+// that predates `guard` exits 2, which Claude Code reads as "block", and
+// the hook instead exits 0 with a systemMessage, which Claude Code shows
+// the person, and no decision, so the call goes on through Claude Code's
+// own rules (docs/design/guard.md §6). An aries that runs the guard is
+// passed through as it answered.
+func TestGuardHookFailsOpen(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("stands in for aries with POSIX shell scripts")
+	}
+	deny := `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no"}}`
+	tests := []struct {
+		name string
+		// script is the aries on PATH, as a shell script's body; "" puts
+		// none there.
+		script string
+		// want is the hook's stdout; "" with note wants the note.
+		want string
+		note bool
+	}{
+		{name: "predates guard", note: true,
+			script: `echo 'aries: unknown command "guard"' >&2; echo 'fix: run ` + "`aries help`" + ` for the commands' >&2; exit 2`},
+		{name: "not on PATH", note: true},
+		{name: "crashes", note: true, script: `echo 'panic: runtime error' >&2; exit 2`},
+		{name: "denies", script: `printf '%s\n' '` + deny + `'`, want: deny + "\n"},
+		{name: "no decision", script: `exit 0`},
+	}
+	settings, _, err := applyGuard(nil, DefaultEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, onFailure := guardHookOf(t, settings)
+	if onFailure != "continue" {
+		t.Errorf("the guard's hook has onFailure %q, want continue: a hook that fails must not block a Desktop session", onFailure)
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bin := t.TempDir()
+			if tc.script != "" {
+				if err := os.WriteFile(filepath.Join(bin, "aries"), []byte("#!/bin/sh\n"+tc.script+"\n"), 0o700); err != nil { //nolint:gosec // a stand-in the test runs
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", command) //nolint:gosec // the command setup writes, run as Claude Code runs it
+			cmd.Env = []string{"PATH=" + bin}
+			cmd.Stdin = strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`)
+			var stdout, stderr strings.Builder
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("sh -c %q with %s: %v; want exit 0, which Claude Code does not read as a block\nstderr: %s", command, tc.name, err, stderr.String())
+			}
+			if !tc.note {
+				if got := stdout.String(); got != tc.want {
+					t.Errorf("sh -c %q printed %q, want %q", command, got, tc.want)
+				}
+				return
+			}
+			var out map[string]any
+			if err := json.Unmarshal([]byte(stdout.String()), &out); err != nil {
+				t.Fatalf("sh -c %q printed %q: %v; want one JSON object", command, stdout.String(), err)
+			}
+			msg, _ := out["systemMessage"].(string)
+			if len(out) != 1 || !strings.Contains(msg, "aries guard did not run") || !strings.Contains(msg, "fix: ") || strings.Contains(msg, "\n") {
+				t.Errorf("sh -c %q printed %s; want only a one-line systemMessage saying the guard did not run, with a fix", command, stdout.String())
+			}
+		})
+	}
+}
+
+// An install from before the hook's fallback, or with another wording of
+// it, is updated in place: the command becomes setup's, onFailure is
+// added where the person has none, and the person's other keys stay.
+func TestGuardHookUpgrade(t *testing.T) {
+	t.Parallel()
+	g := guardOf(t, "claude-code")
+	want, _, err := applyGuard(nil, DefaultEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCmd, _ := guardHookOf(t, want)
+	hook := func(cmd, extra string) string {
+		b, _ := json.Marshal(cmd)
+		return `{"hooks": {"PreToolUse": [{"matcher": "Bash|Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": ` +
+			string(b) + `, "timeout": 9` + extra + `}]}]}}`
+	}
+	tests := []struct {
+		name, in, onFailure string
+	}{
+		{name: "before the fallback", in: hook("aries guard --hook", ""), onFailure: "continue"},
+		{name: "another wording", in: hook(`aries guard --hook || echo '{"systemMessage":"older words"}'`, ""), onFailure: "continue"},
+		{name: "the person's onFailure", in: hook("aries guard --hook", `, "onFailure": "block"`), onFailure: "block"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out, res, err := g.Apply([]byte(tc.in), DefaultEntry)
+			if err != nil || res != Updated {
+				t.Fatalf("Apply(%s) = %s, %v; want updated", tc.in, res, err)
+			}
+			cmd, onFailure := guardHookOf(t, out)
+			if cmd != wantCmd || onFailure != tc.onFailure || !strings.Contains(string(out), `"timeout": 9`) {
+				t.Errorf("Apply(%s) =\n%s\nwant command %q, onFailure %q and timeout 9", tc.in, out, wantCmd, tc.onFailure)
+			}
+			if !g.Registered(out, DefaultEntry) {
+				t.Errorf("not registered after Apply:\n%s", out)
+			}
+		})
 	}
 }

@@ -284,7 +284,8 @@ project's `.claude/settings.json`, the PreToolUse hook
 
 ```json
 {"matcher": "Bash|Edit|Write|NotebookEdit",
- "hooks": [{"type": "command", "command": "aries guard --hook", "timeout": 5}]}
+ "hooks": [{"type": "command", "timeout": 5, "onFailure": "continue",
+   "command": "aries guard --hook || echo '{\"systemMessage\":\"aries guard did not run: …\"}'"}]}
 ```
 
 and a coarse copy of the policy's denies in `permissions.deny`, in
@@ -298,6 +299,23 @@ as one of yours. Not with `--global`: the policy is a project's. A
 dispatched run gets the hook through `--settings`, failing closed, and
 the same lists in `--allowedTools` and `--disallowedTools`
 ([What a run may run](cli.md#the-dispatcher-experimental)).
+
+**An older aries.** Claude Code reads a PreToolUse hook's exit 2 as a
+block of the call, and an `aries` from before the guard exits 2 for the
+unknown command `guard`, as does one that crashes. So the hook's command
+ends in `|| echo …`: when `aries` exits other than 0, or is not on the
+session's `PATH`, the hook prints a one-line `systemMessage` instead,
+which Claude Code shows you (`aries guard did not run: … fix: install
+or upgrade aries`), and decides nothing, so the call goes on under
+Claude Code's own rules and the `permissions.deny` copy. A teammate who
+pulls the settings before upgrading `aries` is told at each call rather
+than refused. `"onFailure": "continue"` keeps a hook that fails all
+the same from blocking, as Claude Code does on Windows without Git Bash,
+where the command runs in PowerShell. `--write` itself runs the `aries`
+it would write (`--command`, by default the one on your `PATH`) as
+`aries guard --hook`, and refuses, writing nothing, when that fails:
+upgrade it (`aries upgrade`), or name one with the guard by `--command`.
+A dispatched run's own hook has no fallback and still fails closed.
 
 **What the maintainer reviews.** `.aries/guard.yaml` decides what every
 unattended run and every Desktop session may run, so a change to it is a
