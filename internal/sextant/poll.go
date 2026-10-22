@@ -18,6 +18,10 @@ import (
 type Sink interface {
 	// SetCost replaces project's figures; nil clears them.
 	SetCost(project string, costs []telemetry.SextantCost)
+	// SetAccounts and SetTokens replace project's figures by account and
+	// by model; nil clears them.
+	SetAccounts(project string, accounts []telemetry.SextantAccount)
+	SetTokens(project string, tokens []telemetry.SextantTokens)
 	// ScrapeError counts one failure to read project.
 	ScrapeError(project, op, code string)
 }
@@ -149,9 +153,62 @@ func (p *Poller) pollProject(ctx context.Context, project string) error {
 		p.failed(project, telemetry.SextantOpCost, err)
 		return err
 	}
+	var byAccount proto.CostResult
+	args.By = "account"
+	if err := p.call(ctx, conn, proto.OpCost, args, &byAccount); err != nil {
+		p.dropIfLost(project, conn)
+		p.failed(project, telemetry.SextantOpCost, err)
+		return err
+	}
 	p.sink.SetCost(project, costsByModel(cost, prices))
+	p.sink.SetTokens(project, tokensByModel(cost, prices))
+	p.sink.SetAccounts(project, accounts(byAccount))
 	p.recovered(project)
 	return nil
+}
+
+// accounts is a cost report's groups by account: their cost and the
+// hours people logged against them.
+func accounts(cost proto.CostResult) []telemetry.SextantAccount {
+	out := make([]telemetry.SextantAccount, 0, len(cost.Groups))
+	for _, g := range cost.Groups {
+		usd, err := strconv.ParseFloat(g.CostUSD, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, telemetry.SextantAccount{Account: g.Key, USD: usd, Hours: float64(g.LoggedSeconds) / 3600})
+	}
+	return out
+}
+
+// tokensByModel is a cost report's tokens by model, with those no price
+// covers: a group the server marks unpriced, or whose model it has no
+// price for, so that a missing price shows as tokens and never as $0.
+func tokensByModel(cost proto.CostResult, prices proto.PricesResult) []telemetry.SextantTokens {
+	priced := map[string]bool{}
+	for _, pr := range prices.Prices {
+		priced[pr.Model] = true
+	}
+	n := func(p *int64) int64 {
+		if p == nil {
+			return 0
+		}
+		return *p
+	}
+	out := make([]telemetry.SextantTokens, 0, len(cost.Groups))
+	for _, g := range cost.Groups {
+		model := g.Key
+		unpriced := g.Unpriced
+		if !priced[model] {
+			model, unpriced = telemetry.ModelOther, true
+		}
+		t := telemetry.SextantTokens{Model: model, Input: n(g.Input), Output: n(g.Output), CacheWrite: n(g.CacheWrite), CacheRead: n(g.CacheRead)}
+		if unpriced {
+			t.Unpriced = t.Input + t.Output + t.CacheWrite + t.CacheRead
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // costsByModel is a cost report's groups by model, each a model the
@@ -292,6 +349,8 @@ func (p *Poller) failed(project, op string, err error) {
 	}
 	p.sink.ScrapeError(project, op, code)
 	p.sink.SetCost(project, nil)
+	p.sink.SetAccounts(project, nil)
+	p.sink.SetTokens(project, nil)
 	now := time.Now()
 	p.mu.Lock()
 	last, was := p.failing[project]

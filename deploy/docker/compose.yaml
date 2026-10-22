@@ -196,6 +196,7 @@ services:
     volumes:
       - ../observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - ../observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - ../observability/alerts-sextant.yaml:/etc/prometheus/alerts-sextant.yaml:ro
 
   # Grafana's all-in-one OpenTelemetry backend, to look at what ariesd
   # reports over time: a Collector that receives what ariesd pushes,
