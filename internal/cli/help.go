@@ -74,6 +74,7 @@ var helpGroups = []helpGroup{
 	{"Gates", []helpLine{
 		{"gate", "hold issues until a person passes a gate or CI reports a check"},
 		{"land", "report landed for the default branch's commits, after a pull"},
+		{"pull-job", "one run of the scheduled pull job (see setup pull-job)"},
 		{"workflow", "check that the server's workflow is the one in a file"},
 	}},
 	{"Offline and cache", []helpLine{
@@ -274,6 +275,10 @@ var examples = map[string][]example{
 		{"Hold an issue until alice approves it", "aries gate add --blocks ar-a1b2c3d4 --approver alice"},
 		{"Pass a gate, as its approver", `aries gate pass ar-e5f6a7b8 --reason "reviewed"`},
 		{"Report from CI that the build passed on this branch", "aries gate pass --check build --from-branch --url https://ci.example.com/7"},
+	},
+	"pull-job": {
+		{"Run it once by hand", "aries pull-job --run"},
+		{"Name the default branch and the remote", "aries pull-job --run --branch trunk --remote upstream"},
 	},
 	"land": {
 		{"After git pull, report what landed", "aries land"},

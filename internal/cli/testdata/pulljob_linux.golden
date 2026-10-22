@@ -1,0 +1,24 @@
+=== /home/alice/.config/systemd/user/aries-pull-job-proj-4832751b.service
+# Written by `aries setup pull-job`; remove it with `aries setup pull-job --remove`.
+[Unit]
+Description=Pull the default branch of /home/alice/code/proj and report landed
+
+[Service]
+Type=oneshot
+ExecStart="/usr/local/bin/aries" "-C" "/home/alice/code/proj" "pull-job" "--run" "--branch" "main" "--remote" "origin" "--key-file" "/home/alice/.ssh/id_work"
+=== /home/alice/.config/systemd/user/aries-pull-job-proj-4832751b.timer
+# Written by `aries setup pull-job`; remove it with `aries setup pull-job --remove`.
+[Unit]
+Description=Run aries-pull-job-proj-4832751b.service every 15m0s
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=900s
+
+[Install]
+WantedBy=timers.target
+=== start
+systemctl --user daemon-reload
+systemctl --user enable --now aries-pull-job-proj-4832751b.timer
+=== stop
+systemctl --user disable --now aries-pull-job-proj-4832751b.timer
