@@ -1007,11 +1007,6 @@ func (c *tracedConn) Call(_ context.Context, op string, args, res any) error {
 		c.ln.broke()
 		return err
 	}
-	if _, replayed := args.(json.RawMessage); replayed && c.ss.s.part != nil {
-		// Not while another session of the principal is between
-		// queuing a write and reading its key (outboxLocks).
-		defer c.ss.s.part.locks.forReplay(c.ss.key.principal)()
-	}
 	a, watch := args.(proto.WatchArgs)
 	if watch {
 		c.ln.watching(a.Events)

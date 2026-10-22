@@ -189,6 +189,7 @@ func TestQueuedToolCalls(t *testing.T) {
 				Queued bool
 				Op     string
 				Entry  int
+				Key    string
 				ID     string
 				Rev    int
 			}
@@ -200,6 +201,9 @@ func TestQueuedToolCalls(t *testing.T) {
 			if len(list.Pending) != 1 || list.Pending[0].Op != tc.op || !strings.HasPrefix(list.Pending[0].Idem, "mcp-") ||
 				list.Pending[0].Session != "s-test" || list.Pending[0].Machine != "laptop" {
 				t.Errorf("%s: the outbox holds %+v, want the one %s with its key, session and machine", tc.tool, list.Pending, tc.op)
+			}
+			if len(list.Pending) == 1 && doc.Key != list.Pending[0].Idem {
+				t.Errorf("%s: structured content's key is %q, want the queued entry's %q", tc.tool, doc.Key, list.Pending[0].Idem)
 			}
 		})
 	}

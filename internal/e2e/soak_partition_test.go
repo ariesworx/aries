@@ -16,7 +16,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ariesworx/aries/internal/outbox"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -67,14 +66,11 @@ type partition struct {
 	cutFor  time.Duration
 	cached  int
 	refused int // starts and other writes refused while cut
-	// locks keep a sibling's replay from delivering an entry before the
-	// session that queued it has read its key.
-	locks outboxLocks
 }
 
 // queuedWrite is a write a session was told it queued: entry is its
-// number in the principal's outbox, idem its key, read from the outbox
-// as it was queued, and markers the text unique to it that the log shows
+// number in the principal's outbox, idem its key, as the queued answer
+// gave it, and markers the text unique to it that the log shows
 // wherever it took effect.
 type queuedWrite struct {
 	who     sessKey
@@ -148,7 +144,7 @@ func partitionFaults(queued []queuedWrite, end partitionEnd) []violation {
 	known := map[string]bool{}
 	for _, w := range queued {
 		if w.idem == "" {
-			fail(w, "told it was queued, but there was no entry %d in its outbox", w.entry)
+			fail(w, "told it was queued with no key for entry %d", w.entry)
 			continue
 		}
 		known[w.idem] = true
@@ -307,15 +303,9 @@ func (ms *mcpSession) rejoin() { ms.cut.Store(false) }
 func (ms *mcpSession) isCut() bool { return ms.cut.Load() }
 
 // write calls a tool that writes, and notes a write it was told it
-// queued, with its entry's key read from the outbox, and the markers the
+// queued, with its entry's key as the answer gave it, and the markers the
 // log shows wherever it takes effect.
 func (ms *mcpSession) write(name string, args map[string]any, markers ...string) (string, bool) {
-	if ms.s.part != nil && ms.isCut() {
-		// A cut session sends nothing, so it waits on no replay of its
-		// own while it holds the lock; only the session's goroutine
-		// lets it back.
-		defer ms.s.part.locks.forQueue(ms.key.principal)()
-	}
 	res := ms.toolResult(name, args)
 	text, isErr := firstText(res)
 	if ms.s.part == nil || res == nil {
@@ -327,13 +317,14 @@ func (ms *mcpSession) write(name string, args map[string]any, markers ...string)
 		var q struct {
 			Op    string `json:"op"`
 			Entry uint64 `json:"entry"`
+			Key   string `json:"key"`
 		}
 		b, _ := json.Marshal(res.StructuredContent)
 		if json.Unmarshal(b, &q) != nil {
 			ms.s.mon.fail("", "%s: %s answered queued with no entry: %s", ms.key, name, b)
 			return text, isErr
 		}
-		w := queuedWrite{who: ms.key, p: ms.p, entry: q.Entry, op: q.Op, idem: ms.entryKey(q.Entry), markers: markers}
+		w := queuedWrite{who: ms.key, p: ms.p, entry: q.Entry, op: q.Op, idem: q.Key, markers: markers}
 		ms.s.part.mu.Lock()
 		ms.s.part.queued = append(ms.s.part.queued, w)
 		ms.s.part.mu.Unlock()
@@ -345,84 +336,6 @@ func (ms *mcpSession) write(name string, args map[string]any, markers ...string)
 		ms.s.part.mu.Unlock()
 	}
 	return text, isErr
-}
-
-// outboxLocks holds, for each principal, the lock that keeps a sibling
-// session's replay from delivering, and so dropping from the outbox, an
-// entry another session has just queued before that session has read
-// the entry's key back (TestOutboxKeyReadBeforeASiblingDelivers). The
-// sessions of a principal share its outbox, and a replay sends what is
-// queued while it runs. A replay never waits for another
-// (outbox.Outbox.Replay), so a replayer that waits here holds nothing a
-// queuer waits for.
-type outboxLocks struct {
-	mu sync.Mutex
-	m  map[string]*sync.RWMutex
-}
-
-// of returns principal's lock.
-func (o *outboxLocks) of(principal string) *sync.RWMutex {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.m == nil {
-		o.m = map[string]*sync.RWMutex{}
-	}
-	l := o.m[principal]
-	if l == nil {
-		l = &sync.RWMutex{}
-		o.m[principal] = l
-	}
-	return l
-}
-
-// forReplay holds principal's lock while one replayed request is sent,
-// and returns what lets it go.
-func (o *outboxLocks) forReplay(principal string) func() {
-	l := o.of(principal)
-	l.RLock()
-	return l.RUnlock
-}
-
-// forQueue holds principal's lock from a write a cut session may queue
-// to the read of its entry's key, and returns what lets it go.
-func (o *outboxLocks) forQueue(principal string) func() {
-	l := o.of(principal)
-	l.Lock()
-	return l.Unlock
-}
-
-// entryKey returns the idempotency key of entry seq of this session's
-// principal's outbox, or "" when it holds no such entry.
-func (ms *mcpSession) entryKey(seq uint64) string {
-	l, _, err := ms.off.Local()
-	if err != nil {
-		return ""
-	}
-	ob, ok, err := l.Existing(ms.key.principal)
-	if err != nil || !ok {
-		return ""
-	}
-	return entryKeyIn(ob, seq)
-}
-
-// entryKeyIn returns the idempotency key of entry seq of ob, pending or
-// refused, or "" when it holds no such entry.
-func entryKeyIn(ob *outbox.Outbox, seq uint64) string {
-	list, err := ob.List()
-	if err != nil {
-		return ""
-	}
-	for _, e := range list.Pending {
-		if e.Seq == seq {
-			return e.Idem
-		}
-	}
-	for _, r := range list.Refused {
-		if r.Entry.Seq == seq {
-			return r.Entry.Idem
-		}
-	}
-	return ""
 }
 
 // firstText is a tool result's first text block, and whether it is an
