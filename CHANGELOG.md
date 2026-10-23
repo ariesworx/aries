@@ -11,6 +11,21 @@ minor version (decision 93). Entries for v0.1.0 to v0.4.0 were written
 afterward, from the notes GitHub generated for each release; the project
 had another name then, and its notes say Aries and `aries` today.
 
+## v0.7.0 (unreleased)
+
+- Protocol 10, accepting 9: v0.6.0's `aries` keeps working against a
+  v0.7.0 server, v0.5.0's is refused, and `aries` v0.7.0 needs a v0.7.0
+  server; upgrade `ariesd` first. Migration 3 adds a price's tier.
+- Prices by prompt length (Haiku 5.5 over 100,000 tokens); ariesd
+  instruments for flow, closes, waits and the ready queue; Sextant's
+  cost by account, with alert rules and a dashboard.
+- Experimental, CLI only: `aries dispatch`, `aries outcome` and `aries
+  guard`, a policy hook every Claude Code session can run. Also `aries
+  prs merges` (read only), `aries setup pull-job` and a reworked help,
+  which deprecates `admin principal add --key` for `--pubkey`.
+- Breaking: `aries dispatch run` needs `.aries/guard.yaml`.
+- Notes: [docs/releases/v0.7.0.md](docs/releases/v0.7.0.md).
+
 ## v0.6.0 (2026-10-20)
 
 - Protocol 9, accepting 8: v0.5.0's `aries` keeps working against a
