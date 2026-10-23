@@ -7,13 +7,16 @@ contexts as the code has them today, maps how they depend on each
 other, gives a glossary of the language with every term that means two
 things, lists where the boundaries leak, and ranks what is worth doing.
 It is written against `main` at 8bba8f14; a line number is that
-commit's. **It decides nothing and changes no code.**
+commit's. It changes no code. **Decided, 23 October 2026:** the
+maintainer accepted the recommendation on all ten questions, with the
+glossary's test from the start and `area:` labels only after the
+glossary (§8).
 
 It follows [cli-review.md](cli-review.md) and
 [factory-review.md](factory-review.md) in form: findings with their
 citations (§2 to §5), then what DDD does and does not fit here (§6),
 ranked recommendations (§7) and questions for the maintainer, each with
-this review's recommendation (§8).
+this review's recommendation and the maintainer's decision (§8).
 
 **The short answer.** DDD's strategic half pays for itself here: names
 for the contexts, a map of how they talk, and one meaning per word. The
@@ -574,7 +577,8 @@ project" and "repository", "gate script" for `scripts/gate.sh`. Define
 to `route`, `internal/server/dispatch.go`), so that "dispatch" means the
 dispatcher. No wire or command name changes: from v0.5.0 they are kept
 (rule 2, rule 10). *Cost:* small for the docs; small for the rename;
-small for `landed`. *Briefs:* the template can name the glossary as the
+small for `landed`; a test fails when a glossary term no longer
+appears in the code (decided, §8 question 2). *Briefs:* the template can name the glossary as the
 meaning of its words, one line. *AGENTS.md:* a pointer from "What this
 is".
 
@@ -599,7 +603,9 @@ context map (§3) to `docs/design/aries.md` as an as-built note under
 are unaffected unless they parse the table (they do not today).
 *Briefs:* a brief can name the context an issue touches, and the
 dispatcher can do it from a label (`area:work`, `area:cost`), which the
-`dim:value` labels already allow (`docs/design/aries.md` §3).
+`dim:value` labels already allow (`docs/design/aries.md` §3), tried
+for one wave once R1 and R4's glossary have landed (decided, §8
+question 9).
 
 **R7. One home for the rules the CLI and MCP share (L10, L11).** Move
 `RepoConn` and `DialRepo` from `internal/mcpserver` to
@@ -638,41 +644,58 @@ own.
 
 ## 8. Questions for the maintainer
 
-Each has this review's recommendation.
+Each has this review's recommendation and, under it, the maintainer's
+decision of 23 October 2026: "Accept your recommendations for all 10
+domain-review questions (glossary test now; area labels after the
+glossary)."
 
 1. **Should the contexts be named in the docs only, or in the code
    too?** *Recommendation:* in the guides, AGENTS.md and the package
    docs (R4 to R6), and in file layout only where it costs nothing; no
    package split (§6).
+   *Decided:* as recommended.
 2. **Where should the glossary live?** *Recommendation:* a section of
    `docs/concepts.md`, which people and agents already read, with a
    test later that holds its terms to the code if it drifts.
+   *Decided:* a section of `docs/concepts.md`, with the test from the
+   start: it fails when a glossary term no longer appears in the code.
 3. **Which overloaded words are renamed in code, and which only
    qualified in prose?** *Recommendation:* rename only the server's op
    routing (`dispatch` to `route`), which is internal; qualify the rest
    in prose; rename nothing on the wire or in a command.
+   *Decided:* as recommended.
 4. **Are locks part of work tracking or of coordination?**
    *Recommendation:* coordination: they hold no issue, and decision 70
    keeps them away from agents. Split them from `Gates` in
    `stores.go` (R5).
+   *Decided:* as recommended.
 5. **Which `landed` is the product's: the close reason, or the check
    passed?** *Recommendation:* the check passed, as the outcome record
    has it, since an issue can be closed by hand after its check passed;
    make cost's group follow (R4).
+   *Decided:* as recommended.
 6. **Should the close-readiness rule (R2) and the offline-list test
    (R3) be done next, before the rest?** *Recommendation:* yes: they are
    the two places where a rule can drift today, and each is a small
    issue.
+   *Decided:* as recommended.
 7. **Is `internal/proto` allowed to hold domain parsing (the workflow
    file, money, dates)?** *Recommendation:* yes, as the published
    language both sides need; say so in its package doc.
+   *Decided:* as recommended.
 8. **Should a domain-modeler agent spec be added?** *Recommendation:*
    no; add three lines of method to `go-engineer` instead, and repeat
    this review when Bearings starts.
+   *Decided:* as recommended: no domain-modeler spec; three lines of
+   method in `go-engineer`'s three files (Claude Code's, Codex's and
+   Gemini CLI's), and this review repeated when Bearings starts.
 9. **Should issues carry an `area:` label naming their context, for
    briefs and the dispatcher?** *Recommendation:* try it for one wave
    of issues and read the outcome records before making it a workflow
    default.
+   *Decided:* tried for one wave, and only after R1 and R4's glossary
+   have landed.
 10. **Should the docs fixes (R1) go in one pull request now, separate
     from the code changes?** *Recommendation:* yes, as one docs issue;
     it needs no decision beyond this one.
+    *Decided:* as recommended.
