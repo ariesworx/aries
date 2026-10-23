@@ -91,7 +91,7 @@ func TestBriefTemplateRenders(t *testing.T) {
 			}
 		}
 		for _, want := range []string{"x-1", "`workflow`", "`handoff`", "Aries: x-1", "never merge",
-			"leave the CI item and the review and merge item open", "never end a turn while a command runs"} {
+			"tick the CI item only once", "leave the review and merge item open", "never end a turn while a command runs"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s brief lacks %q:\n%s", h, want, got)
 			}

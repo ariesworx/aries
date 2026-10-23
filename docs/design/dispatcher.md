@@ -408,6 +408,23 @@ get: leave those two items open at handoff, neither ticked nor waived;
 and wait for a long command inside the turn. A store refusal of such a
 waiver is left for a later change.
 
+**As built: brief version 4 (23 October 2026, aries-nub37piw).** Version
+3's step 12 said the landed check ticks "CI green on the PR". It does
+not: `.aries/workflow.yaml` binds only "Reviewed and merged by the
+maintainer" to `landed`, on purpose, since CI cannot report to this
+server (aries.md §21.8), and the agent ticks the CI item. So after
+`aries pull-job` landed PRs 327 and 329 the merge item was ticked, the
+CI item stayed open, and the closing pass did not close either issue.
+The binding stays as it is: a landing does imply the merge queue's CI
+passed, but binding the item to `landed` would tick it for a commit
+whose checks nobody read, and the workflow is the maintainer's to
+change. Version 4 instead has the worker tick the CI item once
+`gh pr checks --required` shows every required check passed on the PR's
+head, waiting for that inside the turn (step 13); the review and merge
+item is still left open, neither ticked nor waived. The dispatcher's own
+code builds no handoff and needed no change. The memory `workflow`
+(step 5) is edited to match once this merges.
+
 The shared-memory ENOSPC aries-mf2ozf4h met under the pgtest lock is not
 this change's, and is left to its own issue.
 
