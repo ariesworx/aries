@@ -116,6 +116,9 @@ type Limits struct {
 	WorkflowItems    int `yaml:"workflow_items_per_type"`
 	WorkflowChecks   int `yaml:"workflow_checks_per_type"`
 	WorkflowCloseout int `yaml:"workflow_closeout_per_type"`
+	// BriefBytes caps a brief's text, in bytes (design §22.2); at most
+	// 65,000, a comment's column less the record's line.
+	BriefBytes int `yaml:"brief_bytes"`
 }
 
 // DefaultLimits are the limits a zero field takes.
@@ -125,7 +128,8 @@ var DefaultLimits = Limits{Labels: 50, AcceptanceItems: 200, Deps: 200, Sessions
 	Prices: 1000, HoursPerDay: 50, HoursNote: 500, Plans: 1000, PlanPrincipals: 100,
 	ConflictsPerIssue: 20, ConflictsPerPrincipal: 100, GateApprovers: 10, OpenGates: 1000,
 	GateChecks: 20, GateEvidence: 1024, Locks: 200, LockCapacity: 64, LockWaiters: 100, LockWaits: 20,
-	WorkflowBytes: 16384, WorkflowItems: 20, WorkflowChecks: 5, WorkflowCloseout: 20}
+	WorkflowBytes: 16384, WorkflowItems: 20, WorkflowChecks: 5, WorkflowCloseout: 20,
+	BriefBytes: 32768}
 
 // maxLocks and maxLockQueue bound the lock limits: a list of locks reads
 // every lock in use, with its holds and its queue.
@@ -178,6 +182,7 @@ func (l Limits) withDefaults() Limits {
 		{&l.LockWaiters, &DefaultLimits.LockWaiters}, {&l.LockWaits, &DefaultLimits.LockWaits},
 		{&l.WorkflowBytes, &DefaultLimits.WorkflowBytes}, {&l.WorkflowItems, &DefaultLimits.WorkflowItems},
 		{&l.WorkflowChecks, &DefaultLimits.WorkflowChecks}, {&l.WorkflowCloseout, &DefaultLimits.WorkflowCloseout},
+		{&l.BriefBytes, &DefaultLimits.BriefBytes},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.d
@@ -205,6 +210,7 @@ func (l Limits) Validate() error {
 		{"waiters_per_lock", l.LockWaiters}, {"lock_waits_per_principal", l.LockWaits},
 		{"workflow_bytes", l.WorkflowBytes}, {"workflow_items_per_type", l.WorkflowItems},
 		{"workflow_checks_per_type", l.WorkflowChecks}, {"workflow_closeout_per_type", l.WorkflowCloseout},
+		{"brief_bytes", l.BriefBytes},
 	} {
 		if f.v < 0 {
 			return fmt.Errorf("%w: limit %s is %d; give a positive number, or leave it out for the default", ErrInvalid, f.name, f.v)
@@ -224,6 +230,7 @@ func (l Limits) Validate() error {
 		{"workflow_bytes", l.WorkflowBytes, maxWorkflowBytes}, {"workflow_items_per_type", l.WorkflowItems, maxWorkflowItems},
 		{"workflow_checks_per_type", l.WorkflowChecks, cmp.Or(l.GateChecks, DefaultLimits.GateChecks)},
 		{"workflow_closeout_per_type", l.WorkflowCloseout, maxWorkflowCloseout},
+		{"brief_bytes", l.BriefBytes, maxBrief},
 	} {
 		if f.v > f.most {
 			return fmt.Errorf("%w: limit %s is %d; it can be at most %d", ErrInvalid, f.name, f.v, f.most)

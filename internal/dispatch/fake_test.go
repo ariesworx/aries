@@ -214,11 +214,11 @@ func (f *fakeTracker) Handoff(_ context.Context, id, session, note string, relea
 	return nil
 }
 
-func (f *fakeTracker) Comment(_ context.Context, id, session, body string) error {
+func (f *fakeTracker) Brief(_ context.Context, id string, rec brief.Record, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls.add("comment %s %s", id, session)
-	f.comments[id] = append(f.comments[id], body)
+	f.calls.add("brief %s %s", id, rec.Session)
+	f.comments[id] = append(f.comments[id], brief.Comment(rec, text))
 	return nil
 }
 

@@ -211,7 +211,7 @@ func (l Limits) WithDefaults() Limits {
 		{&l.GateChecks, &d.GateChecks}, {&l.GateEvidence, &d.GateEvidence},
 		{&l.Locks, &d.Locks}, {&l.LockCapacity, &d.LockCapacity}, {&l.LockWaiters, &d.LockWaiters}, {&l.LockWaits, &d.LockWaits},
 		{&l.WorkflowBytes, &d.WorkflowBytes}, {&l.WorkflowItems, &d.WorkflowItems}, {&l.WorkflowChecks, &d.WorkflowChecks},
-		{&l.WorkflowCloseout, &d.WorkflowCloseout},
+		{&l.WorkflowCloseout, &d.WorkflowCloseout}, {&l.BriefBytes, &d.BriefBytes},
 		{&l.Control.Projects, &d.Control.Projects}, {&l.Control.Principals, &d.Control.Principals},
 		{&l.Control.PrincipalsPerCreator, &d.Control.PrincipalsPerCreator},
 		{&l.Control.Keys, &d.Control.Keys}, {&l.Control.Members, &d.Control.Members}, {&l.OpenStores, &d.OpenStores},

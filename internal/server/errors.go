@@ -53,6 +53,8 @@ func command(op string) string {
 		return "conflicts" // proposing is an agent's, over MCP; aries conflicts shows them
 	case proto.OpResolve:
 		return "resolve"
+	case proto.OpBrief:
+		return "dispatch brief"
 	}
 	if adminOp(op) {
 		return "admin " + strings.ReplaceAll(op, ".", " ")
@@ -97,6 +99,7 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	var conflictCap *store.ConflictLimitError
 	var gate *store.GateError
 	var parentWait *store.ParentWaitError
+	var briefRefused *store.BriefError
 	if perr := lockErr(err); perr != nil {
 		return perr
 	}
@@ -111,6 +114,9 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 	switch {
 	case errors.As(err, &gate):
 		return gateErr(gate)
+
+	case errors.As(err, &briefRefused):
+		return briefErr(briefRefused)
 
 	case errors.As(err, &access):
 		return accessErr(access)
@@ -247,6 +253,11 @@ func (pr *served) mapErr(ctx context.Context, op, id string, rev int64, err erro
 		return proto.Errf(proto.CodeInvalid,
 			"combine entries: undo some with `aries hours --undo ENTRY` (`aries hours --by "+hoursCap.Principal+
 				"` lists them) and log their sum, or ask the server admin to raise hours_per_day under limits: in ariesd's config",
+			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
+
+	case errors.Is(err, store.ErrInvalid) && op == proto.OpBrief && strings.Contains(text, ": brief must be 1-"):
+		return proto.Errf(proto.CodeInvalid,
+			"shorten the brief and record it again, or ask the server admin to raise brief_bytes under limits: in ariesd's config",
 			strings.TrimPrefix(text, store.ErrInvalid.Error()+": "))
 
 	case errors.Is(err, store.ErrInvalid) && op == proto.OpUsage:

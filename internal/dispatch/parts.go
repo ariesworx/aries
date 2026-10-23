@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -20,8 +21,10 @@ type Tracker interface {
 	// Handoff leaves note on id from session, releasing the claim when
 	// release is set.
 	Handoff(ctx context.Context, id, session, note string, release bool) error
-	// Comment adds body to id from session.
-	Comment(ctx context.Context, id, session, body string) error
+	// Brief records text as the brief of the run rec names, on id, from
+	// the dispatcher's own session (design §22): a session never briefs
+	// itself.
+	Brief(ctx context.Context, id string, rec brief.Record, text string) error
 	// OpusOutput is the Opus output tokens of the UTC day that holds day.
 	OpusOutput(ctx context.Context, day time.Time) (int64, error)
 	// Paused reports whether anyone holds PauseLock.

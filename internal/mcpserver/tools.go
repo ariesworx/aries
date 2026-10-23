@@ -391,6 +391,9 @@ type Issue struct {
 	Account string `json:"account,omitempty"`
 	// Usage is the time held and tokens by model, in one line.
 	Usage string `json:"usage,omitempty"`
+	// Brief is the issue's latest brief's record, who recorded it and the
+	// claim it started; its text is in comments.
+	Brief string `json:"brief,omitempty"`
 	// Files are the likely files: declared paths (a trailing / is a
 	// directory), then those its commits touched, most recent first.
 	// FilesMore counts the rest.
@@ -909,6 +912,9 @@ func show(ctx context.Context, c Conn, in ShowIn) (Issue, error) {
 		out.Account = u.Account
 		out.Usage = issueUsageLine(*u)
 	}
+	if b := r.Brief; b != nil {
+		out.Brief = briefLine(*b)
+	}
 	if f := r.Files; f != nil {
 		for _, p := range f.Paths {
 			out.Files = append(out.Files, p.Path)
@@ -1197,4 +1203,19 @@ func orDefault[T comparable](v, def T) T {
 		return def
 	}
 	return v
+}
+
+// briefLine is a brief as show gives it: the record, who recorded it,
+// and the claim it started, without its text.
+func briefLine(b proto.Brief) string {
+	session := b.Session
+	if session == "" {
+		session = "none"
+	}
+	line := "harness=" + b.Harness + " model=" + b.Model + " effort=" + b.Effort + " session=" + session + " template=" + b.Template +
+		"; by " + b.By + "/" + b.BySession
+	if c := b.Claim; c != nil {
+		return line + "; started " + c.By + "/" + c.Session + " epoch " + strconv.FormatInt(c.Epoch, 10)
+	}
+	return line + "; waits for its session's start"
 }

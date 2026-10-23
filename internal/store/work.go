@@ -145,6 +145,12 @@ func (s *Store) start(ctx context.Context, actor Actor, id IssueID, ranked []Iss
 		if claim, err = takeClaim(ctx, w, c, lease); err != nil {
 			return err
 		}
+		if claim.Epoch != c.Epoch {
+			// A new claim: the brief its session was started with joins it.
+			if err := joinPending(ctx, w, target, w.actor, claim.Epoch); err != nil {
+				return err
+			}
+		}
 		out = before
 		if before.Status == StatusInProgress && before.Assignee == w.actor.Principal {
 			return nil

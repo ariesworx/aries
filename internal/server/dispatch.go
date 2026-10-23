@@ -107,6 +107,7 @@ var handlers = map[string]handler{
 	proto.OpDates:       typed(dates),
 	proto.OpWorkflowSet: typed(workflowSet),
 	proto.OpWorkflow:    typed(workflow),
+	proto.OpBrief:       typed(brief),
 }
 
 // typed decodes args strictly into A and calls fn.
@@ -213,6 +214,10 @@ func show(ctx context.Context, pr *served, a store.Actor, in proto.ShowArgs) (an
 	if v.Handoff != nil {
 		w := wireHandoff(*v.Handoff, a)
 		out.Handoff = &w
+	}
+	if v.Brief != nil {
+		b := wireBrief(*v.Brief, in.Full)
+		out.Brief = &b
 	}
 	if !in.Full {
 		for _, f := range []*string{&out.Issue.Body, &out.Issue.Design, &out.Issue.Acceptance, &out.Issue.Notes} {

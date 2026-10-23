@@ -362,8 +362,8 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 	d.procs[session] = p
 	d.save()
 	rec := brief.Record{Harness: HarnessClaudeCode, Model: model, Effort: EffortDefault, Session: session, Template: d.Template.Name()}
-	if err := d.Tracker.Comment(ctx, id, session, brief.Comment(rec, text)); err != nil {
-		d.say("could not post the brief on %s: %s", id, errText(err))
+	if err := d.Tracker.Brief(ctx, id, rec, text); err != nil {
+		d.say("could not record the brief on %s: %s", id, errText(err))
 	}
 	d.say("start %s (model %s, session %s, pid %d)", id, model, session, run.PID)
 	d.log(record{Event: "start", Issue: id, Session: session, Model: model, PID: run.PID, Path: dir, Branch: st.Branch, Brief: brief.Hash(text)})

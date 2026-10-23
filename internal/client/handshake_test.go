@@ -151,9 +151,9 @@ func server(lo, hi int) func(*proto.Frame) *proto.Frame {
 }
 
 // TestDialSpeaksOneVersion pins the one version a client of this build
-// speaks, 10 (v0.7.0; 9 was v0.6.0's, 8 v0.5.0's; decisions 78, 88 and 93): a server
+// speaks, 11 (10 was v0.7.0's, 9 v0.6.0's, 8 v0.5.0's; decisions 78, 88 and 93): a server
 // whose range holds it welcomes it, a later release among them; any
-// other, v0.5.0's, which accepts 8 alone, among them, refuses it with
+// other, v0.7.0's, which accepts 10 alone, among them, refuses it with
 // code version, which a new client against an old server is told, and the
 // client takes that refusal as it is, after one hello, rather than say
 // hello again in another version.
@@ -164,15 +164,15 @@ func TestDialSpeaksOneVersion(t *testing.T) {
 		lo, hi  int
 		welcome bool
 	}{
-		{"a server of 10", 10, 10, true},
-		{"a server of 9 and 10", 9, 10, true},
+		{"a server of 11", 11, 11, true},
 		{"a server of 10 and 11", 10, 11, true},
-		{"a server of 8 to 10", 8, 10, true},
-		{"a server of 9 alone, as v0.6.0's", 9, 9, false},
+		{"a server of 11 and 12", 11, 12, true},
+		{"a server of 9 to 11", 9, 11, true},
+		{"a server of 10 alone, as v0.7.0's", 10, 10, false},
+		{"a server of 9 and 10", 9, 10, false},
 		{"a server of 8 alone, as v0.5.0's", 8, 8, false},
-		{"a server of 7 and 8", 7, 8, false},
 		{"a server of 6 and 7", 6, 7, false},
-		{"a server of 11 and 12", 11, 12, false},
+		{"a server of 12 and 13", 12, 13, false},
 		{"a server of 3 and 4", 3, 4, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -188,8 +188,8 @@ func TestDialSpeaksOneVersion(t *testing.T) {
 			case err != nil:
 				t.Fatalf("Dial to %s = %v, want it welcomed", tc.name, err)
 			}
-			if !slices.Equal(hellos, []int{10}) || conns != 1 {
-				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want [10] on 1", tc.name, hellos, conns)
+			if !slices.Equal(hellos, []int{11}) || conns != 1 {
+				t.Errorf("Dial to %s said hello speaking %v on %d SSH connections; want [11] on 1", tc.name, hellos, conns)
 			}
 		})
 	}

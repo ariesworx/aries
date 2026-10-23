@@ -47,6 +47,7 @@ type Issues interface {
 	AddLabel(ctx context.Context, actor store.Actor, id store.IssueID, label, idem string) error
 	RemoveLabel(ctx context.Context, actor store.Actor, id store.IssueID, label, idem string) error
 	AddComment(ctx context.Context, actor store.Actor, id store.IssueID, body, idem string) (store.Comment, error)
+	RecordBrief(ctx context.Context, actor store.Actor, id store.IssueID, f store.BriefFields, text, idem string) (store.Brief, error)
 	CommentsPage(ctx context.Context, id store.IssueID, before store.Cursor, limit int) (store.CommentPage, error)
 	HistoryPage(ctx context.Context, id store.IssueID, before store.Cursor, limit int) (store.EventPage, error)
 	AcceptanceItems(ctx context.Context, id store.IssueID) ([]store.AcceptanceItem, error)

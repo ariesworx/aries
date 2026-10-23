@@ -51,6 +51,10 @@ var opScopes = sync.OnceValue(func() map[string][]string {
 		// checks it against the repository's file; a project admin sets
 		// it, at a terminal (design §21.3).
 		proto.OpWorkflow: both, proto.OpWorkflowSet: none,
+		// Briefs: recorded by whoever starts a session, at a terminal or
+		// from the dispatcher, never by an agent's tool or a CI job, so that
+		// a worker cannot record its own (design §22.4).
+		proto.OpBrief: none,
 		// Access and the server: a person's, at a terminal (rule 12).
 		proto.OpProjects: none, proto.OpProjectAdd: none, proto.OpProjectArchive: none, proto.OpProjectActivate: none,
 		proto.OpPrincipals: none, proto.OpPrincipalAdd: none, proto.OpPrincipalDisable: none, proto.OpPrincipalEnable: none,

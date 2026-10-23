@@ -686,6 +686,28 @@ is set. In Claude Code that id is `CLAUDE_CODE_SESSION_ID`, the session
 issues that session held. If you set `ARIES_SESSION` for `aries mcp`, set
 it for the hooks too.
 
+### Briefs
+
+Whoever starts a session for an issue, a coordinator or `aries dispatch
+run`, records the brief it starts it with:
+`aries dispatch brief ID --record --model M --session S [--effort E]`
+renders the brief, records it on the issue and prints the text to send.
+Record it before the session starts the issue: the session's `start`
+joins it to the claim it takes. Recorded are the brief verbatim, the
+harness, model and effort it runs on, the session as the starter names
+it, the template it was rendered from and its SHA-256; who recorded it,
+from the key, and from which session; and the claim's principal,
+session and epoch once a start joins it
+([design §22](design/aries.md#22-briefs-stored-on-the-issue-they-start)).
+
+It is a comment of kind `brief`, so everyone who may read the issue may
+read it: `aries show` prints its record and its claim, `aries comments`
+and `history` its text and events, and MCP `show` a line of its record
+alone. No MCP tool records one, and a session never briefs itself: a
+brief from the session that holds the issue is refused. A brief over
+`brief_bytes` or one that looks like it holds a secret is refused with
+a fix; never put a secret in a brief.
+
 ### Trace context
 
 A harness or a script that traces its own work can tie Aries's part to
