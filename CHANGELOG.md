@@ -11,7 +11,7 @@ minor version (decision 93). Entries for v0.1.0 to v0.4.0 were written
 afterward, from the notes GitHub generated for each release; the project
 had another name then, and its notes say Aries and `aries` today.
 
-## v0.7.0 (unreleased)
+## v0.7.0 (2026-10-22)
 
 - Protocol 10, accepting 9: v0.6.0's `aries` keeps working against a
   v0.7.0 server, v0.5.0's is refused, and `aries` v0.7.0 needs a v0.7.0
