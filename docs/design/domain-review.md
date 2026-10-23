@@ -545,7 +545,7 @@ older spelling of `CLAUDE_CODE_SESSION_ID`.
 Ranked by what each makes easier to reason about against what it
 costs. None needs a protocol change. The first four are small.
 
-**R1. Fix the docs that disagree (D1 to D8).** One docs pull request:
+**R1. Fix the docs that disagree (D1 to D8)** (aries-6sxub3rq). One docs pull request:
 redraw §2's figure as built (or add an as-built figure above it and
 mark the old one as the first draft's), amend principle 8 to "no git
 hooks unless asked", fix the README's status, add AGENTS.md's row for
@@ -553,13 +553,13 @@ hooks unless asked", fix the README's status, add AGENTS.md's row for
 `cli` session match the code. *Cost:* an hour or two, `go test
 ./scripts/`. *Briefs:* none. *AGENTS.md:* one new row.
 
-**R2. One close-readiness function (L2).** A single `closeWaits` (gates,
+**R2. One close-readiness function (L2)** (aries-ttlkklyw). A single `closeWaits` (gates,
 items, checks, review) called by `close`, `finish` and the closing
 pass, with one table-driven test over every kind of wait. *Cost:* a
 small store change with its tests; no behavior change. *Briefs and
 AGENTS.md:* none; rule 5's text on the closing pass can cite it.
 
-**R3. Hold the offline lists to the protocol by a test (L9).** As
+**R3. Hold the offline lists to the protocol by a test (L9)** (aries-j2c6xary). As
 `scopes_test.go` does: parse `internal/proto`'s ops, and fail unless
 every write op is in `queued` or in `never` with a reason, and every
 read is cached or refused. Derive `internal/mcpserver`'s per-tool flags
