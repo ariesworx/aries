@@ -291,6 +291,7 @@ func TestUnqueuedToolCalls(t *testing.T) {
 	}{
 		{"start", nil, "it takes a claim, and no claim is made without the server"},
 		{"close", map[string]any{"id": "ar-1"}, "it ends something on a state the client cannot see"},
+		{"inbox", map[string]any{"ack": []int{1}}, "it marks inbox items read on a state the client cannot see"},
 	} {
 		res := callTool(t, a.cs, tc.tool, tc.args)
 		want := "unavailable: cannot reach 127.0.0.1:2222: connection refused\n" +

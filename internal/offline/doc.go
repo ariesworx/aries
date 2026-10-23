@@ -56,7 +56,11 @@
 // the server cannot be reached, for the principal the keys this process
 // would offer belong to, by the outbox's rule ([Client.Cached]). It is
 // never shown in place of a server that answers, and never what ready,
-// blocked, list, who, claims, gates or dates would say ([RefusedOffline]).
+// blocked, list, who, claims, gates, dates or locks would say
+// ([RefusedOffline]). It answers show, inbox and digest
+// ([AnsweredOffline]), and prime, which its callers keep whole; every
+// other read is not kept, each with why. A test holds these lists, and
+// the outbox's of the writes, to every op of internal/proto.
 //
 // Its bounds are [CacheOptions]: 500 answers, 16 MiB and 1 MiB an answer
 // for each principal, and 7 days, the outbox's age cap. Each write

@@ -120,11 +120,13 @@ func (c *Cache) file(key string) string {
 }
 
 // cacheKey is the key op's answer to args is kept under, when op is one
-// whose answers are kept: show by the issue alone, whichever text it was
+// the cache answers: show by the issue alone, whichever text it was
 // asked for, and inbox and digest by all their arguments.
 func cacheKey(op string, args any) (string, bool) {
-	switch op {
-	case proto.OpShow:
+	if !AnsweredOffline(op) {
+		return "", false
+	}
+	if op == proto.OpShow {
 		var a struct {
 			ID string `json:"id"`
 		}
@@ -132,20 +134,39 @@ func cacheKey(op string, args any) (string, bool) {
 			return "", false
 		}
 		return op + " " + a.ID, true
-	case proto.OpInbox, proto.OpDigest:
-		b, err := json.Marshal(args)
-		if err != nil {
-			return "", false
-		}
-		return op + " " + string(b), true
 	}
-	return "", false
+	b, err := json.Marshal(args)
+	if err != nil {
+		return "", false
+	}
+	return op + " " + string(b), true
 }
 
 // convert decodes from's JSON into to.
 func convert(from, to any) bool {
 	b, err := json.Marshal(from)
 	return err == nil && json.Unmarshal(b, to) == nil
+}
+
+// What becomes of each read of the protocol while the server cannot be
+// reached (design §18.6): it is answered from the cache
+// (AnsweredOffline), refused offline (RefusedOffline), or not kept, with
+// why (unkept). The writes' are internal/outbox's (Queueable and
+// Unqueued), and a test holds them all to every op of internal/proto.
+// They are switches, not maps, so that aries allocates nothing for them
+// as it starts.
+
+// AnsweredOffline reports whether op is a read the cache answers while
+// the server cannot be reached, when it holds the answer: show, inbox
+// and digest, what a session was given to go on with the work it has
+// (design §18.6). start's answer is kept too, as a show of the issue it
+// took (Keep), and prime's whole, under PrimeKey, by its callers.
+func AnsweredOffline(op string) bool {
+	switch op {
+	case proto.OpShow, proto.OpInbox, proto.OpDigest:
+		return true
+	}
+	return false
 }
 
 // RefusedOffline reports whether op is a read that is refused while the
@@ -159,6 +180,36 @@ func RefusedOffline(op string) bool {
 		return true
 	}
 	return false
+}
+
+// unkept reports why the answers of op, a read neither answered nor
+// refused offline, are not kept, or "" for any other op. While the
+// server cannot be reached such a read fails as any request does.
+func unkept(op string) string {
+	switch op {
+	case proto.OpComments:
+		return "an issue's comments are not what a session was given; show has its last handoff"
+	case proto.OpHistory:
+		return "an issue's history is not what a session was given; show has its state"
+	case proto.OpRecall:
+		return "a search needs the server's memories; prime and start bring the relevant ones"
+	case proto.OpConflicts:
+		return "conflicts are resolved on the server's state; show has an issue's open ones"
+	case proto.OpWatch:
+		return "it asks for what the server pushes, which no copy can send"
+	case proto.OpWorkflow:
+		return "the project's workflow is not what a session was given"
+	case proto.OpPrices, proto.OpCost, proto.OpHours, proto.OpPlans:
+		return "the project's accounts are not what a session was given"
+	case proto.OpProjects, proto.OpPrincipals, proto.OpPrincipalShow, proto.OpPrincipalWhois, proto.OpMembers, proto.OpKeys,
+		proto.OpInvites, proto.OpIdentities, proto.OpSignIns, proto.OpTrustRules, proto.OpTrustShow:
+		// What the server holds of access stays off people's machines
+		// (§18.6, "What a cache means for access").
+		return "it is an admin's read of the server's access"
+	case proto.OpStatus:
+		return "it is the server's report of itself now"
+	}
+	return ""
 }
 
 // Keep keeps result, the server's answer to op with args, when op is one
