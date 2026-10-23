@@ -44,6 +44,79 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "aries guard --hook || echo '{\"systemMessage\":\"aries guard did not run: the aries on PATH is missing, failed, or predates guard; the permission rules of Claude Code still apply. fix: install or upgrade aries (aries upgrade)\"}'",
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Bash(gh pr merge *)",
+      "Bash(gh api *)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * +*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git push * --force-with-lease*)",
+      "Bash(git push --force-if-includes*)",
+      "Bash(git push * --force-if-includes*)",
+      "Bash(git push --mirror*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --delete*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push -d*)",
+      "Bash(git push * -d*)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push *:refs/heads/main)",
+      "Bash(git push *:refs/heads/main *)",
+      "Bash(git push --all*)",
+      "Bash(git push * --all*)",
+      "Bash(git -c alias.*)",
+      "Bash(git * -c alias.*)",
+      "Bash(find -exec*)",
+      "Bash(find * -exec*)",
+      "Bash(find -execdir*)",
+      "Bash(find * -execdir*)",
+      "Bash(find -ok*)",
+      "Bash(find * -ok*)",
+      "Bash(find -okdir*)",
+      "Bash(find * -okdir*)",
+      "Bash(find -delete*)",
+      "Bash(find * -delete*)",
+      "Bash(find -fprint*)",
+      "Bash(find * -fprint*)",
+      "Bash(find -fprint0*)",
+      "Bash(find * -fprint0*)",
+      "Bash(find -fprintf*)",
+      "Bash(find * -fprintf*)",
+      "Bash(find -fls*)",
+      "Bash(find * -fls*)",
+      "Bash(sed -i*)",
+      "Bash(sed * -i*)",
+      "Bash(sed --in-place*)",
+      "Bash(sed * --in-place*)",
+      "Bash(sudo *)",
+      "Bash(doas *)",
+      "Bash(su *)",
+      "Edit(.claude/**)",
+      "Edit(.mcp.json)",
+      "Edit(.aries/guard.yaml)",
+      "Edit(internal/release/keys.go)"
     ]
   }
 }
