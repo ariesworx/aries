@@ -355,7 +355,9 @@ and what a test that passes there does not do.
    project, and return its issue to open. So is what a report of a
    check an issue's workflow requires does to that issue
    (`store/landed.go`): the closing pass, which closes it and ends the
-   claim, the ticks and unticks of the items bound to the check, and a
+   claim once `closeWaits` (`store/issues.go`, the one rule close,
+   finish and the pass share) finds nothing waiting, and releases no
+   gate; the ticks and unticks of the items bound to the check; and a
    revert's reopen, each by the principal the gate names. The control
    store's equivalent is `ControlOptions.Operator`, which only `ariesd
    control init` sets: it lets the reserved principal `import` write as a

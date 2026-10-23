@@ -876,9 +876,57 @@ func (s *Store) setClosed(ctx context.Context, actor Actor, id IssueID, expected
 	return out, nil
 }
 
+// closeWaitSet is what keeps an issue from closing (closeWaits).
+type closeWaitSet struct {
+	// Held are the open gates that hold it, in id order.
+	Held []*gateRow
+	// Open are the numbers of its items neither ticked nor waived.
+	Open []int
+	// Checks are the checks it requires that have not passed (landed.go).
+	Checks []CheckWait
+	// Reviews are its open review gates (review.go).
+	Reviews []ReviewWait
+}
+
+// closeWaits returns what keeps is, read in w, from closing: the one
+// rule close, finish and the closing pass share. With release, a gate
+// that w's actor may release (mayRelease) does not keep it: a person's
+// close releases it, while the closing pass, nobody's act in person,
+// releases none.
+func (w *wtx) closeWaits(ctx context.Context, is Issue, release bool) (closeWaitSet, error) {
+	var out closeWaitSet
+	held, err := holdingGates(ctx, w.tx, is.ID)
+	if err != nil {
+		return closeWaitSet{}, err
+	}
+	for _, id := range held {
+		g, err := loadGate(ctx, w.tx, id)
+		if err != nil {
+			return closeWaitSet{}, err
+		}
+		if g == nil || release && w.mayRelease(g) {
+			continue
+		}
+		out.Held = append(out.Held, g)
+	}
+	items, err := acceptanceItems(ctx, w.tx, is)
+	if err != nil {
+		return closeWaitSet{}, err
+	}
+	out.Open = openItems(items)
+	if out.Checks, err = checkWaits(ctx, w.tx, is.ID); err != nil {
+		return closeWaitSet{}, err
+	}
+	if out.Reviews, err = reviewWaits(ctx, w.tx, is.ID); err != nil {
+		return closeWaitSet{}, err
+	}
+	return out, nil
+}
+
 // closeTx closes before, read in w, ends any claim on it and records the
-// event. Open acceptance items, and required checks that have not passed
-// (landed.go), refuse it, unless force, which records them in the event.
+// event. What closeWaits returns refuses it: a holding gate always, and
+// open items, checks and reviews unless force, which records them in the
+// event.
 func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force bool) (Issue, error) {
 	if before.Status == StatusClosed {
 		return Issue{}, &StateError{ID: before.ID, Reason: StateAlreadyClosed}
@@ -886,44 +934,32 @@ func closeTx(ctx context.Context, w *wtx, before Issue, reason string, force boo
 	if before.Type == TypeGate {
 		return Issue{}, isGateError(ctx, w.tx, before.ID, "close")
 	}
-	gates, err := holdingGates(ctx, w.tx, before.ID)
+	ws, err := w.closeWaits(ctx, before, true)
 	if err != nil {
 		return Issue{}, err
 	}
-	if err := w.releasable(ctx, before.ID, gates, "close"); err != nil {
-		return Issue{}, err
-	}
-	items, err := acceptanceItems(ctx, w.tx, before)
-	if err != nil {
-		return Issue{}, err
-	}
-	waits, err := checkWaits(ctx, w.tx, before.ID)
-	if err != nil {
-		return Issue{}, err
-	}
-	reviews, err := reviewWaits(ctx, w.tx, before.ID)
-	if err != nil {
-		return Issue{}, err
+	if len(ws.Held) > 0 {
+		return Issue{}, heldError(before.ID, ws.Held[0], "close")
 	}
 	var extra map[string]any
-	if open := openItems(items); len(open) > 0 || len(waits) > 0 || len(reviews) > 0 {
+	if len(ws.Open) > 0 || len(ws.Checks) > 0 || len(ws.Reviews) > 0 {
 		if !force {
-			return Issue{}, &AcceptanceError{ID: before.ID, Open: open, Checks: waits, Reviews: reviews}
+			return Issue{}, &AcceptanceError{ID: before.ID, Open: ws.Open, Checks: ws.Checks, Reviews: ws.Reviews}
 		}
 		extra = map[string]any{}
-		if len(open) > 0 {
-			extra["acceptance_overridden"] = open
+		if len(ws.Open) > 0 {
+			extra["acceptance_overridden"] = ws.Open
 		}
-		if len(waits) > 0 {
-			names := make([]string, len(waits))
-			for i, wt := range waits {
+		if len(ws.Checks) > 0 {
+			names := make([]string, len(ws.Checks))
+			for i, wt := range ws.Checks {
 				names[i] = wt.Check
 			}
 			extra["checks_overridden"] = names
 		}
-		if len(reviews) > 0 {
-			gates := make([]IssueID, len(reviews))
-			for i, r := range reviews {
+		if len(ws.Reviews) > 0 {
+			gates := make([]IssueID, len(ws.Reviews))
+			for i, r := range ws.Reviews {
 				gates[i] = r.Gate
 			}
 			extra["reviews_overridden"] = gates

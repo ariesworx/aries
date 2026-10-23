@@ -309,31 +309,20 @@ func (w *wtx) landing(ctx context.Context, g *gateRow, rc *requiredCheck, passed
 	if err := w.setBound(ctx, is, rc, ItemTicked); err != nil {
 		return nil, err
 	}
-	waits, err := checkWaits(ctx, w.tx, is.ID)
-	if err != nil || len(waits) > 0 {
-		return nil, err
-	}
-	items, err := acceptanceItems(ctx, w.tx, is)
-	if err != nil {
-		return nil, err
-	}
-	held, err := holdingGates(ctx, w.tx, is.ID)
-	if err != nil {
-		return nil, err
-	}
-	reviews, err := reviewWaits(ctx, w.tx, is.ID)
-	if err != nil {
+	// The closing pass releases no gate: it is nobody's act in person.
+	ws, err := w.closeWaits(ctx, is, false)
+	if err != nil || len(ws.Checks) > 0 {
 		return nil, err
 	}
 	what := fmt.Sprintf("%s passed on %s%s (gate %s)", g.Check, is.ID, evidenceText(rep), g.ID)
 	var closeout []string
-	switch open := openItems(items); {
-	case len(reviews) > 0:
-		what += fmt.Sprintf("; waits for review %s, then finish it", reviewsText(reviews))
-	case len(open) > 0:
-		what += fmt.Sprintf("; still open: items %s, then finish it", joinInts(open))
-	case len(held) > 0:
-		what += fmt.Sprintf("; held by gate %s, then finish it", held[0])
+	switch {
+	case len(ws.Reviews) > 0:
+		what += fmt.Sprintf("; waits for review %s, then finish it", reviewsText(ws.Reviews))
+	case len(ws.Open) > 0:
+		what += fmt.Sprintf("; still open: items %s, then finish it", joinInts(ws.Open))
+	case len(ws.Held) > 0:
+		what += fmt.Sprintf("; held by gate %s, then finish it", ws.Held[0].ID)
 	default:
 		w.closingPass = true
 		if _, err := closeTx(ctx, w, is, ReasonLanded, false); err != nil {
