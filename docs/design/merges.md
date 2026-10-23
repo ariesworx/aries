@@ -287,9 +287,13 @@ becomes mechanical.
 `brief`, which no MCP tool sends, as comments of kind `brief` joined to
 the claim of the session they start, and `show` returns the latest
 ([aries.md](aries.md) §22). What the record proves, and the choice it
-leaves M4 within one principal, is in §22.4 there. Until M4, this
-command still reads the comment's first line, and the opener stays
-unverified.
+leaves M4 within one principal, is in §22.4 there. *Decided the same
+day:* M4 trusts a stored brief only once workers run as a principal of
+their own role (decision 97, aries-6tu2ypf2), so the key tells the
+recorder from the claimant; the guard denying `aries dispatch brief
+--record` to workers is defense in depth, never the basis of trust.
+Until then this command still reads the comment's first line, and the
+opener stays unverified.
 
 ## 7. Chosen: the server setting
 
