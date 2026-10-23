@@ -131,7 +131,7 @@ func TestPartitionFaults(t *testing.T) {
 			want: []string{"replayed a write with key k-9, which no session was told it queued"}},
 		{name: "queued with no key",
 			queued: []queuedWrite{{who: alice, entry: 4, op: "comment"}},
-			want:   []string{"no entry 4 in its outbox"}},
+			want:   []string{"queued with no key for entry 4"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

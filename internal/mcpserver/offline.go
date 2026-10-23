@@ -120,7 +120,8 @@ func queuedResult(k offline.Kept, n int) *mcp.CallToolResult {
 		Queued bool   `json:"queued"`
 		Op     string `json:"op"`
 		Entry  uint64 `json:"entry"`
-	}{true, k.Entry.Op, k.Entry.Seq})
+		Key    string `json:"key"`
+	}{true, k.Entry.Op, k.Entry.Seq, k.Entry.Idem})
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: line}}, StructuredContent: json.RawMessage(doc)}
 }
 

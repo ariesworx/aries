@@ -560,8 +560,8 @@ and the tool returns one line, which is not an error:
 queued: aries cannot reach its server, so this finish waits on this machine and is sent when the server answers. Carry on, and do not repeat it.
 ```
 
-Its structured content is `{"queued": true, "op": …, "entry": …}`, and
-never an `id` and a `rev`. A queued `create` adds that the issue has no id
+Its structured content is `{"queued": true, "op": …, "entry": …, "key": …}`,
+the entry's idempotency key among them, and never an `id` and a `rev`. A queued `create` adds that the issue has no id
 until then, so nothing can refer to it, and that the project's
 [workflow](concepts.md#the-workflow) adds its items when it is sent: the
 workflow in force at the replay applies. A queued `finish` of an issue
