@@ -521,12 +521,22 @@ type tool struct {
 	// showsInbox: the result shows the inbox, so it resets the count of
 	// pushed items instead of carrying the "inbox: N new" line.
 	showsInbox bool
-	// cached: while the server cannot be reached the tool answers from
+	// read is the op the tool reads by, for one whose answer is that
+	// op's. While the server cannot be reached the tool answers from
 	// this machine's copy (design §18.6), when it holds what the tool
-	// asks; refused: it is refused then, saying when the server was last
-	// reached (offline.RefusedOffline).
-	cached, refused bool
+	// asks, if the cache answers that op (offline.AnsweredOffline); and
+	// is refused, saying when the server was last reached, if that op is
+	// refused offline (offline.RefusedOffline).
+	read string
+	// keptWhole: the tool keeps its own answer whole and answers from
+	// the copy itself, as prime does (KeepPrime, CachedPrime), being of
+	// several ops.
+	keptWhole bool
 }
+
+// answeredOffline reports whether t answers from this machine's copy
+// while the server cannot be reached.
+func (t tool) answeredOffline() bool { return t.keptWhole || offline.AnsweredOffline(t.read) }
 
 // add registers one tool. The input schema is inferred from In, with
 // priority bounded to 0-4, limit to at least 1, and the given enums. No
@@ -584,7 +594,7 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 			cached := ""
 			if err != nil && client.Unreachable(err) {
 				switch {
-				case t.cached:
+				case t.answeredOffline():
 					if fc := s.cached(err); fc != nil {
 						if o, cerr := h(ctx, fc, in); cerr == nil {
 							out, err = o, nil
@@ -593,7 +603,7 @@ func add[In, Out any](s *Server, t tool, h func(context.Context, Conn, In) (Out,
 							}
 						}
 					}
-				case t.refused && s.opts.Cache != nil:
+				case offline.RefusedOffline(t.read) && s.opts.Cache != nil:
 					err = &offlineRead{err: err, tool: t.name, last: s.opts.Cache.LastReached()}
 				}
 			}

@@ -616,7 +616,7 @@ type Who struct {
 
 func (s *Server) register() {
 	add(s, tool{name: "prime", desc: "Start here: your work, inbox, top ready issues.", ann: readOnly, retry: true,
-		showsInbox: true, cached: true},
+		showsInbox: true, keptWhole: true},
 		func(ctx context.Context, c Conn, _ struct{}) (*Prime, error) {
 			if fc, ok := c.(*fromCache); ok {
 				p, at, ok := CachedPrime(fc.cache, fc.session, s.now(), s.notices(fc)...)
@@ -633,7 +633,7 @@ func (s *Server) register() {
 			return p, err
 		})
 	add(s, tool{name: "inbox", desc: "Yours: lost claims, handoffs, mentions, assignments; ack marks read.", ann: idem, retry: true,
-		showsInbox: true, cached: true},
+		showsInbox: true, read: proto.OpInbox},
 		func(ctx context.Context, c Conn, in InboxIn) (Inbox, error) { return inbox(ctx, c, in) })
 	add(s, tool{name: "start", desc: "Take an issue (default: top ready).", ann: write},
 		func(ctx context.Context, c Conn, in StartIn) (Started, error) {
@@ -688,9 +688,9 @@ func (s *Server) register() {
 			return Handed{ID: out.ID, Rev: out.Rev, closeout: out.Closeout}, err
 		})
 	add(s, tool{name: "digest", desc: "Recent work: closed, started, stalled, blocked.",
-		ann: readOnly, retry: true, cached: true},
+		ann: readOnly, retry: true, read: proto.OpDigest},
 		func(ctx context.Context, c Conn, in DigestIn) (Digest, error) { return digest(ctx, c, in) })
-	add(s, tool{name: "who", desc: "Agents at work and what they hold.", ann: readOnly, retry: true, refused: true},
+	add(s, tool{name: "who", desc: "Agents at work and what they hold.", ann: readOnly, retry: true, read: proto.OpWho},
 		func(ctx context.Context, c Conn, in WhoIn) (Who, error) {
 			var r proto.WhoResult
 			if err := c.Call(ctx, proto.OpWho, proto.WhoArgs{Since: in.Since}, &r); err != nil {
@@ -704,7 +704,7 @@ func (s *Server) register() {
 			out.fit()
 			return out, nil
 		})
-	add(s, tool{name: "ready", desc: "Open issues nothing blocks, best first.", ann: readOnly, retry: true, refused: true},
+	add(s, tool{name: "ready", desc: "Open issues nothing blocks, best first.", ann: readOnly, retry: true, read: proto.OpReady},
 		func(ctx context.Context, c Conn, in LimitIn) (Issues, error) {
 			var r proto.ListResult
 			err := c.Call(ctx, proto.OpReady, proto.LimitArgs{Limit: orDefault(in.Limit, DefaultLimit)}, &r)
@@ -712,7 +712,7 @@ func (s *Server) register() {
 			out.fit()
 			return out, err
 		})
-	add(s, tool{name: "blocked", desc: "Issues held back, and by what.", ann: readOnly, retry: true, refused: true},
+	add(s, tool{name: "blocked", desc: "Issues held back, and by what.", ann: readOnly, retry: true, read: proto.OpBlocked},
 		func(ctx context.Context, c Conn, in LimitIn) (Blocked, error) {
 			var r proto.BlockedResult
 			err := c.Call(ctx, proto.OpBlocked, proto.LimitArgs{Limit: orDefault(in.Limit, DefaultLimit)}, &r)
@@ -723,10 +723,10 @@ func (s *Server) register() {
 			out.fit()
 			return out, err
 		})
-	add(s, tool{name: "list", desc: "Issues matching filters.", ann: readOnly, retry: true, refused: true,
+	add(s, tool{name: "list", desc: "Issues matching filters.", ann: readOnly, retry: true, read: proto.OpList,
 		enums: enums{"status": allStatuses, "type": issueTypes}},
 		func(ctx context.Context, c Conn, in ListIn) (Issues, error) { return list(ctx, c, in) })
-	add(s, tool{name: "show", desc: "One issue with its dependencies.", ann: readOnly, retry: true, cached: true},
+	add(s, tool{name: "show", desc: "One issue with its dependencies.", ann: readOnly, retry: true, read: proto.OpShow},
 		func(ctx context.Context, c Conn, in ShowIn) (Issue, error) { return show(ctx, c, in) })
 	add(s, tool{name: "create", desc: "Create an issue.", ann: write, retry: true, enums: enums{"type": issueTypes}},
 		func(ctx context.Context, c Conn, in CreateIn) (Created, error) {

@@ -52,49 +52,66 @@ var queued = map[string]bool{
 	proto.OpUsage:    true,
 }
 
-// never are the writes that are not queued by design, each with why.
-var never = map[string]string{
-	proto.OpStart:       "it takes a claim, and no claim is made without the server",
-	proto.OpClose:       "it ends something on a state the client cannot see",
-	proto.OpReopen:      "it undoes something on a state the client cannot see",
-	proto.OpForget:      "it undoes something on a state the client cannot see",
-	proto.OpDepRm:       "it undoes something on a state the client cannot see",
-	proto.OpHoursDelete: "it undoes something on a state the client cannot see",
-	proto.OpRenew:       "renewing a lease is the client's own chore",
-	proto.OpResolve:     "it decides between two changes on a state the client cannot see",
-	proto.OpPropose:     "it decides between two changes on a state the client cannot see",
+// Queueable reports whether op is one the outbox queues.
+func Queueable(op string) bool { return queued[op] }
+
+// Unqueued reports why op, a write, is not queued, for a caller that
+// could not reach the server with it: the writes that are not queued by
+// design, each with why. It reports false for an op the outbox queues
+// and for one it knows nothing of, a read among them, which has nothing
+// to queue. It is a switch, not a map, so that aries allocates nothing
+// for it as it starts.
+func Unqueued(op string) (why string, ok bool) {
+	switch op {
+	case proto.OpStart:
+		return "it takes a claim, and no claim is made without the server", true
+	case proto.OpClose:
+		return "it ends something on a state the client cannot see", true
+	case proto.OpReopen, proto.OpForget, proto.OpDepRm, proto.OpHoursDelete:
+		return "it undoes something on a state the client cannot see", true
+	case proto.OpRenew, proto.OpLockRenew:
+		return "renewing a lease is the client's own chore", true
+	case proto.OpResolve, proto.OpPropose:
+		return "it decides between two changes on a state the client cannot see", true
 	// Gates (design §20.3, §20.9): never queued. Adding one later could
 	// hold back work someone started meanwhile, and a pass, waive or
 	// rearm is a person's decision at the moment they make it. A CI
 	// job's report is the job's, which ends: one sent later would report
 	// a run nobody is watching, so the job fails loudly instead.
-	proto.OpGateAdd:   "it holds work back on a state the client cannot see",
-	proto.OpGatePass:  "it is a person's decision on a state the client cannot see",
-	proto.OpGateWaive: "it is a person's decision on a state the client cannot see",
-	proto.OpGateRearm: "it is a person's decision on a state the client cannot see",
-	proto.OpGateFail:  "it is a CI job's report, which a later run would not make",
+	case proto.OpGateAdd:
+		return "it holds work back on a state the client cannot see", true
+	case proto.OpGatePass, proto.OpGateWaive, proto.OpGateRearm:
+		return "it is a person's decision on a state the client cannot see", true
+	case proto.OpGateFail:
+		return "it is a CI job's report, which a later run would not make", true
 	// Locks (design §20.5, §20.9): never queued, so that a script fails
 	// before its critical section rather than inside it. A grant is the
 	// server's to make at the moment it is asked.
-	proto.OpLockAcquire: "it takes a lock, and no lock is held without the server",
-	proto.OpLockRenew:   "renewing a lease is the client's own chore",
-	proto.OpLockRelease: "it ends a lock's hold on a state the client cannot see",
-	proto.OpLockLeave:   "it ends a lock's place on a state the client cannot see",
-	// The workflow (design §21.10): an admin's act, as every admin op,
-	// made at a server that answers.
-	proto.OpWorkflowSet: "it is an admin's act on a state the client cannot see",
-}
-
-// Queueable reports whether op is one the outbox queues.
-func Queueable(op string) bool { return queued[op] }
-
-// Unqueued reports why op, a write, is not queued, for a caller that
-// could not reach the server with it. It reports false for an op the
-// outbox queues and for one it knows nothing of, a read among them,
-// which has nothing to queue.
-func Unqueued(op string) (why string, ok bool) {
-	if w, ok := never[op]; ok {
-		return w, true
+	case proto.OpLockAcquire:
+		return "it takes a lock, and no lock is held without the server", true
+	case proto.OpLockRelease:
+		return "it ends a lock's hold on a state the client cannot see", true
+	case proto.OpLockLeave:
+		return "it ends a lock's place on a state the client cannot see", true
+	// Admin ops (design §18.3, §21.10), made at a server that answers:
+	// the workflow, prices and plans, and what the control store holds
+	// of projects, principals, members, keys, invitations, identities,
+	// sign-ins and trust rules.
+	case proto.OpWorkflowSet, proto.OpPriceSet, proto.OpPlanSet,
+		proto.OpProjectAdd, proto.OpProjectArchive, proto.OpProjectActivate,
+		proto.OpPrincipalAdd, proto.OpPrincipalDisable, proto.OpPrincipalEnable, proto.OpPrincipalSet,
+		proto.OpMemberSet, proto.OpMemberRemove, proto.OpKeyAdd, proto.OpKeyRemove,
+		proto.OpInviteAdd, proto.OpInviteRemove, proto.OpIdentityRemove, proto.OpSignInEnd,
+		proto.OpTrustAdd, proto.OpTrustSet, proto.OpTrustRemove:
+		return "it is an admin's act on a state the client cannot see", true
+	case proto.OpPin:
+		return "it pins or unpins a memory on a state the client cannot see", true
+	case proto.OpAck:
+		return "it marks inbox items read on a state the client cannot see", true
+	// A brief is recorded as its session starts (design §22), joined to
+	// the claim it starts on, and no claim is made without the server.
+	case proto.OpBrief:
+		return "it records the brief a session starts with, and no session starts without the server", true
 	}
 	return "", false
 }
