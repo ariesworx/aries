@@ -232,7 +232,7 @@ docker compose --profile telemetry logs -f collector
 |---|---|
 | `ARIES_TELEMETRY=1` | ariesd serves `/metrics`, `/healthz` and `/readyz` on `127.0.0.1:9464` inside the container, pushes metrics, traces and the records of its log lines ([Logs over OTLP](../server.md#logs-over-otlp)) to `http://127.0.0.1:4318`, and keeps the key for people's stand-ins on the volume (`/state/telemetry/principals.key`), so a rebuild keeps them |
 | `--profile telemetry` | Runs an OpenTelemetry Collector with [deploy/observability/collector.yaml](../../deploy/observability/collector.yaml): it receives what ariesd pushes, scrapes ariesd's `/metrics`, and prints every metric, span and log record in full |
-| `--profile prometheus` | Runs a Prometheus with [prometheus.yaml](../../deploy/observability/prometheus.yaml) and the alert rules of [alerts.yaml](../../deploy/observability/alerts.yaml), scraping ariesd |
+| `--profile prometheus` | Runs a Prometheus with [prometheus.yaml](../../deploy/observability/prometheus.yaml) and the alert rules of [alerts.yaml](../../deploy/observability/alerts.yaml) and [alerts-sextant.yaml](../../deploy/observability/alerts-sextant.yaml), scraping ariesd |
 
 - **Both run in the server's network namespace** (`network_mode:
   service:aries`). ariesd's listener answers on loopback alone and has

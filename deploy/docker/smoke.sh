@@ -659,7 +659,13 @@ telemetry_checks() {
   passed=$((passed + 1))
 
   echo "smoke: telemetry: the alert rules in Prometheus, and /readyz"
-  rules=$(grep -c '^ *- alert: ' "$root/deploy/observability/alerts.yaml")
+  # Every rule file Prometheus loads counts, not alerts.yaml alone.
+  rules=0
+  while IFS= read -r file; do
+    n=$(grep -c '^ *- alert: ' "$root/deploy/observability/$file" || true)
+    rules=$((rules + n))
+  done < <(sed -n '/^rule_files:/,/^[a-z]/s/^  - //p' "$root/deploy/observability/prometheus.yaml")
+  ((rules > 0)) || fail "prometheus.yaml names no rule file with an alert"
   await 90 "Prometheus evaluates every alert rule" rules_healthy "$rules"
   await 30 "no span has been dropped, so its alert is quiet" alert_is AriesTelemetrySpansDropped inactive
   # Every query of the dashboard is one that Prometheus can run.
