@@ -14,7 +14,7 @@ Aries is for teams, and single developers, who run several agents on
 one codebase and need them to agree on who does what, what is ready,
 what was learned and what has really landed.
 
-> **Status: v0.6.0 is the current release; stage 5 of 7 done.** Not
+> **Status: v0.7.0 is the current release; stage 5 of 7 done.** Not
 > ready for production use yet: v1.0.0, the production release, is
 > held as long as possible, and until then releases are minor versions
 > ([decision 93](docs/design/aries.md#14-decisions)).
@@ -26,9 +26,9 @@ what was learned and what has really landed.
 >   server, observability, work while the server cannot be reached, and
 >   a project's workflow, where *closed* means *landed*. None of the
 >   offline work has run on Windows.
-> - v0.7.0 is in progress on `main`: protocol 10, prices by prompt
->   length, the guard, and the dispatcher and outcome record,
->   experimental ([draft notes](docs/releases/v0.7.0.md)).
+> - v0.7.0 brings protocol 10, prices by prompt length, the guard,
+>   and the dispatcher and outcome record, experimental
+>   ([notes](docs/releases/v0.7.0.md)).
 > - HTTPS is the default transport; SSH is off until an operator turns
 >   it on. Releases authenticate people and services by keys
 >   ([decision 91](docs/design/aries.md#14-decisions)). Sign-in at a
@@ -217,7 +217,7 @@ development.
 | [Deployment examples](docs/deploy/README.md) | Local, team and enterprise deployments, with costs, and a Docker test server |
 | [Installing Aries](docs/install.md) | Install options, manual downloads, verifying releases, upgrades |
 | [Upgrading to 0.5](docs/upgrade-to-0.5.md) | From v0.4.0 to v0.5.0: reinstalling `aries`, what to remove, and setting up a new server |
-| [Release notes](docs/releases/v0.6.0.md) | What v0.6.0 adds, breaks, removes and supports; [v0.7.0's draft](docs/releases/v0.7.0.md) grows as changes land |
+| [Release notes](docs/releases/v0.7.0.md) | What v0.7.0 adds, breaks, removes and supports; [v0.6.0's](docs/releases/v0.6.0.md) are kept beside them |
 | [Changelog](CHANGELOG.md) | One entry per release, newest first, each linking its full notes |
 | [Security model](docs/security-model.md) | Identity, host keys, the database role, untrusted text, releases, CI checks |
 
@@ -260,8 +260,8 @@ and the names a dashboard or an alert relies on are kept.
 | Release | State | Brings |
 |---|---|---|
 | [v0.5.0](docs/releases/v0.5.0.md) | Released 17 Oct 2026 | The rename to Aries, Postgres in place of Dolt, many projects, observability, working offline, gates and locks, a project's workflow, HTTPS as the primary transport, authentication by keys, and a hardening pass with a security review ([security-review-v1.md](docs/design/security-review-v1.md)) |
-| [v0.6.0](docs/releases/v0.6.0.md) | Current, released 20 Oct 2026 | Protocol 9: the key proof bound to the TLS session where `ariesd` terminates TLS, and `handoff` settling acceptance items; cost per outcome; Sextant's exporter, built from source |
-| [v0.7.0](docs/releases/v0.7.0.md) | In progress on `main` | Protocol 10, which no longer accepts v0.5.0's `aries`: prices by prompt length; the guard; and the dispatcher and outcome record, experimental |
+| [v0.6.0](docs/releases/v0.6.0.md) | Released 20 Oct 2026 | Protocol 9: the key proof bound to the TLS session where `ariesd` terminates TLS, and `handoff` settling acceptance items; cost per outcome; Sextant's exporter, built from source |
+| [v0.7.0](docs/releases/v0.7.0.md) | Current, released 22 Oct 2026 | Protocol 10, which no longer accepts v0.5.0's `aries`: prices by prompt length; the guard; and the dispatcher and outcome record, experimental |
 | A later minor release | Planned | ACME against a real CA (it has run only against a test CA) and the security review's other deferred findings ([Not in v0.6.0](docs/releases/v0.6.0.md#not-in-this-release)) |
 | Before v1.0.0 | Planned | Organization memory, the server-wide default workflow (W5) that builds on it, and pseudonymous names in every log ([decision 97](docs/design/aries.md#14-decisions)) |
 | 1.x | Planned | Sign-in against a real identity provider, with its security review; a remote MCP endpoint; GitHub's sign-in; a Claude Desktop extension; and stage 6's G3 to G5 ([Coming in 1.x](docs/releases/v0.5.0.md#coming-in-1x)) |

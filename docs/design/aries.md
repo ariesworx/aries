@@ -22,11 +22,32 @@ It replaces bd and needs neither bd nor beads-remote. beads-remote's SSH, pinnin
 5. **The harness does the chores.** The client renews leases and records session identity. The model never heartbeats.
 6. **Fail closed and loud.** There is no silent empty database, no swallowed refusal, and exit codes are typed.
 7. **Context is a budget.** Every agent-facing result has a compact default and a token cap.
-8. **Non-invasive.** No git hooks, no data in the working tree, and one store per machine shared by all worktrees.
+8. **Non-invasive.** No git hooks unless asked, no data in the working tree, and one store per machine shared by all worktrees.
 9. **Compatible one version back and one forward,** so a fleet on mixed versions keeps working.
 10. **Nothing org-specific in the public repo.**
 
 ## 2. Architecture
+
+**As built (v0.7.0, 23 Oct 2026).** The figure below is the first draft's and is kept as the plan was made. What is built: `aries` has no SQLite store; its local state is an outbox and a cache of plain files in the data directory (`internal/outbox`, `internal/offline`). The store is Postgres, in a schema for each project and one for the control store (decision 79), behind `ariesd`'s single writer. The default transport is HTTPS, a WebSocket carrying the same frames (decision 86), with SSH off unless an operator turns it on. `ariesd` runs no webhook listener: gates are reported by the CI check or by `aries land` (decision 67).
+
+```text
+agent ──MCP stdio──> aries            person ──CLI──> (same binary)
+                      ├ outbox and cache: plain files in the data directory
+                      ├ HTTPS: one WebSocket of NDJSON frames, sign-in or key proof
+                      └ or in-process SSH, host key pinned (off unless enabled)
+                           ║
+                           ▼
+        HTTPS listener ─┐        sshd ── forced command: ariesd stdio
+        (ariesd serve)  │             │ unix socket (0700 directory)
+                        ▼             ▼
+                     ariesd serve
+                       ├ one writer for each schema, leases, reaper (server clock)
+                       ├ event stream (pushed frames) and inboxes
+                       ├ telemetry: metrics, traces, logs
+                       └ Postgres: a schema for each project, one for the control store
+```
+
+The first draft's figure, as planned:
 
 ```text
 agent ──MCP stdio──> aries
@@ -158,7 +179,7 @@ You asked to port every feature. Every bd feature is listed here as **Port** (sa
 | Cost | `cost(by?, since?, account?, issue?)`: read-only token and cost totals (list price and, for subscriptions, amortized), grouped by account, issue, epic, person or model; capped like `digest`. Setting prices and plan fees stays in the admin CLI |
 
 - **No admin tools:** delete, purge, rename, import, setup, settings and provisioning are CLI only.
-- **The session is implicit.** The server learns the principal from the SSH key. The client generates the session ID, or takes `CLAUDE_SESSION_ID` or its equivalent, and records the machine. An agent never passes identity.
+- **The session is implicit.** The server learns the principal from the SSH key. The client generates the session ID, or takes `CLAUDE_CODE_SESSION_ID` or its equivalent, and records the machine. An agent never passes identity.
 - **Prime** comes as MCP `instructions` plus an `aries://prime` resource, capped at 1.5k tokens. It contains:
   - your claims and your inbox count;
   - the top 5 ready issues;
@@ -476,7 +497,7 @@ Agreed 6 Oct 2026; each item lands in the stage shown in §13.
 | # | Feature | Agent or person sees |
 |---|---|---|
 | 1 | **`start` and `finish`** | `start` claims the top ready issue (or a named one) and returns it with acceptance criteria, the last handoff and the relevant memories. `finish` closes it, writes the handoff and files discovered work linked `discovered-from`. A typical session is two calls, not six. |
-| 2 | **Git awareness** | `claim`/`start` can create the branch or worktree (`<type>/<id>-<slug>`). Commits and PRs link to the issue by branch name or an `Aries:` trailer. A merged PR closes the issue through the GitHub webhook. No git hooks are installed. |
+| 2 | **Git awareness** | `claim`/`start` can create the branch or worktree (`<type>/<id>-<slug>`). Commits and PRs link to the issue by branch name or an `Aries:` trailer. A merged PR closes the issue when the CI check reports `landed` (decision 67), or for a server CI cannot reach through `aries land`, which git's post-merge hook runs only if the person asks (`aries setup post-merge`). No git hook is installed unasked. |
 | 3 | **Files to issues** | The server records which paths each issue's commits touched. `ready` ranks down work that overlaps paths held by another claim or reservation; `show` lists likely files. |
 | 4 | **Acceptance checklist** | Acceptance criteria are items, not prose. The agent ticks them; `close` refuses until all are ticked or waived with a reason. |
 | 5 | **Errors that say what to do next** | Every refusal names the cause and the next action, for example `ar-a1b2 claimed by alice/codex 3m ago; next ready: ar-c3d4`. Typed error codes for programs. |
