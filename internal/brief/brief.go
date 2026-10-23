@@ -42,8 +42,18 @@ const (
 	HandEnd   = "----- end of hand-written -----"
 )
 
-// tags maps a line's tag to the harness that keeps it.
-var tags = map[string]string{"[headless]": Headless, "[desktop]": Desktop}
+// tags is the harness that keeps a line of tag, or "" for no tag. A
+// function, not a map, so that ariesd, which links this package for the
+// record's line, allocates nothing for it at start (TestInitAllocations).
+func tags(tag string) string {
+	switch tag {
+	case "[headless]":
+		return Headless
+	case "[desktop]":
+		return Desktop
+	}
+	return ""
+}
 
 // slots are the names a template may fill.
 var slots = []string{"id", "session", "worktree", "branch", "issue", "handwritten"}
@@ -115,7 +125,7 @@ func Parse(data []byte) (*Template, error) {
 		return nil, proto.Errf(proto.CodeInvalid, fix, "the template's body is empty")
 	}
 	for _, l := range body {
-		if tag, _, ok := strings.Cut(l, " "); ok && strings.HasPrefix(tag, "[") && strings.HasSuffix(tag, "]") && tags[tag] == "" {
+		if tag, _, ok := strings.Cut(l, " "); ok && strings.HasPrefix(tag, "[") && strings.HasSuffix(tag, "]") && tags(tag) == "" {
 			return nil, proto.Errf(proto.CodeInvalid, fix, "unknown tag "+tag+"; use [headless] or [desktop]")
 		}
 		for _, name := range slotNames(l) {
@@ -188,8 +198,8 @@ func (t *Template) Render(in Input) string {
 	}
 	var out []string
 	for _, l := range t.lines {
-		if tag, rest, ok := strings.Cut(l, " "); ok && tags[tag] != "" {
-			if tags[tag] != in.Harness {
+		if tag, rest, ok := strings.Cut(l, " "); ok && tags(tag) != "" {
+			if tags(tag) != in.Harness {
 				continue
 			}
 			l = rest
