@@ -7,7 +7,7 @@ The [CLI reference](cli.md) and the [agent guide](agents.md) build on it.
 
 ## Identity: principals and sessions
 
-- A **principal** is a person or an agent identity, such as `alice`. The
+- A **principal** is a person or a service, such as `alice`. The
   server decides it from the SSH key that connected, so a client cannot
   claim to be anyone else
   ([Security](security-model.md#identity-comes-from-ssh-keys)). A key
@@ -574,8 +574,8 @@ one, `recall` searches them and `forget` deletes one.
 
 | Scope | Who can read and change it |
 |---|---|
-| `project` (the default) | Everyone on the server |
-| `team` | Everyone on the server |
+| `project` (the default) | The project's members |
+| `team` | The project's members today; meant for the whole team, below |
 | `user` | Its author alone |
 
 A `user` memory is private, and the server, not the client, enforces
@@ -585,7 +585,7 @@ the server pushes, `prime` or `start`. The digest's count of events does
 include a change to one, without saying what it was. Two people's `user`
 memories with the same key are two records.
 
-Each project's memories are in its own database, whether its server
+Each project's memories are in its own schema, whether its server
 holds one project or several, so today `team` and `project` reach the
 same people: the project's. `team` is for what holds across the team's
 projects, such as a review rule, and will reach further in a later

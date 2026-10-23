@@ -673,7 +673,7 @@ from the agent's environment:
 | Claude Code | `CLAUDE_CODE_SESSION_ID`, which it sets |
 | Codex, Gemini CLI, Cursor, VS Code, Junie, AI Assistant | none set; `aries mcp` picks one per process (`m-…`) |
 | Claude Desktop | none set; each app launch is one `aries mcp` process, so one session (`m-…`) |
-| A person's own `aries` commands | `cli`, one per machine |
+| A person's own `aries` commands | `cli`, one per principal and machine |
 | Any | `ARIES_SESSION`, if set, wins (for example in the MCP entry's `env`) |
 
 The harness name comes from `ARIES_HARNESS`, which setup writes into the

@@ -65,7 +65,7 @@ wrong is corrected by a new record with the same `seq` and `supersedes`
 set, never by an edit.
 
 **Per session, never per person** (decision 97). A record names sessions
-and each session's principal **kind** (agent, person, service), never a
+and each session's **kind** (agent, person, service: a label the capture derives from the session, which is not the control store's principal kind of person or service), never a
 principal, and names no reviewer. The comment that carries it (§8) has an
 author, the capturing session's principal, as every comment does; the
 record's fields do not depend on it.
