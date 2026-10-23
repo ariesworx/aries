@@ -22,7 +22,12 @@ import (
 // 10). TestReleasedClients pins which clients are refused, and what each
 // is told.
 //
-// Protocol 10 is v0.7.0's: price.set takes tier, the rates of a model
+// Protocol 11 is the release after v0.7.0's: the op brief records the
+// brief a session is started with (BriefArgs, design §22), which a
+// protocol 10 server refuses as an unknown op and a protocol 10 client
+// never sends. It moves ProtoMin to 10, v0.7.0's.
+//
+// Protocol 10 was v0.7.0's: price.set takes tier, the rates of a model
 // priced by prompt length (PriceSetArgs), which a protocol 9 server
 // refuses as an unknown field and a protocol 9 client never sends. It
 // moves ProtoMin to 9, v0.6.0's: v0.5.0's clients, and the key proof they
@@ -52,9 +57,9 @@ import (
 // It is read leniently, so a bridge from before a binary swap works
 // against the daemon after it, and the reverse.
 const (
-	Proto    = 10
-	ProtoMin = 9
-	ProtoMax = 10
+	Proto    = 11
+	ProtoMin = 10
+	ProtoMax = 11
 )
 
 // CheckProto returns nil when the client protocol version p is in

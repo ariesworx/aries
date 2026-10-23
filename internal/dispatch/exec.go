@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/gitx"
 	"github.com/ariesworx/aries/internal/guard"
 	"github.com/ariesworx/aries/internal/proto"
@@ -107,9 +108,11 @@ func (e *Exec) Handoff(ctx context.Context, id, session, note string, release bo
 	return e.run(ctx, session, note, nil, args...)
 }
 
-// Comment runs `aries comment ID -` in session, the body on stdin.
-func (e *Exec) Comment(ctx context.Context, id, session, body string) error {
-	return e.run(ctx, session, body, nil, "comment", id, "-")
+// Brief runs `aries dispatch brief ID --record … --text -` in the
+// dispatcher's own session, the brief on stdin.
+func (e *Exec) Brief(ctx context.Context, id string, rec brief.Record, text string) error {
+	return e.run(ctx, e.Session, text, nil, "dispatch", "brief", id, "--record", "--harness", rec.Harness, "--model", rec.Model,
+		"--effort", rec.Effort, "--session", rec.Session, "--template", rec.Template, "--text", "-")
 }
 
 // OpusOutput runs `aries cost` by model for the UTC day that holds day,

@@ -268,6 +268,9 @@ const (
 	// CommentHandoff is a handoff note: what the next person to work on
 	// the issue needs to know. [Store.LastHandoff] returns the latest.
 	CommentHandoff CommentKind = "handoff"
+	// CommentBrief is a brief, recorded by [Store.RecordBrief] alone, with
+	// its fields in briefs (design §22). A plain comment never has it.
+	CommentBrief CommentKind = "brief"
 )
 
 // Comment is an append-only note on an issue.

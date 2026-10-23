@@ -44,6 +44,7 @@ var opArgs = map[string]any{
 	proto.OpLockAcquire: proto.LockAcquireArgs{}, proto.OpLockRenew: proto.LockRenewArgs{}, proto.OpLockRelease: proto.LockReleaseArgs{},
 	proto.OpLockLeave: proto.LockLeaveArgs{}, proto.OpLocks: proto.LocksArgs{},
 	proto.OpWorkflowSet: proto.WorkflowSetArgs{}, proto.OpWorkflow: proto.WorkflowArgs{},
+	proto.OpBrief: proto.BriefArgs{},
 
 	proto.OpProjectAdd: proto.ProjectAddArgs{}, proto.OpProjects: proto.AdminListArgs{}, proto.OpProjectArchive: proto.ProjectArgs{},
 	proto.OpProjectActivate: proto.ProjectArgs{}, proto.OpPrincipalAdd: proto.PrincipalAddArgs{}, proto.OpPrincipals: proto.PrincipalsArgs{},
@@ -119,6 +120,8 @@ func soakServer(t *testing.T, m *multi) {
 	title, body := text("new title"), text("new body")
 	mustAsk[proto.WriteResult](a, proto.OpUpdate, proto.UpdateArgs{ID: is.ID, Rev: is.Rev, Title: &title, Body: &body})
 	mustAsk[proto.CommentResult](a, proto.OpComment, proto.CommentArgs{ID: is.ID, Body: text("comment")})
+	mustAsk[proto.BriefResult](d, proto.OpBrief, proto.BriefArgs{ID: is.ID, Harness: "planted-zq9x-harness", Model: "planted-zq9x-model",
+		Effort: "high", Session: "planted-zq9x-session", Template: "planted-zq9x-template", Text: text("brief")})
 	mustAsk[proto.StartResult](a, proto.OpStart, proto.StartArgs{ID: is.ID})
 	mustAsk[proto.WriteResult](a, proto.OpHandoff, proto.HandoffArgs{ID: is.ID, Note: text("handoff"),
 		HandoffFields: proto.HandoffFields{State: "partial", Next: text("next step"), Branch: "feature/planted-zq9x-text"}})

@@ -2738,3 +2738,50 @@ Everything: this is a design. In particular: what `create` costs when it reads t
 - **MCP.** `handoff` gains `ticked` and `waived`, validated like `finish`'s; the refusal for a required check now tells the agent to hand off with them.
 - **CLI.** Unchanged: `aries handoff` has no tick flag, `aries accept` does that.
 - **Tests.** `store.TestHandoffTicksLetLandedClose`, `TestHandoffWaivesItem`, `TestHandoffTicksNeedDone`, and e2e `TestHandoffTicksLand`.
+
+## 22. Briefs, stored on the issue they start
+
+Proposed and built 23 Oct 2026 (aries-2qx4mlm2). Asked by the maintainer, 17 Oct 2026: the brief a session is started with lived only in the harness's local transcript, deleted after 30 days, while Aries kept everything else of the run (claim, handoff, landed, gates, usage). It is wanted for two readers. The productivity metrics compare outcomes by brief, model and effort (productivity-metrics.md, M36), which needs the brief joined to the claim's session. And the merge rule ([merges.md](merges.md) §6, decision 5) holds every pull request whose class needs the opener, because the record it reads, a `brief:` comment, is any member's to write: slice M4 reads the stored record instead.
+
+### 22.1 How the brief reaches the store
+
+The issue named three ways. **Chosen: the starter records it, through an op of its own, `brief`, CLI only.**
+
+- **An argument to `start`** is written by the session that starts the issue: the worker would record its own brief, which is the one thing the opener must not be. A worker does not reliably know its model and effort, nor see its brief as sent (a harness takes background apart). It would also grow the MCP schema set (rule 12) for a field agents should not fill.
+- **The harness hook reading the first prompt**, as `internal/capture` reads usage, reads a file in the worker's own home, by the worker's own process: an agent can change it before the hook runs. It is one harness's format (Claude Code's transcript), and a Desktop session's transcript puts the coordinator's background apart from its brief.
+- **The starter** already has all of it: `aries dispatch brief` renders the brief and names the harness, model, effort, session and template, and the dispatcher renders every run's. Recording it there keeps the brief verbatim (the hash `aries outcome` reads is of the text sent) and makes the recorder someone other than the worker. It builds on the record the memory `briefs` fixed (§22.2), so no reader changes.
+
+A plain `comment` would have done as a transport, but the kind is what the merge rule needs: a comment that merely begins `brief:` must not be mistaken for a recorded one. So `brief` is an op, which raises the protocol to 11 (rule 10): `Proto` and `ProtoMax` are 11, `ProtoMin` 10, v0.7.0's. A protocol 10 client sends no brief and is served as before; a new client against a v0.7.0 server is refused at the handshake.
+
+### 22.2 The record
+
+A brief is a comment of kind `brief`, whose body is the record the memory `briefs` fixed, built by the server from the fields (`internal/brief`'s `Record.Line`): the line `brief: harness=H model=M effort=E session=S template=T`, a blank line, then the brief verbatim. So `comments`, `aries outcome` and `aries prs merges` read it as they read the comment today, and its author and session are the connection's: the principal from the key or sign-in, never an argument (rule 12), and the session the recorder runs in. A table beside it, `briefs` (migration 0004), keeps the fields, the SHA-256 of the brief (`brief.Hash`), and the claim it is joined to (§22.3). The comment's `comment.add` event carries the fields and the hash, as a handoff's carries its fields.
+
+- **Fields.** `harness`, `model`, `effort`, `session` and `template` are each one word, at most 128 bytes (`session` 255), with no space, so that the line parses field by field; `effort` is `low`, `medium`, `high`, `xhigh`, `max` or `default`. `harness`, `model` and `template` are required.
+- **The text** is required, held to safetext as a comment is (newlines and tabs only), capped at `brief_bytes` under `limits:` (default 32,768, at most 64,000, which leaves room in a comment for the line), and refused if `internal/secretscan` finds what looks like a credential in it or in a field, naming the field and the kind, never the text. Each refusal is `invalid` with a Fix.
+- **Not telemetry.** The op's span carries its name and result code, as every op's does; no text, model or effort is an attribute, so the priced-model rule of `aries.usage.tokens` (§16) is not needed.
+
+### 22.3 Joined to the claim
+
+A brief is recorded before the session it starts claims the issue, and is joined to the claim that session takes:
+
+- **Pending.** A brief recorded while no live claim of another session is on the issue waits. A second brief recorded while one waits **replaces** it: the first stays as history and is never joined, so a starter who got it wrong records again.
+- **Joined at start.** A `start` that takes a new claim (a new epoch) joins the waiting brief to it, in the same write, with an event `brief.bind` naming the comment, the claim's principal, session and epoch. A start that only renews joins nothing.
+- **Joined at once.** A brief recorded while another session holds a live claim with no brief, and naming that session (`session=` is the Aries session the run claims under, as the dispatcher's is), is joined to that claim at once: the dispatcher claims before it launches (decision 96). A Desktop session's `local_…` id is never its Aries session, so its brief waits for its start.
+- **One brief per claim.** A brief naming a claim that has one already is refused, with a Fix to record the next brief before the next start.
+- **Never one's own.** A brief recorded by the session that holds the issue's live claim is refused (`invalid`): a session never briefs itself.
+
+`show` returns the issue's latest brief: its fields, its hash, who recorded it from which session, and its claim, with the text under `--full` (the CLI) and never over MCP, whose `show` points to `comments` for it. `history` returns the `comment.add` and `brief.bind` events, and `comments` the whole comment. Everyone who may read the issue may read its brief, as with any comment.
+
+### 22.4 What the merge rule may trust
+
+The record tells M4 three things a `brief:` comment could not: it went through the `brief` op, which no MCP tool sends and a sign-in of scope `mcp` or `ci` is refused (`scopes.go`); who recorded it, from the key; and that the recorder was not the session that claimed the issue. What it cannot tell, within one principal, is the coordinator's process from an agent that runs `aries` by hand under the same key with a session of its choosing. On this project every session runs as one principal, so that remains the coordinator's judgment, as merges.md §6 says today. Two ways close it: workers run as a principal of their own role (decision 97), so the recorder's principal differs from the claimant's and the key proves it; or the guard denies `aries dispatch brief --record` to worker sessions, which narrows it but rests on the guard. Either way, M4 reads `show`'s brief, not a comment's first line.
+
+*Decided 23 Oct 2026 (the maintainer, answering this PR's question):* "Decide (a), with (b) as defense in depth: M4 trusts a stored brief only once workers run as their own role principal; the guard also denies brief --record to workers." So the opener stays unverified until workers run as a principal of their own role (decision 97, aries-6tu2ypf2), and M4 trusts a stored brief only when its recorder's principal is not the claimant's. The guard's denial of `aries dispatch brief --record` to worker sessions is defense in depth, never the basis of trust; its rule is filed apart from this change, for the maintainer.
+
+### 22.5 As built (23 Oct 2026)
+
+- **Protocol 11.** `OpBrief` with `BriefArgs` (`id`, `harness`, `model`, `effort`, `session`, `template`, `text`, `idem`) and `BriefResult` (`id`, `sha256`, `claim`); `ShowResult.Brief`. Scopes: cli only.
+- **Store.** `Store.RecordBrief` (`store/briefs.go`), the join in `start`'s write, `IssueView.Brief`, `Limits.BriefBytes`, and migration `0004_briefs.sql`.
+- **CLI.** `aries dispatch brief ID --record --model M --session S [--effort E]` records the brief and prints only the text to send; with `--text FILE` (or `-`) it records the text given instead of rendering one, and `--template` names its version. `aries show` prints the brief's line. The dispatcher records each run's brief this way from its own session, naming the run's.
+- **Not built.** M4's reading of it; a brief per run in `aries outcome`, which still reads the comment's line and so reads stored briefs as it read posted ones; export of the `briefs` table by `ariesd export-bd`, which exports the comment.

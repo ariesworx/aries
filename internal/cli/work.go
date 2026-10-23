@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -326,6 +327,25 @@ func printHandoff(w io.Writer, h *proto.Handoff) {
 			p("%s: %s\n", kv[0], esc(kv[1]))
 		}
 	}
+}
+
+// printBrief prints the issue's latest brief as one line: its record,
+// who recorded it, and the claim it is joined to. The text is in the
+// brief's comment.
+func printBrief(w io.Writer, issue string, b *proto.Brief) {
+	if b == nil {
+		return
+	}
+	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+	p("\nbrief: harness=%s model=%s effort=%s session=%s template=%s\n", esc(b.Harness), esc(b.Model), esc(b.Effort),
+		esc(cmp.Or(b.Session, "none")), esc(b.Template))
+	p("recorded by %s (%s), %s; ", esc(b.By), esc(b.BySession), when(b.At))
+	if c := b.Claim; c != nil {
+		p("started %s/%s, epoch %d", esc(c.By), esc(c.Session), c.Epoch)
+	} else {
+		p("waits for the session to start the issue")
+	}
+	p("; text: `aries comments %s`\n", esc(issue))
 }
 
 func cmdAway(ctx context.Context, r *runner, args []string) error {

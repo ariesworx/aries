@@ -283,6 +283,18 @@ memory `merges`'s condition (4) meanwhile, as it does today; once briefs
 are stored, the command reads the stored record and the condition
 becomes mechanical.
 
+*Stored 23 Oct 2026 (aries-2qx4mlm2):* briefs are recorded by the op
+`brief`, which no MCP tool sends, as comments of kind `brief` joined to
+the claim of the session they start, and `show` returns the latest
+([aries.md](aries.md) §22). What the record proves, and the choice it
+leaves M4 within one principal, is in §22.4 there. *Decided the same
+day:* M4 trusts a stored brief only once workers run as a principal of
+their own role (decision 97, aries-6tu2ypf2), so the key tells the
+recorder from the claimant; the guard denying `aries dispatch brief
+--record` to workers is defense in depth, never the basis of trust.
+Until then this command still reads the comment's first line, and the
+opener stays unverified.
+
 ## 7. Chosen: the server setting
 
 *Decided 22 Oct 2026 (decisions 1 to 3).* **A, the server setting,

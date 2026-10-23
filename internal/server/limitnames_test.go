@@ -22,7 +22,7 @@ var limitNames = []string{
 	"conflicts_per_issue", "conflicts_per_principal", "approvers_per_gate", "open_gates_per_project",
 	"checks_per_issue", "gate_evidence_bytes", "locks_per_project", "holders_per_lock", "waiters_per_lock",
 	"lock_waits_per_principal", "workflow_bytes", "workflow_items_per_type", "workflow_checks_per_type",
-	"workflow_closeout_per_type",
+	"workflow_closeout_per_type", "brief_bytes",
 	// store.ControlLimits
 	"projects_per_server", "principals_per_server", "principals_per_creator", "keys_per_principal",
 	"members_per_project", "identities_per_principal", "invites_per_server", "grants_per_principal",

@@ -20,6 +20,9 @@ type IssueView struct {
 	Usage IssueUsage
 	// Files are the issue's likely files, as [Store.IssueFiles] with n.
 	Files Files
+	// Brief is the issue's latest brief that was not replaced, or nil
+	// (design §22.3).
+	Brief *Brief
 }
 
 // ShowIssue reads an issue and what is shown beside it, all from one
@@ -61,6 +64,9 @@ func (s *Store) ShowIssue(ctx context.Context, actor Actor, id IssueID, n int) (
 		return IssueView{}, err
 	}
 	if v.Files, err = issueFiles(ctx, q, actor, id, n, now); err != nil {
+		return IssueView{}, err
+	}
+	if v.Brief, err = latestBrief(ctx, q, id); err != nil {
 		return IssueView{}, err
 	}
 	return v, nil

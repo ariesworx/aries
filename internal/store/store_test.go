@@ -94,6 +94,10 @@ func TestMigrateInboxKinds(t *testing.T) {
   DROP COLUMN tier_cache_write, DROP COLUMN tier_cache_write_1h, DROP COLUMN tier_cache_read`); err != nil {
 		t.Fatal(err)
 	}
+	// Migration 4 added briefs; take it back too.
+	if _, err := s.w.ExecContext(ctx, `DROP TABLE briefs`); err != nil {
+		t.Fatal(err)
+	}
 	before := []string{"assigned", "mention", "handoff", "conflict", "claim.lost", "lock.granted"}
 	for i, k := range before {
 		if _, err := s.w.ExecContext(ctx, `INSERT INTO inbox (id, to_principal, kind, body, from_principal, at)

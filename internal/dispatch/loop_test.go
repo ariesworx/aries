@@ -233,7 +233,7 @@ func TestStartClaimsBeforeLaunch(t *testing.T) {
 		t.Fatalf("launched %d runs; want 1: %q", len(sessions), w.calls.all())
 	}
 	s := sessions[0]
-	start, add, launch, posted := w.calls.index("start ar-1 "+s+" 10m0s"), w.calls.index("worktree add "), w.calls.index("launch ar-1 "+s), w.calls.index("comment ar-1 "+s)
+	start, add, launch, posted := w.calls.index("start ar-1 "+s+" 10m0s"), w.calls.index("worktree add "), w.calls.index("launch ar-1 "+s), w.calls.index("brief ar-1 "+s)
 	if start < 0 || add < start || launch < add || posted < launch {
 		t.Fatalf("want start, worktree, launch, brief in order; got %q", w.calls.all())
 	}

@@ -230,6 +230,7 @@ func cmdShow(ctx context.Context, r *runner, args []string) error {
 	printIssueUsage(r.env.Stdout, out.Issue.Account, out.Usage)
 	printItems(r.env.Stdout, out.Items)
 	printHandoff(r.env.Stdout, out.Handoff)
+	printBrief(r.env.Stdout, out.Issue.ID, out.Brief)
 	printFiles(r.env.Stdout, out.Files)
 	if len(out.Similar) > 0 {
 		_, _ = fmt.Fprintln(r.env.Stdout)

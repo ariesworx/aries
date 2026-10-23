@@ -102,7 +102,8 @@ func TestExec(t *testing.T) {
 	if err := e.Handoff(ctx, "ar-1", "run-1", "why it ended", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Comment(ctx, "ar-1", "run-1", "brief: …\n\ntext"); err != nil {
+	rec := brief.Record{Harness: "claude-code", Model: "claude-opus-5-5", Effort: "default", Session: "run-1", Template: "brief@3"}
+	if err := e.Brief(ctx, "ar-1", rec, "text"); err != nil {
 		t.Fatal(err)
 	}
 	got := records(t, record)
@@ -113,7 +114,8 @@ func TestExec(t *testing.T) {
 		{Args: []string{"cost", "--since", "2026-10-20", "--until", "2026-10-21", "--group-by", "model"}, Session: "dispatch-1"},
 		{Args: []string{"lock", "list", RunsLock}, Session: "dispatch-1"},
 		{Args: []string{"handoff", "ar-1", "-", "--release"}, Session: "run-1", Stdin: "why it ended"},
-		{Args: []string{"comment", "ar-1", "-"}, Session: "run-1", Stdin: "brief: …\n\ntext"},
+		{Args: []string{"dispatch", "brief", "ar-1", "--record", "--harness", "claude-code", "--model", "claude-opus-5-5", "--effort", "default",
+			"--session", "run-1", "--template", "brief@3", "--text", "-"}, Session: "dispatch-1", Stdin: "text"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("aries was started %d times; want %d: %+v", len(got), len(want), got)

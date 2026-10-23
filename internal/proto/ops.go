@@ -122,7 +122,8 @@ type Comment struct {
 	ID      string `json:"id"`
 	Author  string `json:"author"`
 	Session string `json:"session,omitempty"`
-	// Kind is empty for a plain comment, "handoff" for a handoff note.
+	// Kind is empty for a plain comment, "handoff" for a handoff note,
+	// "brief" for a brief recorded by the brief op.
 	Kind      string    `json:"kind,omitempty"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
@@ -229,6 +230,9 @@ type ShowResult struct {
 	// closed, by check: a closed issue whose landed check is open is
 	// closed and not landed (slice G1).
 	Checks []Gate `json:"checks,omitempty"`
+	// Brief is the issue's latest brief that was not replaced (design
+	// §22.3), its text only with Full.
+	Brief *Brief `json:"brief,omitempty"`
 }
 
 // Tokens are token counts. A count left out is unknown, which is not 0.

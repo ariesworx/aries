@@ -22,7 +22,7 @@ import (
 
 const dispatchUsage = "dispatch run [--dry-run] [--once] [--capacity N] [--cap TOKENS] [--max-budget-usd USD] [--models M[,M]] [--labels L[,L]] [--clear]" +
 	" | dispatch status | dispatch stop [--now] | dispatch key set|remove" +
-	" | dispatch brief ID [--harness claude-code-desktop|claude-code] [--note TEXT] [--session S] [--worktree DIR] [--record --model M [--effort E]]"
+	" | dispatch brief ID [--harness claude-code-desktop|claude-code] [--note TEXT] [--session S] [--worktree DIR] [--record --model M [--effort E] [--text TEXT|- [--template brief@N]]]"
 
 // cmdDispatch is the client-side dispatcher (docs/design/dispatcher.md,
 // decision 96): internal and experimental, removed when Bearings' B0
@@ -465,17 +465,22 @@ func newUUID() string {
 // project's template as the dispatcher renders its runs' (dispatcher.md
 // §7, As built: the brief template), for a coordinator to send to a
 // session: a Desktop brief by default, with its hand-written section.
-// It reads the issue and writes nothing. With --record it prints the
-// whole brief: comment, its first line as the memory `briefs` fixes it.
+// It reads the issue and writes nothing, unless --record: then it
+// records the brief on the issue (design §22), with the model, effort and
+// session given, and prints only the text to send. With --text it
+// records that text instead of rendering one: how the dispatcher
+// records the brief it rendered for a run.
 func dispatchBrief(ctx context.Context, r *runner, args []string) error {
 	fs := r.newFlags("dispatch brief")
 	harness := fs.String("harness", brief.Desktop, "the harness the brief is for: "+brief.Desktop+" (a Desktop session) or "+brief.Headless+" (a headless run)")
 	note := fs.String("note", "", "a Desktop brief's hand-written section: what this session needs that the issue and the steps do not say")
 	session := fs.String("session", "", "the session the brief is for, as the record names it: the desktop's local_… id, or a headless run's session")
 	worktree := fs.String("worktree", "", "a headless brief's worktree")
-	record := fs.Bool("record", false, "print the whole brief: comment, its first line from --model, --effort and --session")
+	record := fs.Bool("record", false, "record the brief on the issue, with --model, --effort and --session, and print the text to send")
 	model := fs.String("model", "", "the record's full model id, such as claude-sonnet-5-5")
 	effort := fs.String("effort", "default", "the record's effort: low, medium, high, xhigh, max or default")
+	given := fs.String("text", "", "with --record: the brief to record, or - for standard input, instead of one rendered here")
+	template := fs.String("template", "", "with --text: the template the text was rendered from, brief@N (default: the checkout's)")
 	pos, err := parse(fs, args, dispatchUsage)
 	if err != nil {
 		return err
@@ -489,37 +494,70 @@ func dispatchBrief(ctx context.Context, r *runner, args []string) error {
 		return usagef(dispatchUsage, "--note is for a Desktop brief; a headless brief has no hand-written section")
 	case *record && (*model == "" || *session == ""):
 		return usagef(dispatchUsage, "--record needs --model and --session, which its first line names")
+	case *given != "" && !*record:
+		return usagef(dispatchUsage, "--text is the brief to record: give --record too")
+	case *template != "" && *given == "":
+		return usagef(dispatchUsage, "--template names the template of a --text brief")
+	case *given != "" && (*note != "" || *worktree != ""):
+		return usagef(dispatchUsage, "--text records the brief as given: --note and --worktree are for one rendered here")
+	}
+	text, name, err := briefText(ctx, r, pos[0], *given, *template, brief.Input{Harness: *harness, Session: *session, Worktree: *worktree, Note: *note})
+	if err != nil {
+		return err
+	}
+	var rec proto.BriefResult
+	if *record {
+		if err := r.call(ctx, proto.OpBrief, proto.BriefArgs{ID: pos[0], Harness: *harness, Model: *model, Effort: *effort,
+			Session: *session, Template: name, Text: text, Idem: proto.NewIdem("brief")}, &rec); err != nil {
+			return err
+		}
+	}
+	if r.json {
+		doc := struct {
+			Issue    string             `json:"issue"`
+			Harness  string             `json:"harness"`
+			Template string             `json:"template"`
+			SHA256   string             `json:"sha256"`
+			Brief    string             `json:"brief"`
+			Comment  string             `json:"comment,omitempty"`
+			Recorded *proto.BriefResult `json:"recorded,omitempty"`
+		}{Issue: pos[0], Harness: *harness, Template: name, SHA256: brief.Hash(text), Brief: text}
+		if *record {
+			doc.Comment = brief.Comment(brief.Record{Harness: *harness, Model: *model, Effort: *effort, Session: *session, Template: name}, text)
+			doc.Recorded = &rec
+		}
+		r.emit(doc)
+		return nil
+	}
+	_, _ = io.WriteString(r.env.Stdout, text)
+	return nil
+}
+
+// briefText is the brief for issue id and the template it names: given,
+// read with "-" from standard input, under the template name given or
+// the checkout's; or else rendered from the checkout's template for in.
+func briefText(ctx context.Context, r *runner, id, given, name string, in brief.Input) (string, string, error) {
+	if given != "" && name != "" {
+		text, err := r.text(given)
+		return text, name, err
 	}
 	top, err := dispatch.RepoTop(ctx, r.dir)
 	if err != nil {
-		return proto.Errf(proto.CodeInvalid, "run it in a git checkout of the project", "dispatch brief: "+err.Error())
+		return "", "", proto.Errf(proto.CodeInvalid, "run it in a git checkout of the project", "dispatch brief: "+err.Error())
 	}
 	tmpl, err := brief.Load(top)
 	if err != nil {
-		return err
+		return "", "", err
+	}
+	if given != "" {
+		text, err := r.text(given)
+		return text, tmpl.Name(), err
 	}
 	var show proto.ShowResult
-	if err := r.call(ctx, proto.OpShow, proto.ShowArgs{ID: pos[0], Full: true}, &show); err != nil {
-		return err
+	if err := r.call(ctx, proto.OpShow, proto.ShowArgs{ID: id, Full: true}, &show); err != nil {
+		return "", "", err
 	}
 	is := show.Issue
-	text := tmpl.Render(brief.Input{Harness: *harness, Issue: is, Items: show.Items, Handoff: show.Handoff,
-		Session: *session, Worktree: *worktree, Branch: gitx.Branch(is.Type, is.ID, is.Title), Note: *note})
-	out := text
-	if *record {
-		out = brief.Comment(brief.Record{Harness: *harness, Model: *model, Effort: *effort, Session: *session, Template: tmpl.Name()}, text)
-	}
-	if r.json {
-		r.emit(struct {
-			Issue    string `json:"issue"`
-			Harness  string `json:"harness"`
-			Template string `json:"template"`
-			SHA256   string `json:"sha256"`
-			Brief    string `json:"brief"`
-			Comment  string `json:"comment,omitempty"`
-		}{is.ID, *harness, tmpl.Name(), brief.Hash(text), text, map[bool]string{true: out}[*record]})
-		return nil
-	}
-	_, _ = io.WriteString(r.env.Stdout, out)
-	return nil
+	in.Issue, in.Items, in.Handoff, in.Branch = is, show.Items, show.Handoff, gitx.Branch(is.Type, is.ID, is.Title)
+	return tmpl.Render(in), tmpl.Name(), nil
 }

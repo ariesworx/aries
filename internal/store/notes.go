@@ -149,6 +149,27 @@ func insertComment(ctx context.Context, w *wtx, id IssueID, body string, kind Co
 // insertNote is insertComment for a note that may carry handoff fields:
 // they are stored in handoffs and recorded in the comment's event.
 func insertNote(ctx context.Context, w *wtx, id IssueID, body string, kind CommentKind, f HandoffFields) (Comment, error) {
+	c, err := insertCommentRow(ctx, w, id, body, kind)
+	if err != nil {
+		return Comment{}, err
+	}
+	var after any = c
+	if !f.empty() {
+		if _, err := w.exec(ctx, `INSERT INTO handoffs (comment_id, issue_id, state, next_step, branch, worktree, to_principal)
+  VALUES ($1, $2, $3, $4, $5, $6, $7)`, c.ID, string(id), string(f.State), f.Next, f.Branch, f.Worktree, f.To); err != nil {
+			return Comment{}, fmt.Errorf("insert handoff: %w", err)
+		}
+		after = struct {
+			Comment
+			Handoff HandoffFields `json:"handoff"`
+		}{c, f}
+	}
+	return c, w.event(ctx, OpCommentAdd, string(id), nil, after)
+}
+
+// insertCommentRow inserts a comment of the given kind, authored by w's
+// actor, and records no event: its caller does, with what it adds.
+func insertCommentRow(ctx context.Context, w *wtx, id IssueID, body string, kind CommentKind) (Comment, error) {
 	cid := newCommentID()
 	// Notes are ordered by created_at, so keep it strictly increasing per
 	// issue: two notes in the same microsecond (or under a test clock) would
@@ -166,18 +187,7 @@ func insertNote(ctx context.Context, w *wtx, id IssueID, body string, kind Comme
   VALUES ($1, $2, $3, $4, $5, $6, $7)`, c.ID, string(id), c.Author, c.Session, string(c.Kind), c.Body, c.CreatedAt); err != nil {
 		return Comment{}, fmt.Errorf("insert comment: %w", err)
 	}
-	var after any = c
-	if !f.empty() {
-		if _, err := w.exec(ctx, `INSERT INTO handoffs (comment_id, issue_id, state, next_step, branch, worktree, to_principal)
-  VALUES ($1, $2, $3, $4, $5, $6, $7)`, c.ID, string(id), string(f.State), f.Next, f.Branch, f.Worktree, f.To); err != nil {
-			return Comment{}, fmt.Errorf("insert handoff: %w", err)
-		}
-		after = struct {
-			Comment
-			Handoff HandoffFields `json:"handoff"`
-		}{c, f}
-	}
-	return c, w.event(ctx, OpCommentAdd, string(id), nil, after)
+	return c, nil
 }
 
 // Comments returns an issue's comments, oldest first.
