@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="E2 — Quiet">
+  <title>Aries (on dark) - E2 — Quiet</title>
+  <desc>E + D: no medians, soft ring, weight in the brass fix.</desc>
+  <line x1="269.50" y1="117.38" x2="382.80" y2="313.62" stroke="#E6EDF4" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="369.30" y1="337.00" x2="142.70" y2="337.00" stroke="#E6EDF4" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="129.20" y1="313.62" x2="242.50" y2="117.38" stroke="#E6EDF4" stroke-width="5.5" stroke-linecap="round"/>
+  <path fill="#E6EDF4" d="M256.00,78.00 259.85,90.15 272.00,94.00 259.85,97.85 256.00,110.00 252.15,97.85 240.00,94.00 252.15,90.15Z"/>
+  <path fill="#E6EDF4" d="M410.15,345.00 397.70,342.25 388.30,350.86 391.04,338.41 382.44,329.00 394.89,331.75 404.30,323.14 401.55,335.59Z"/>
+  <path fill="#E6EDF4" d="M101.85,345.00 110.45,335.59 107.70,323.14 117.11,331.75 129.56,329.00 120.96,338.41 123.70,350.86 114.30,342.25Z"/>
+  <circle cx="256.0" cy="256.0" r="48" fill="none" stroke="#E6EDF4" stroke-width="1.4" opacity="0.22"/>
+  <circle cx="256.0" cy="256.0" r="30" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="11.5" fill="#F4F7FA"/>
+</svg>

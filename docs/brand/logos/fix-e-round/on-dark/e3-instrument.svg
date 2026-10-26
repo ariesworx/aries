@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="E3 — Instrument">
+  <title>Aries (on dark) - E3 — Instrument</title>
+  <desc>E + B: precision hub with soft LOP stubs past the fix.</desc>
+  <line x1="268.00" y1="120.78" x2="379.10" y2="313.22" stroke="#E6EDF4" stroke-width="6.5" stroke-linecap="round"/>
+  <line x1="367.10" y1="334.00" x2="144.90" y2="334.00" stroke="#E6EDF4" stroke-width="6.5" stroke-linecap="round"/>
+  <line x1="132.90" y1="313.22" x2="244.00" y2="120.78" stroke="#E6EDF4" stroke-width="6.5" stroke-linecap="round"/>
+  <path fill="#E6EDF4" d="M254.60,109.08 L255.00,218.00 L257.00,218.00 L257.40,109.08 Z"/>
+  <path fill="#E6EDF4" opacity="0.22" d="M255.00,294.00 L255.50,312.00 L256.50,312.00 L257.00,294.00 Z"/>
+  <path fill="#E6EDF4" d="M383.94,328.25 L289.41,274.13 L288.41,275.87 L382.54,330.67 Z"/>
+  <path fill="#E6EDF4" opacity="0.22" d="M223.59,236.13 L207.75,227.57 L207.25,228.43 L222.59,237.87 Z"/>
+  <path fill="#E6EDF4" d="M129.46,330.67 L223.59,275.87 L222.59,274.13 L128.06,328.25 Z"/>
+  <path fill="#E6EDF4" opacity="0.22" d="M289.41,237.87 L304.75,228.43 L304.25,227.57 L288.41,236.13 Z"/>
+  <path fill="#E6EDF4" d="M256.00,83.50 259.97,96.03 272.50,100.00 259.97,103.97 256.00,116.50 252.03,103.97 239.50,100.00 252.03,96.03Z"/>
+  <path fill="#E6EDF4" d="M405.39,342.25 392.55,339.42 382.85,348.29 385.68,335.45 376.81,325.75 389.65,328.58 399.35,319.71 396.52,332.55Z"/>
+  <path fill="#E6EDF4" d="M106.61,342.25 115.48,332.55 112.65,319.71 122.35,328.58 135.19,325.75 126.32,335.45 129.15,348.29 119.45,339.42Z"/>
+  <circle cx="256.0" cy="256.0" r="38" fill="none" stroke="#E6EDF4" stroke-width="2.25"/>
+  <circle cx="256.0" cy="256.0" r="24" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="9" fill="#F4F7FA"/>
+</svg>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="E4 — Open">
+  <title>Aries (on dark) - E4 — Open</title>
+  <desc>More air at the corners, larger stars, whisper medians.</desc>
+  <line x1="273.00" y1="121.44" x2="381.03" y2="308.56" stroke="#E6EDF4" stroke-width="5" stroke-linecap="round"/>
+  <line x1="364.03" y1="338.00" x2="147.97" y2="338.00" stroke="#E6EDF4" stroke-width="5" stroke-linecap="round"/>
+  <line x1="130.97" y1="308.56" x2="239.00" y2="121.44" stroke="#E6EDF4" stroke-width="5" stroke-linecap="round"/>
+  <path fill="#E6EDF4" opacity="0.28" d="M255.10,105.30 L255.40,220.00 L256.60,220.00 L256.90,105.30 Z"/>
+  <path fill="#E6EDF4" opacity="0.28" d="M386.96,330.57 L287.48,273.48 L286.88,274.52 L386.06,332.13 Z"/>
+  <path fill="#E6EDF4" opacity="0.28" d="M125.94,332.13 L225.12,274.52 L224.52,273.48 L125.04,330.57 Z"/>
+  <path fill="#E6EDF4" d="M256.00,73.00 260.57,87.43 275.00,92.00 260.57,96.57 256.00,111.00 251.43,96.57 237.00,92.00 251.43,87.43Z"/>
+  <path fill="#E6EDF4" d="M414.48,347.50 399.70,344.24 388.53,354.45 391.79,339.67 381.57,328.50 396.36,331.76 407.53,321.55 404.27,336.33Z"/>
+  <path fill="#E6EDF4" d="M97.52,347.50 107.73,336.33 104.47,321.55 115.64,331.76 130.43,328.50 120.21,339.67 123.47,354.45 112.30,344.24Z"/>
+  <circle cx="256.0" cy="256.0" r="33" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="12.5" fill="#F4F7FA"/>
+</svg>

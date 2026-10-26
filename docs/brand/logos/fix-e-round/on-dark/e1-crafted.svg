@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="E1 — Crafted">
+  <title>Aries (on dark) - E1 — Crafted</title>
+  <desc>Polished triangle: optical corner gaps, quiet ink medians, crisp fix.</desc>
+  <line x1="268.50" y1="119.65" x2="380.33" y2="313.35" stroke="#E6EDF4" stroke-width="7" stroke-linecap="round"/>
+  <line x1="367.83" y1="335.00" x2="144.17" y2="335.00" stroke="#E6EDF4" stroke-width="7" stroke-linecap="round"/>
+  <line x1="131.67" y1="313.35" x2="243.50" y2="119.65" stroke="#E6EDF4" stroke-width="7" stroke-linecap="round"/>
+  <path fill="#E6EDF4" opacity="0.55" d="M254.80,108.50 L255.20,222.00 L256.80,222.00 L257.20,108.50 Z"/>
+  <path fill="#E6EDF4" opacity="0.55" d="M384.34,328.71 L285.84,272.31 L285.04,273.69 L383.14,330.79 Z"/>
+  <path fill="#E6EDF4" opacity="0.55" d="M128.86,330.79 L226.96,273.69 L226.16,272.31 L127.66,328.71 Z"/>
+  <path fill="#E6EDF4" d="M256.00,80.50 260.21,93.79 273.50,98.00 260.21,102.21 256.00,115.50 251.79,102.21 238.50,98.00 251.79,93.79Z"/>
+  <path fill="#E6EDF4" d="M407.99,343.75 394.37,340.75 384.08,350.16 387.08,336.54 377.68,326.25 391.29,329.25 401.58,319.84 398.58,333.46Z"/>
+  <path fill="#E6EDF4" d="M104.01,343.75 113.42,333.46 110.42,319.84 120.71,329.25 134.32,326.25 124.92,336.54 127.92,350.16 117.63,340.75Z"/>
+  <circle cx="256.0" cy="256.0" r="31" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="11.5" fill="#F4F7FA"/>
+</svg>

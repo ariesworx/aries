@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Celestial Fix · E round</title>
+<style>
+  :root {
+    --ink: #0B1D2E;
+    --brass: #C9A227;
+    --sky: #4A7A9B;
+    --star: #F4F7FA;
+    --paper: #F3EEE4;
+    --paper-2: #E8E1D4;
+    --night: #071018;
+    --night-2: #0B1D2E;
+    --line: rgba(11,29,46,0.14);
+    --ok: #1F6B4A;
+    --danger: #8B2E2E;
+    --shadow: 0 1px 0 rgba(11,29,46,0.04);
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: var(--font-ui);
+    color: var(--ink);
+    background:
+      radial-gradient(ellipse 80% 50% at 10% -10%, #d7e3ee 0%, transparent 55%),
+      radial-gradient(ellipse 60% 40% at 100% 0%, #e8d9b8 0%, transparent 50%),
+      linear-gradient(180deg, var(--paper) 0%, #ebe4d6 100%);
+    line-height: 1.45;
+  }
+  body.night {
+    color: var(--star);
+    background:
+      radial-gradient(ellipse 70% 45% at 20% 0%, #14304a 0%, transparent 55%),
+      radial-gradient(ellipse 50% 35% at 90% 10%, #2a2410 0%, transparent 45%),
+      linear-gradient(180deg, #050b12 0%, var(--night) 100%);
+    --line: rgba(244,247,250,0.12);
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 2rem 1.25rem 6rem; }
+  header { display: grid; gap: 0.75rem; margin-bottom: 1.5rem; }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 3.5vw, 2.7rem);
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .lede { max-width: 42rem; opacity: 0.85; margin: 0; }
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;
+    margin-top: 0.5rem;
+  }
+  .seg {
+    display: inline-flex; border: 1px solid var(--line); border-radius: 8px;
+    overflow: hidden; background: rgba(255,255,255,0.45);
+  }
+  body.night .seg { background: rgba(255,255,255,0.04); }
+  .seg button {
+    border: 0; background: transparent; color: inherit;
+    padding: 0.45rem 0.75rem; cursor: pointer; font: inherit; font-size: 0.85rem;
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--ink); color: var(--star);
+  }
+  body.night .seg button[aria-pressed="true"] {
+    background: var(--brass); color: var(--ink);
+  }
+  button.action, a.action {
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.55);
+    color: inherit;
+    border-radius: 8px;
+    padding: 0.45rem 0.8rem;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  body.night button.action, body.night a.action {
+    background: rgba(255,255,255,0.05);
+  }
+  button.action.primary {
+    background: var(--ink); color: var(--star); border-color: transparent;
+  }
+  body.night button.action.primary {
+    background: var(--brass); color: var(--ink);
+  }
+  button.action:disabled { opacity: 0.45; cursor: not-allowed; }
+  .palette { display: flex; gap: 0.75rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.75rem; opacity: 0.8; }
+  .palette span { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .palette i { width: 0.85rem; height: 0.85rem; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .tray { order: -1; position: static !important; }
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.9rem;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.55);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow);
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  body.night .card { background: rgba(255,255,255,0.03); }
+  .card.picked { border-color: var(--brass); box-shadow: 0 0 0 1px var(--brass); }
+  .card.winner { outline: 2px solid var(--ok); outline-offset: 1px; }
+  .ground {
+    aspect-ratio: 1;
+    display: grid; place-items: center;
+    padding: 1.1rem;
+    cursor: zoom-in;
+    background: #fff;
+  }
+  body.ground-dark .ground, .ground.force-dark { background: var(--night); }
+  .ground svg { width: 78%; height: 78%; display: block; }
+  .meta { padding: 0.75rem 0.85rem 0.9rem; display: grid; gap: 0.45rem; }
+  .meta h2 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; }
+  .meta p { margin: 0; font-size: 0.82rem; opacity: 0.75; }
+  .meta .use {
+    font-family: var(--font-mono); font-size: 0.7rem; opacity: 0.65;
+  }
+  .row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+  .rank {
+    display: inline-flex; gap: 0.25rem;
+  }
+  .rank button {
+    width: 1.7rem; height: 1.7rem; border-radius: 999px;
+    border: 1px solid var(--line); background: transparent; color: inherit;
+    cursor: pointer; font: inherit; font-size: 0.75rem;
+  }
+  .rank button.on {
+    background: var(--brass); color: var(--ink); border-color: transparent; font-weight: 700;
+  }
+  .pick {
+    margin-left: auto;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: inherit;
+    border-radius: 999px;
+    padding: 0.25rem 0.65rem;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.75rem;
+  }
+  .pick.on { background: var(--ink); color: var(--star); border-color: transparent; }
+  body.night .pick.on { background: var(--brass); color: var(--ink); }
+
+  .tray {
+    position: sticky; top: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(8px);
+    padding: 1rem;
+    display: grid; gap: 0.75rem;
+  }
+  body.night .tray { background: rgba(7,16,24,0.75); }
+  .tray h3 {
+    margin: 0; font-family: var(--font-display); font-size: 1.1rem; font-weight: 600;
+  }
+  .tray .hint { font-size: 0.8rem; opacity: 0.7; margin: 0; }
+  .shortlist { display: grid; gap: 0.45rem; min-height: 2rem; }
+  .shortlist .empty { font-size: 0.82rem; opacity: 0.55; font-style: italic; }
+  .chip {
+    display: flex; align-items: center; gap: 0.5rem;
+    border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.55rem;
+    font-size: 0.82rem;
+  }
+  .chip .n {
+    width: 1.35rem; height: 1.35rem; border-radius: 999px;
+    background: var(--brass); color: var(--ink);
+    display: grid; place-items: center; font-weight: 700; font-size: 0.75rem;
+  }
+  .chip button {
+    margin-left: auto; border: 0; background: transparent; color: inherit;
+    cursor: pointer; opacity: 0.55; font-size: 1rem; line-height: 1;
+  }
+  label.field { display: grid; gap: 0.3rem; font-size: 0.78rem; opacity: 0.85; }
+  textarea, input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+    font: inherit;
+    font-size: 0.85rem;
+    background: rgba(255,255,255,0.65);
+    color: inherit;
+    resize: vertical;
+  }
+  body.night textarea, body.night input[type="text"] {
+    background: rgba(255,255,255,0.04);
+  }
+  .export {
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.65rem;
+    max-height: 220px;
+    overflow: auto;
+    background: rgba(11,29,46,0.04);
+  }
+  body.night .export { background: rgba(255,255,255,0.03); }
+  .toast {
+    position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--star);
+    padding: 0.65rem 1rem; border-radius: 999px;
+    font-size: 0.85rem; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 40;
+  }
+  .toast.show { opacity: 1; }
+
+  dialog {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 0;
+    width: min(720px, calc(100vw - 2rem));
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  }
+  body.night dialog { background: var(--night-2); color: var(--star); }
+  dialog::backdrop { background: rgba(5,10,16,0.55); }
+  .modal { display: grid; grid-template-columns: 1.1fr 0.9fr; }
+  @media (max-width: 640px) { .modal { grid-template-columns: 1fr; } }
+  .modal .stage {
+    aspect-ratio: 1; display: grid; place-items: center; padding: 1.5rem;
+    background: #fff;
+  }
+  body.ground-dark .modal .stage { background: var(--night); }
+  .modal .stage svg { width: 85%; height: 85%; }
+  .modal .side { padding: 1.1rem 1.2rem 1.2rem; display: grid; gap: 0.7rem; align-content: start; }
+  .modal .side h2 { margin: 0; font-family: var(--font-display); }
+  .sizes { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap; }
+  .size {
+    border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    display: grid; place-items: center; padding: 0.35rem;
+  }
+  body.ground-dark .size, body.night .size { background: var(--night); }
+  .size[data-s="64"] { width: 64px; height: 64px; }
+  .size[data-s="32"] { width: 32px; height: 32px; }
+  .size[data-s="16"] { width: 16px; height: 16px; }
+  .size svg { width: 90%; height: 90%; }
+  .close {
+    position: absolute; top: 0.6rem; right: 0.6rem;
+    border: 0; background: rgba(0,0,0,0.06); color: inherit;
+    width: 2rem; height: 2rem; border-radius: 999px; cursor: pointer;
+  }
+  dialog { position: relative; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Celestial Fix · E-led refinements</h1>
+    <p class="lede">Your ranking was E → D → B. These five evolve the triangle with Quiet (D) and Instrument (B) influence. Rank again and copy a brief.</p>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Ground">
+        <button type="button" id="ground-light" aria-pressed="true">Light ground</button>
+        <button type="button" id="ground-dark" aria-pressed="false">Dark ground</button>
+      </div>
+      <div class="seg" role="group" aria-label="Page theme">
+        <button type="button" id="theme-day" aria-pressed="true">Day UI</button>
+        <button type="button" id="theme-night" aria-pressed="false">Night UI</button>
+      </div>
+      <button type="button" class="action" id="clear">Clear picks</button>
+    </div>
+    <div class="palette" aria-label="Palette">
+      <span><i style="background:#0B1D2E"></i>#0B1D2E ink</span>
+      <span><i style="background:#C9A227"></i>#C9A227 brass</span>
+      <span><i style="background:#4A7A9B"></i>#4A7A9B sky</span>
+      <span><i style="background:#F4F7FA"></i>#F4F7FA star</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main class="grid" id="grid"></main>
+    <aside class="tray" aria-label="Your shortlist">
+      <h3>Your shortlist</h3>
+      <p class="hint">Click a rank (1–3) on a card, or star it. Open a mark to zoom and check favicon sizes.</p>
+      <div class="shortlist" id="shortlist"><div class="empty">No picks yet.</div></div>
+      <label class="field">Overall notes for the next iteration
+        <textarea id="notes" rows="4" placeholder="e.g. Prefer Polaris geometry but Sight A as the wordmark; soften brass; try a single-color cut…"></textarea>
+      </label>
+      <label class="field">Your name (optional)
+        <input type="text" id="who" placeholder="alice">
+      </label>
+      <button type="button" class="action primary" id="copy">Copy brief for agent</button>
+      <button type="button" class="action" id="download">Download picks.json</button>
+      <div class="export" id="export" hidden></div>
+    </aside>
+  </div>
+</div>
+
+<dialog id="modal">
+  <button type="button" class="close" id="modal-close" aria-label="Close">×</button>
+  <div class="modal">
+    <div class="stage" id="modal-stage"></div>
+    <div class="side">
+      <h2 id="modal-title"></h2>
+      <p id="modal-blurb" class="hint"></p>
+      <p class="use" id="modal-use"></p>
+      <div class="sizes" id="modal-sizes" aria-label="Size check"></div>
+      <label class="field">Note on this mark
+        <textarea id="modal-note" rows="3" placeholder="What to keep or change…"></textarea>
+      </label>
+      <div class="row">
+        <div class="rank" id="modal-rank"></div>
+        <button type="button" class="pick" id="modal-pick">☆ Shortlist</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast">Copied</div>
+
+<script>
+const MARKS = [{"id": "e1-crafted", "name": "E1 \u2014 Crafted", "blurb": "Polished triangle: optical corner gaps, quiet ink medians, crisp fix.", "use": "Primary craft pass on E", "light": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E1 \u2014 Crafted\">\n  <title>Aries - E1 \u2014 Crafted</title>\n  <desc>Polished triangle: optical corner gaps, quiet ink medians, crisp fix.</desc>\n  <line x1=\"268.50\" y1=\"119.65\" x2=\"380.33\" y2=\"313.35\" stroke=\"#0B1D2E\" stroke-width=\"7\" stroke-linecap=\"round\"/>\n  <line x1=\"367.83\" y1=\"335.00\" x2=\"144.17\" y2=\"335.00\" stroke=\"#0B1D2E\" stroke-width=\"7\" stroke-linecap=\"round\"/>\n  <line x1=\"131.67\" y1=\"313.35\" x2=\"243.50\" y2=\"119.65\" stroke=\"#0B1D2E\" stroke-width=\"7\" stroke-linecap=\"round\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.55\" d=\"M254.80,108.50 L255.20,222.00 L256.80,222.00 L257.20,108.50 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.55\" d=\"M384.34,328.71 L285.84,272.31 L285.04,273.69 L383.14,330.79 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.55\" d=\"M128.86,330.79 L226.96,273.69 L226.16,272.31 L127.66,328.71 Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M256.00,80.50 260.21,93.79 273.50,98.00 260.21,102.21 256.00,115.50 251.79,102.21 238.50,98.00 251.79,93.79Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M407.99,343.75 394.37,340.75 384.08,350.16 387.08,336.54 377.68,326.25 391.29,329.25 401.58,319.84 398.58,333.46Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M104.01,343.75 113.42,333.46 110.42,319.84 120.71,329.25 134.32,326.25 124.92,336.54 127.92,350.16 117.63,340.75Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"31\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"11.5\" fill=\"#F4F7FA\"/>\n</svg>", "dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E1 \u2014 Crafted\">\n  <title>Aries (on dark) - E1 \u2014 Crafted</title>\n  <desc>Polished triangle: optical corner gaps, quiet ink medians, crisp fix.</desc>\n  <line x1=\"268.50\" y1=\"119.65\" x2=\"380.33\" y2=\"313.35\" stroke=\"#E6EDF4\" stroke-width=\"7\" stroke-linecap=\"round\"/>\n  <line x1=\"367.83\" y1=\"335.00\" x2=\"144.17\" y2=\"335.00\" stroke=\"#E6EDF4\" stroke-width=\"7\" stroke-linecap=\"round\"/>\n  <line x1=\"131.67\" y1=\"313.35\" x2=\"243.50\" y2=\"119.65\" stroke=\"#E6EDF4\" stroke-width=\"7\" stroke-linecap=\"round\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.55\" d=\"M254.80,108.50 L255.20,222.00 L256.80,222.00 L257.20,108.50 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.55\" d=\"M384.34,328.71 L285.84,272.31 L285.04,273.69 L383.14,330.79 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.55\" d=\"M128.86,330.79 L226.96,273.69 L226.16,272.31 L127.66,328.71 Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M256.00,80.50 260.21,93.79 273.50,98.00 260.21,102.21 256.00,115.50 251.79,102.21 238.50,98.00 251.79,93.79Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M407.99,343.75 394.37,340.75 384.08,350.16 387.08,336.54 377.68,326.25 391.29,329.25 401.58,319.84 398.58,333.46Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M104.01,343.75 113.42,333.46 110.42,319.84 120.71,329.25 134.32,326.25 124.92,336.54 127.92,350.16 117.63,340.75Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"31\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"11.5\" fill=\"#F4F7FA\"/>\n</svg>"}, {"id": "e2-quiet", "name": "E2 \u2014 Quiet", "blurb": "E + D: no medians, soft ring, weight in the brass fix.", "use": "Most luxurious / minimal", "light": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E2 \u2014 Quiet\">\n  <title>Aries - E2 \u2014 Quiet</title>\n  <desc>E + D: no medians, soft ring, weight in the brass fix.</desc>\n  <line x1=\"269.50\" y1=\"117.38\" x2=\"382.80\" y2=\"313.62\" stroke=\"#0B1D2E\" stroke-width=\"5.5\" stroke-linecap=\"round\"/>\n  <line x1=\"369.30\" y1=\"337.00\" x2=\"142.70\" y2=\"337.00\" stroke=\"#0B1D2E\" stroke-width=\"5.5\" stroke-linecap=\"round\"/>\n  <line x1=\"129.20\" y1=\"313.62\" x2=\"242.50\" y2=\"117.38\" stroke=\"#0B1D2E\" stroke-width=\"5.5\" stroke-linecap=\"round\"/>\n  <path fill=\"#0B1D2E\" d=\"M256.00,78.00 259.85,90.15 272.00,94.00 259.85,97.85 256.00,110.00 252.15,97.85 240.00,94.00 252.15,90.15Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M410.15,345.00 397.70,342.25 388.30,350.86 391.04,338.41 382.44,329.00 394.89,331.75 404.30,323.14 401.55,335.59Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M101.85,345.00 110.45,335.59 107.70,323.14 117.11,331.75 129.56,329.00 120.96,338.41 123.70,350.86 114.30,342.25Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"48\" fill=\"none\" stroke=\"#0B1D2E\" stroke-width=\"1.4\" opacity=\"0.22\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"30\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"11.5\" fill=\"#F4F7FA\"/>\n</svg>", "dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E2 \u2014 Quiet\">\n  <title>Aries (on dark) - E2 \u2014 Quiet</title>\n  <desc>E + D: no medians, soft ring, weight in the brass fix.</desc>\n  <line x1=\"269.50\" y1=\"117.38\" x2=\"382.80\" y2=\"313.62\" stroke=\"#E6EDF4\" stroke-width=\"5.5\" stroke-linecap=\"round\"/>\n  <line x1=\"369.30\" y1=\"337.00\" x2=\"142.70\" y2=\"337.00\" stroke=\"#E6EDF4\" stroke-width=\"5.5\" stroke-linecap=\"round\"/>\n  <line x1=\"129.20\" y1=\"313.62\" x2=\"242.50\" y2=\"117.38\" stroke=\"#E6EDF4\" stroke-width=\"5.5\" stroke-linecap=\"round\"/>\n  <path fill=\"#E6EDF4\" d=\"M256.00,78.00 259.85,90.15 272.00,94.00 259.85,97.85 256.00,110.00 252.15,97.85 240.00,94.00 252.15,90.15Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M410.15,345.00 397.70,342.25 388.30,350.86 391.04,338.41 382.44,329.00 394.89,331.75 404.30,323.14 401.55,335.59Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M101.85,345.00 110.45,335.59 107.70,323.14 117.11,331.75 129.56,329.00 120.96,338.41 123.70,350.86 114.30,342.25Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"48\" fill=\"none\" stroke=\"#E6EDF4\" stroke-width=\"1.4\" opacity=\"0.22\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"30\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"11.5\" fill=\"#F4F7FA\"/>\n</svg>"}, {"id": "e3-instrument", "name": "E3 \u2014 Instrument", "blurb": "E + B: precision hub with soft LOP stubs past the fix.", "use": "Most technical", "light": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E3 \u2014 Instrument\">\n  <title>Aries - E3 \u2014 Instrument</title>\n  <desc>E + B: precision hub with soft LOP stubs past the fix.</desc>\n  <line x1=\"268.00\" y1=\"120.78\" x2=\"379.10\" y2=\"313.22\" stroke=\"#0B1D2E\" stroke-width=\"6.5\" stroke-linecap=\"round\"/>\n  <line x1=\"367.10\" y1=\"334.00\" x2=\"144.90\" y2=\"334.00\" stroke=\"#0B1D2E\" stroke-width=\"6.5\" stroke-linecap=\"round\"/>\n  <line x1=\"132.90\" y1=\"313.22\" x2=\"244.00\" y2=\"120.78\" stroke=\"#0B1D2E\" stroke-width=\"6.5\" stroke-linecap=\"round\"/>\n  <path fill=\"#0B1D2E\" d=\"M254.60,109.08 L255.00,218.00 L257.00,218.00 L257.40,109.08 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.22\" d=\"M255.00,294.00 L255.50,312.00 L256.50,312.00 L257.00,294.00 Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M383.94,328.25 L289.41,274.13 L288.41,275.87 L382.54,330.67 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.22\" d=\"M223.59,236.13 L207.75,227.57 L207.25,228.43 L222.59,237.87 Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M129.46,330.67 L223.59,275.87 L222.59,274.13 L128.06,328.25 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.22\" d=\"M289.41,237.87 L304.75,228.43 L304.25,227.57 L288.41,236.13 Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M256.00,83.50 259.97,96.03 272.50,100.00 259.97,103.97 256.00,116.50 252.03,103.97 239.50,100.00 252.03,96.03Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M405.39,342.25 392.55,339.42 382.85,348.29 385.68,335.45 376.81,325.75 389.65,328.58 399.35,319.71 396.52,332.55Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M106.61,342.25 115.48,332.55 112.65,319.71 122.35,328.58 135.19,325.75 126.32,335.45 129.15,348.29 119.45,339.42Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"38\" fill=\"none\" stroke=\"#0B1D2E\" stroke-width=\"2.25\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"24\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"9\" fill=\"#F4F7FA\"/>\n</svg>", "dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E3 \u2014 Instrument\">\n  <title>Aries (on dark) - E3 \u2014 Instrument</title>\n  <desc>E + B: precision hub with soft LOP stubs past the fix.</desc>\n  <line x1=\"268.00\" y1=\"120.78\" x2=\"379.10\" y2=\"313.22\" stroke=\"#E6EDF4\" stroke-width=\"6.5\" stroke-linecap=\"round\"/>\n  <line x1=\"367.10\" y1=\"334.00\" x2=\"144.90\" y2=\"334.00\" stroke=\"#E6EDF4\" stroke-width=\"6.5\" stroke-linecap=\"round\"/>\n  <line x1=\"132.90\" y1=\"313.22\" x2=\"244.00\" y2=\"120.78\" stroke=\"#E6EDF4\" stroke-width=\"6.5\" stroke-linecap=\"round\"/>\n  <path fill=\"#E6EDF4\" d=\"M254.60,109.08 L255.00,218.00 L257.00,218.00 L257.40,109.08 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.22\" d=\"M255.00,294.00 L255.50,312.00 L256.50,312.00 L257.00,294.00 Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M383.94,328.25 L289.41,274.13 L288.41,275.87 L382.54,330.67 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.22\" d=\"M223.59,236.13 L207.75,227.57 L207.25,228.43 L222.59,237.87 Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M129.46,330.67 L223.59,275.87 L222.59,274.13 L128.06,328.25 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.22\" d=\"M289.41,237.87 L304.75,228.43 L304.25,227.57 L288.41,236.13 Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M256.00,83.50 259.97,96.03 272.50,100.00 259.97,103.97 256.00,116.50 252.03,103.97 239.50,100.00 252.03,96.03Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M405.39,342.25 392.55,339.42 382.85,348.29 385.68,335.45 376.81,325.75 389.65,328.58 399.35,319.71 396.52,332.55Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M106.61,342.25 115.48,332.55 112.65,319.71 122.35,328.58 135.19,325.75 126.32,335.45 129.15,348.29 119.45,339.42Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"38\" fill=\"none\" stroke=\"#E6EDF4\" stroke-width=\"2.25\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"24\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"9\" fill=\"#F4F7FA\"/>\n</svg>"}, {"id": "e4-open", "name": "E4 \u2014 Open", "blurb": "More air at the corners, larger stars, whisper medians.", "use": "Lightest silhouette", "light": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E4 \u2014 Open\">\n  <title>Aries - E4 \u2014 Open</title>\n  <desc>More air at the corners, larger stars, whisper medians.</desc>\n  <line x1=\"273.00\" y1=\"121.44\" x2=\"381.03\" y2=\"308.56\" stroke=\"#0B1D2E\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n  <line x1=\"364.03\" y1=\"338.00\" x2=\"147.97\" y2=\"338.00\" stroke=\"#0B1D2E\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n  <line x1=\"130.97\" y1=\"308.56\" x2=\"239.00\" y2=\"121.44\" stroke=\"#0B1D2E\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.28\" d=\"M255.10,105.30 L255.40,220.00 L256.60,220.00 L256.90,105.30 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.28\" d=\"M386.96,330.57 L287.48,273.48 L286.88,274.52 L386.06,332.13 Z\"/>\n  <path fill=\"#0B1D2E\" opacity=\"0.28\" d=\"M125.94,332.13 L225.12,274.52 L224.52,273.48 L125.04,330.57 Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M256.00,73.00 260.57,87.43 275.00,92.00 260.57,96.57 256.00,111.00 251.43,96.57 237.00,92.00 251.43,87.43Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M414.48,347.50 399.70,344.24 388.53,354.45 391.79,339.67 381.57,328.50 396.36,331.76 407.53,321.55 404.27,336.33Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M97.52,347.50 107.73,336.33 104.47,321.55 115.64,331.76 130.43,328.50 120.21,339.67 123.47,354.45 112.30,344.24Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"33\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"12.5\" fill=\"#F4F7FA\"/>\n</svg>", "dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E4 \u2014 Open\">\n  <title>Aries (on dark) - E4 \u2014 Open</title>\n  <desc>More air at the corners, larger stars, whisper medians.</desc>\n  <line x1=\"273.00\" y1=\"121.44\" x2=\"381.03\" y2=\"308.56\" stroke=\"#E6EDF4\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n  <line x1=\"364.03\" y1=\"338.00\" x2=\"147.97\" y2=\"338.00\" stroke=\"#E6EDF4\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n  <line x1=\"130.97\" y1=\"308.56\" x2=\"239.00\" y2=\"121.44\" stroke=\"#E6EDF4\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.28\" d=\"M255.10,105.30 L255.40,220.00 L256.60,220.00 L256.90,105.30 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.28\" d=\"M386.96,330.57 L287.48,273.48 L286.88,274.52 L386.06,332.13 Z\"/>\n  <path fill=\"#E6EDF4\" opacity=\"0.28\" d=\"M125.94,332.13 L225.12,274.52 L224.52,273.48 L125.04,330.57 Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M256.00,73.00 260.57,87.43 275.00,92.00 260.57,96.57 256.00,111.00 251.43,96.57 237.00,92.00 251.43,87.43Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M414.48,347.50 399.70,344.24 388.53,354.45 391.79,339.67 381.57,328.50 396.36,331.76 407.53,321.55 404.27,336.33Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M97.52,347.50 107.73,336.33 104.47,321.55 115.64,331.76 130.43,328.50 120.21,339.67 123.47,354.45 112.30,344.24Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"33\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"12.5\" fill=\"#F4F7FA\"/>\n</svg>"}, {"id": "e5-badge", "name": "E5 \u2014 Badge", "blurb": "Heavier frame, ink hub ring, no medians \u2014 mark for small sizes.", "use": "Best favicon / app icon", "light": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E5 \u2014 Badge\">\n  <title>Aries - E5 \u2014 Badge</title>\n  <desc>Heavier frame, ink hub ring, no medians \u2014 mark for small sizes.</desc>\n  <line x1=\"270.00\" y1=\"130.25\" x2=\"371.90\" y2=\"306.75\" stroke=\"#0B1D2E\" stroke-width=\"8\" stroke-linecap=\"round\"/>\n  <line x1=\"357.90\" y1=\"331.00\" x2=\"154.10\" y2=\"331.00\" stroke=\"#0B1D2E\" stroke-width=\"8\" stroke-linecap=\"round\"/>\n  <line x1=\"140.10\" y1=\"306.75\" x2=\"242.00\" y2=\"130.25\" stroke=\"#0B1D2E\" stroke-width=\"8\" stroke-linecap=\"round\"/>\n  <path fill=\"#0B1D2E\" d=\"M256.00,90.50 259.73,102.27 271.50,106.00 259.73,109.73 256.00,121.50 252.27,109.73 240.50,106.00 252.27,102.27Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M399.33,338.75 387.27,336.09 378.15,344.42 380.81,332.36 372.48,323.25 384.54,325.91 393.65,317.58 390.99,329.64Z\"/>\n  <path fill=\"#0B1D2E\" d=\"M112.67,338.75 121.01,329.64 118.35,317.58 127.46,325.91 139.52,323.25 131.19,332.36 133.85,344.42 124.73,336.09Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"40\" fill=\"none\" stroke=\"#0B1D2E\" stroke-width=\"2\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"26\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"10\" fill=\"#F4F7FA\"/>\n</svg>", "dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" role=\"img\" aria-label=\"E5 \u2014 Badge\">\n  <title>Aries (on dark) - E5 \u2014 Badge</title>\n  <desc>Heavier frame, ink hub ring, no medians \u2014 mark for small sizes.</desc>\n  <line x1=\"270.00\" y1=\"130.25\" x2=\"371.90\" y2=\"306.75\" stroke=\"#E6EDF4\" stroke-width=\"8\" stroke-linecap=\"round\"/>\n  <line x1=\"357.90\" y1=\"331.00\" x2=\"154.10\" y2=\"331.00\" stroke=\"#E6EDF4\" stroke-width=\"8\" stroke-linecap=\"round\"/>\n  <line x1=\"140.10\" y1=\"306.75\" x2=\"242.00\" y2=\"130.25\" stroke=\"#E6EDF4\" stroke-width=\"8\" stroke-linecap=\"round\"/>\n  <path fill=\"#E6EDF4\" d=\"M256.00,90.50 259.73,102.27 271.50,106.00 259.73,109.73 256.00,121.50 252.27,109.73 240.50,106.00 252.27,102.27Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M399.33,338.75 387.27,336.09 378.15,344.42 380.81,332.36 372.48,323.25 384.54,325.91 393.65,317.58 390.99,329.64Z\"/>\n  <path fill=\"#E6EDF4\" d=\"M112.67,338.75 121.01,329.64 118.35,317.58 127.46,325.91 139.52,323.25 131.19,332.36 133.85,344.42 124.73,336.09Z\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"40\" fill=\"none\" stroke=\"#E6EDF4\" stroke-width=\"2\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"26\" fill=\"#C9A227\"/>\n  <circle cx=\"256.0\" cy=\"256.0\" r=\"10\" fill=\"#F4F7FA\"/>\n</svg>"}];
+
+const STORE_KEY = "aries-fix-e-round-v1";
+const state = load();
+
+function load() {
+  try {
+    return Object.assign({
+      groundDark: false,
+      nightUI: false,
+      ranks: {},   // id -> 1|2|3
+      starred: {}, // id -> true
+      markNotes: {},
+      notes: "",
+      who: "",
+    }, JSON.parse(localStorage.getItem(STORE_KEY) || "{}"));
+  } catch {
+    return { groundDark: false, nightUI: false, ranks: {}, starred: {}, markNotes: {}, notes: "", who: "" };
+  }
+}
+function save() {
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  renderTray();
+  renderExport();
+}
+
+const grid = document.getElementById("grid");
+const shortlistEl = document.getElementById("shortlist");
+const notesEl = document.getElementById("notes");
+const whoEl = document.getElementById("who");
+const exportEl = document.getElementById("export");
+const toast = document.getElementById("toast");
+const modal = document.getElementById("modal");
+let activeId = null;
+
+notesEl.value = state.notes || "";
+whoEl.value = state.who || "";
+notesEl.addEventListener("input", () => { state.notes = notesEl.value; save(); });
+whoEl.addEventListener("input", () => { state.who = whoEl.value; save(); });
+
+function svgFor(mark) {
+  return state.groundDark ? mark.dark : mark.light;
+}
+
+function applyChrome() {
+  document.body.classList.toggle("night", state.nightUI);
+  document.body.classList.toggle("ground-dark", state.groundDark);
+  document.getElementById("ground-light").setAttribute("aria-pressed", String(!state.groundDark));
+  document.getElementById("ground-dark").setAttribute("aria-pressed", String(state.groundDark));
+  document.getElementById("theme-day").setAttribute("aria-pressed", String(!state.nightUI));
+  document.getElementById("theme-night").setAttribute("aria-pressed", String(state.nightUI));
+}
+
+document.getElementById("ground-light").onclick = () => { state.groundDark = false; save(); renderGrid(); applyChrome(); if (activeId) openModal(activeId); };
+document.getElementById("ground-dark").onclick = () => { state.groundDark = true; save(); renderGrid(); applyChrome(); if (activeId) openModal(activeId); };
+document.getElementById("theme-day").onclick = () => { state.nightUI = false; save(); applyChrome(); };
+document.getElementById("theme-night").onclick = () => { state.nightUI = true; save(); applyChrome(); };
+document.getElementById("clear").onclick = () => {
+  state.ranks = {}; state.starred = {}; state.markNotes = {}; state.notes = ""; notesEl.value = "";
+  save(); renderGrid();
+};
+
+function setRank(id, rank) {
+  // unique ranks
+  for (const [k, v] of Object.entries(state.ranks)) {
+    if (v === rank && k !== id) delete state.ranks[k];
+  }
+  if (state.ranks[id] === rank) delete state.ranks[id];
+  else state.ranks[id] = rank;
+  state.starred[id] = true;
+  save(); renderGrid();
+  if (activeId === id) syncModalControls();
+}
+
+function toggleStar(id) {
+  if (state.starred[id]) {
+    delete state.starred[id];
+    delete state.ranks[id];
+  } else {
+    state.starred[id] = true;
+  }
+  save(); renderGrid();
+  if (activeId === id) syncModalControls();
+}
+
+function renderGrid() {
+  grid.innerHTML = "";
+  for (const mark of MARKS) {
+    const card = document.createElement("article");
+    card.className = "card";
+    const ranked = state.ranks[mark.id];
+    const starred = !!state.starred[mark.id] || ranked;
+    if (starred) card.classList.add("picked");
+    if (ranked === 1) card.classList.add("winner");
+
+    const ground = document.createElement("div");
+    ground.className = "ground";
+    ground.innerHTML = svgFor(mark);
+    ground.title = "Open large preview";
+    ground.onclick = () => openModal(mark.id);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.innerHTML = `<h2>${mark.name}</h2><p>${mark.blurb}</p><div class="use">${mark.use}</div>`;
+
+    const row = document.createElement("div");
+    row.className = "row";
+    const rank = document.createElement("div");
+    rank.className = "rank";
+    for (const n of [1, 2, 3]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = String(n);
+      b.title = `Rank ${n}`;
+      if (ranked === n) b.classList.add("on");
+      b.onclick = (e) => { e.stopPropagation(); setRank(mark.id, n); };
+      rank.appendChild(b);
+    }
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "pick" + (starred ? " on" : "");
+    pick.textContent = starred ? "★ Picked" : "☆ Shortlist";
+    pick.onclick = (e) => { e.stopPropagation(); toggleStar(mark.id); };
+    row.append(rank, pick);
+    meta.appendChild(row);
+
+    card.append(ground, meta);
+    grid.appendChild(card);
+  }
+}
+
+function orderedPicks() {
+  const ranked = Object.entries(state.ranks)
+    .sort((a, b) => a[1] - b[1])
+    .map(([id, rank]) => ({ id, rank, mark: MARKS.find(m => m.id === id) }));
+  const starredOnly = Object.keys(state.starred)
+    .filter(id => !state.ranks[id])
+    .map(id => ({ id, rank: null, mark: MARKS.find(m => m.id === id) }));
+  return [...ranked, ...starredOnly];
+}
+
+function renderTray() {
+  const picks = orderedPicks();
+  shortlistEl.innerHTML = "";
+  if (!picks.length) {
+    shortlistEl.innerHTML = `<div class="empty">No picks yet.</div>`;
+    return;
+  }
+  for (const p of picks) {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `<span class="n">${p.rank || "★"}</span><span>${p.mark.name}</span>`;
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.setAttribute("aria-label", "Remove");
+    rm.textContent = "×";
+    rm.onclick = () => {
+      delete state.ranks[p.id];
+      delete state.starred[p.id];
+      save(); renderGrid();
+    };
+    chip.appendChild(rm);
+    chip.style.cursor = "pointer";
+    chip.onclick = (e) => { if (e.target === rm) return; openModal(p.id); };
+    shortlistEl.appendChild(chip);
+  }
+}
+
+function briefText() {
+  const picks = orderedPicks();
+  const lines = [];
+  lines.push("# Aries logo picks");
+  if (state.who) lines.push(`By: ${state.who}`);
+  lines.push("");
+  if (!picks.length) {
+    lines.push("(no marks shortlisted yet)");
+  } else {
+    lines.push("## Shortlist");
+    for (const p of picks) {
+      const tag = p.rank ? `#${p.rank}` : "★";
+      const note = state.markNotes[p.id];
+      lines.push(`- ${tag} **${p.mark.name}** (\`${p.id}\`) — ${p.mark.blurb}`);
+      if (note) lines.push(`  - Note: ${note}`);
+    }
+  }
+  if (state.notes.trim()) {
+    lines.push("");
+    lines.push("## Iteration notes");
+    lines.push(state.notes.trim());
+  }
+  lines.push("");
+  lines.push("Please iterate on the shortlisted marks with these notes.");
+  return lines.join("\n");
+}
+
+function renderExport() {
+  exportEl.hidden = false;
+  exportEl.textContent = briefText();
+}
+
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 1600);
+}
+
+document.getElementById("copy").onclick = async () => {
+  const text = briefText();
+  exportEl.hidden = false;
+  exportEl.textContent = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast("Brief copied — paste it back in chat to iterate");
+  } catch {
+    showToast("Could not copy — select the brief below");
+  }
+};
+
+document.getElementById("download").onclick = () => {
+  const payload = {
+    when: new Date().toISOString(),
+    who: state.who || null,
+    ground: state.groundDark ? "dark" : "light",
+    ranks: state.ranks,
+    starred: Object.keys(state.starred),
+    markNotes: state.markNotes,
+    notes: state.notes,
+    brief: briefText(),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "aries-fix-e-picks.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+function openModal(id) {
+  activeId = id;
+  const mark = MARKS.find(m => m.id === id);
+  document.getElementById("modal-title").textContent = mark.name;
+  document.getElementById("modal-blurb").textContent = mark.blurb;
+  document.getElementById("modal-use").textContent = mark.use;
+  document.getElementById("modal-stage").innerHTML = svgFor(mark);
+  const sizes = document.getElementById("modal-sizes");
+  sizes.innerHTML = "";
+  for (const s of [64, 32, 16]) {
+    const box = document.createElement("div");
+    box.className = "size";
+    box.dataset.s = String(s);
+    box.title = s + "px";
+    box.innerHTML = svgFor(mark);
+    sizes.appendChild(box);
+  }
+  const note = document.getElementById("modal-note");
+  note.value = state.markNotes[id] || "";
+  note.oninput = () => { state.markNotes[id] = note.value; save(); };
+  syncModalControls();
+  if (!modal.open) modal.showModal();
+}
+
+function syncModalControls() {
+  const id = activeId;
+  const rankEl = document.getElementById("modal-rank");
+  rankEl.innerHTML = "";
+  for (const n of [1, 2, 3]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = String(n);
+    if (state.ranks[id] === n) b.classList.add("on");
+    b.onclick = () => setRank(id, n);
+    rankEl.appendChild(b);
+  }
+  const pick = document.getElementById("modal-pick");
+  const on = !!state.starred[id] || !!state.ranks[id];
+  pick.className = "pick" + (on ? " on" : "");
+  pick.textContent = on ? "★ Picked" : "☆ Shortlist";
+  pick.onclick = () => toggleStar(id);
+}
+
+document.getElementById("modal-close").onclick = () => { modal.close(); activeId = null; };
+modal.addEventListener("click", (e) => {
+  if (e.target === modal) { modal.close(); activeId = null; }
+});
+
+applyChrome();
+renderGrid();
+renderTray();
+renderExport();
+</script>
+</body>
+</html>
