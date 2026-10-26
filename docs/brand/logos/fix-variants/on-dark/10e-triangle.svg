@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Celestial Fix triangle">
+  <title>Aries (on dark) - Fix E - Triangle</title>
+  <desc>Sight triangle with stars as vertices and quiet medians.</desc>
+  <line x1="268.00" y1="120.78" x2="379.10" y2="313.22" stroke="#E6EDF4" stroke-width="7.5" stroke-linecap="round"/>
+  <line x1="367.10" y1="334.00" x2="144.90" y2="334.00" stroke="#E6EDF4" stroke-width="7.5" stroke-linecap="round"/>
+  <line x1="132.90" y1="313.22" x2="244.00" y2="120.78" stroke="#E6EDF4" stroke-width="7.5" stroke-linecap="round"/>
+  <path fill="#8EB4D0" d="M254.70,109.35 L255.10,224.00 L256.90,224.00 L257.30,109.35 Z"/>
+  <path fill="#8EB4D0" d="M383.65,328.20 L284.16,271.22 L283.26,272.78 L382.35,330.45 Z"/>
+  <path fill="#8EB4D0" d="M129.65,330.45 L228.74,272.78 L227.84,271.22 L128.35,328.20 Z"/>
+  <path fill="#E6EDF4" d="M256.00,83.00 260.33,95.67 273.00,100.00 260.33,104.33 256.00,117.00 251.67,104.33 239.00,100.00 251.67,95.67Z"/>
+  <path fill="#E6EDF4" d="M405.82,342.50 392.68,339.91 382.60,348.72 385.19,335.58 376.38,325.50 389.52,328.09 399.60,319.28 397.01,332.42Z"/>
+  <path fill="#E6EDF4" d="M106.18,342.50 114.99,332.42 112.40,319.28 122.48,328.09 135.62,325.50 126.81,335.58 129.40,348.72 119.32,339.91Z"/>
+  <circle cx="256.0" cy="256.0" r="32" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="12" fill="#F4F7FA"/>
+</svg>

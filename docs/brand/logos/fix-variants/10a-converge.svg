@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Celestial Fix converge">
+  <title>Aries - Fix A - Converge</title>
+  <desc>Tapered sightlines stop at a brass fix. Stars aligned to each ray.</desc>
+  <path fill="#0B1D2E" d="M251.00,97.90 L254.25,213.50 L257.75,213.50 L261.00,97.90 Z"/>
+  <path fill="#0B1D2E" d="M256.00,70.00 260.58,83.42 274.00,88.00 260.58,92.58 256.00,106.00 251.42,92.58 238.00,88.00 251.42,83.42Z"/>
+  <path fill="#0B1D2E" d="M395.42,330.72 L293.68,275.73 L291.93,278.77 L390.42,339.38 Z"/>
+  <path fill="#0B1D2E" d="M417.08,349.00 403.17,346.26 392.49,355.59 395.23,341.68 385.90,331.00 399.82,333.74 410.49,324.41 407.75,338.32Z"/>
+  <path fill="#0B1D2E" d="M121.58,339.38 L220.07,278.77 L218.32,275.73 L116.58,330.72 Z"/>
+  <path fill="#0B1D2E" d="M94.92,349.00 104.25,338.32 101.51,324.41 112.18,333.74 126.10,331.00 116.77,341.68 119.51,355.59 108.83,346.26Z"/>
+  <circle cx="256.0" cy="256.0" r="42" fill="none" stroke="#C9A227" stroke-width="5.5"/>
+  <circle cx="256.0" cy="256.0" r="22" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="8" fill="#F4F7FA"/>
+</svg>

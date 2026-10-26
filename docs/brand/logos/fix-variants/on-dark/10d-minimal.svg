@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Celestial Fix minimal">
+  <title>Aries (on dark) - Fix D - Minimal</title>
+  <desc>Hairline rays, weight reserved for the fix.</desc>
+  <path fill="#E6EDF4" d="M254.20,85.50 L255.00,210.00 L257.00,210.00 L257.80,85.50 Z"/>
+  <path fill="#E6EDF4" d="M256.00,69.00 258.80,77.20 267.00,80.00 258.80,82.80 256.00,91.00 253.20,82.80 245.00,80.00 253.20,77.20Z"/>
+  <path fill="#E6EDF4" d="M404.56,339.69 L296.34,278.13 L295.34,279.87 L402.76,342.81 Z"/>
+  <path fill="#E6EDF4" d="M417.95,349.50 409.45,347.83 402.92,353.53 404.60,345.02 398.89,338.50 407.40,340.17 413.92,334.47 412.25,342.98Z"/>
+  <path fill="#E6EDF4" d="M109.24,342.81 L216.66,279.87 L215.66,278.13 L107.44,339.69 Z"/>
+  <path fill="#E6EDF4" d="M94.05,349.50 99.75,342.98 98.08,334.47 104.60,340.17 113.11,338.50 107.40,345.02 109.08,353.53 102.55,347.83Z"/>
+  <circle cx="256.0" cy="256.0" r="46" fill="none" stroke="#E6EDF4" stroke-width="1.5" opacity="0.28"/>
+  <circle cx="256.0" cy="256.0" r="29" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="11" fill="#F4F7FA"/>
+</svg>

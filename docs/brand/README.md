@@ -111,6 +111,24 @@ Three lines of position meet at one fix. Multi-agent coordination metaphor.
 
 [SVG](logos/10-celestial-fix.svg) · [PNG 512](png/10-celestial-fix-512.png) · [on dark](review/10-celestial-fix-on-dark.png)
 
+
+
+## Celestial Fix refinements
+
+Mark 10 was the right idea but too rough. Five cleaned-up variations live in
+[`logos/fix-variants/`](logos/fix-variants/) — compare them in
+[`fix-chooser.html`](fix-chooser.html).
+
+![Five Celestial Fix refinements](review/fix-variants/contact-sheet-light.png)
+
+| ID | Name | Idea |
+|---|---|---|
+| 10a | Converge | Tapered sightlines stop at the fix |
+| 10b | Precision | LOPs with soft stubs past a hub |
+| 10c | Circles of Position | COP arcs meet at the fix |
+| 10d | Minimal | Hairline rays, bold fix |
+| 10e | Triangle | Sight triangle with star vertices |
+
 ## Files
 
 ```

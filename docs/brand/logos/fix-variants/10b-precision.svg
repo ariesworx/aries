@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Celestial Fix precision">
+  <title>Aries - Fix B - Precision</title>
+  <desc>Instrument LOPs with soft continuation stubs past a hub.</desc>
+  <path fill="#0B1D2E" d="M251.75,95.07 L254.50,222.00 L257.50,222.00 L260.25,95.07 Z"/>
+  <path fill="#0B1D2E" opacity="0.26" d="M254.50,290.00 L255.30,314.00 L256.70,314.00 L257.50,290.00 Z"/>
+  <path fill="#0B1D2E" d="M256.00,69.50 260.20,81.80 272.50,86.00 260.20,90.20 256.00,102.50 251.80,90.20 239.50,86.00 251.80,81.80Z"/>
+  <path fill="#0B1D2E" d="M397.49,332.78 L286.19,271.70 L284.69,274.30 L393.24,340.14 Z"/>
+  <path fill="#0B1D2E" opacity="0.26" d="M227.31,237.70 L206.12,226.39 L205.42,227.61 L225.81,240.30 Z"/>
+  <path fill="#0B1D2E" d="M417.51,349.25 404.76,346.74 394.97,355.29 397.49,342.54 388.93,332.75 401.69,335.26 411.47,326.71 408.96,339.46Z"/>
+  <path fill="#0B1D2E" d="M118.76,340.14 L227.31,274.30 L225.81,271.70 L114.51,332.78 Z"/>
+  <path fill="#0B1D2E" opacity="0.26" d="M286.19,240.30 L306.58,227.61 L305.88,226.39 L284.69,237.70 Z"/>
+  <path fill="#0B1D2E" d="M94.49,349.25 103.04,339.46 100.53,326.71 110.31,335.26 123.07,332.75 114.51,342.54 117.03,355.29 107.24,346.74Z"/>
+  <circle cx="256.0" cy="256.0" r="34" fill="none" stroke="#0B1D2E" stroke-width="2.25"/>
+  <circle cx="256.0" cy="256.0" r="24" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="8.5" fill="#F4F7FA"/>
+</svg>

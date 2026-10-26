@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Celestial Fix circles of position">
+  <title>Aries (on dark) - Fix C - Circles of Position</title>
+  <desc>Three COP arcs meet at the fix — arcs only, no Venn clutter.</desc>
+  <path d="M371.42,162.53 A118.00,118.00 0 0 1 140.58,162.53" fill="none" stroke="#E6EDF4" stroke-width="6.5" stroke-linecap="round"/>
+  <line x1="256.00" y1="100.00" x2="256.00" y2="20.00" stroke="#E6EDF4" stroke-width="2.25" stroke-linecap="round" opacity="0.5"/>
+  <path fill="#E6EDF4" d="M256.00,75.50 259.69,86.31 270.50,90.00 259.69,93.69 256.00,104.50 252.31,93.69 241.50,90.00 252.31,86.31Z"/>
+  <path d="M279.23,402.69 A118.00,118.00 0 0 1 394.66,202.78" fill="none" stroke="#E6EDF4" stroke-width="6.5" stroke-linecap="round"/>
+  <line x1="391.10" y1="334.00" x2="460.38" y2="374.00" stroke="#E6EDF4" stroke-width="2.25" stroke-linecap="round" opacity="0.5"/>
+  <path fill="#E6EDF4" d="M412.32,346.25 401.11,344.04 392.51,351.56 394.72,340.35 387.20,331.75 398.41,333.96 407.01,326.44 404.80,337.65Z"/>
+  <path d="M117.34,202.78 A118.00,118.00 0 0 1 232.77,402.69" fill="none" stroke="#E6EDF4" stroke-width="6.5" stroke-linecap="round"/>
+  <line x1="120.90" y1="334.00" x2="51.62" y2="374.00" stroke="#E6EDF4" stroke-width="2.25" stroke-linecap="round" opacity="0.5"/>
+  <path fill="#E6EDF4" d="M99.68,346.25 107.20,337.65 104.99,326.44 113.59,333.96 124.80,331.75 117.28,340.35 119.49,351.56 110.89,344.04Z"/>
+  <circle cx="256.0" cy="256.0" r="36" fill="none" stroke="#C9A227" stroke-width="5"/>
+  <circle cx="256.0" cy="256.0" r="20" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="7.5" fill="#F4F7FA"/>
+</svg>
