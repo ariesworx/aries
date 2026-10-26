@@ -299,6 +299,25 @@ model, to fix where their work stands and chart the next step.
   ([Running Sextant](docs/sextant.md)); the rest is a design
   ([sextant.md](docs/design/sextant.md)).
 
+## Further reading
+
+Background reading behind the dark-factory idea, context engineering
+and multi-agent coordination. The full annotated list is in
+[References](docs/references.md).
+
+1. [Robots, the maker of robots, in FANUC's dark factory](https://www.organizedergi.com/News/5493/robots-the-maker-of-robots-in-fanuc-s-dark-factory):
+   where the "lights-out" idea comes from.
+2. [The Five Levels: from Spicy Autocomplete to the Dark Factory](https://www.danshapiro.com/blog/2026/01/the-five-levels-from-spicy-autocomplete-to-the-software-factory/):
+   a vocabulary for how autonomous a software team is.
+3. [The State of Context Engineering](https://www.dbreunig.com/2026/10/24/the-state-of-context-engineering.html):
+   a current overview of how context engineering changed as models
+   improved.
+4. [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents):
+   the practical method: context as a finite attention budget.
+5. [Welcome to Gas Town](https://yegge.ai/essays/welcome-to-gas-town/):
+   what running 20 or more agents at once looks like, and why
+   coordination becomes the bottleneck.
+
 ## Contributing
 
 [CONTRIBUTING.md](CONTRIBUTING.md) gets you from a clone to a passing
