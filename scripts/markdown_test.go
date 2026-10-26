@@ -81,8 +81,8 @@ func TestMarkdownLinks(t *testing.T) {
 			nLinks++
 			path, frag, hasFrag := strings.Cut(target, "#")
 			var dest string
-			switch {
-			case path == "":
+			switch path {
+			case "":
 				dest = f
 			default:
 				joined := path
@@ -251,9 +251,9 @@ func stripMDEmphasis(s string) string {
 			if end := strings.IndexByte(s[i:], ']'); end > 0 {
 				rest := s[i+end+1:]
 				if strings.HasPrefix(rest, "(") {
-					if close := strings.IndexByte(rest, ')'); close >= 0 {
+					if endParen := strings.IndexByte(rest, ')'); endParen >= 0 {
 						b.WriteString(s[i+1 : i+end])
-						i += end + 1 + close + 1
+						i += end + 1 + endParen + 1
 						continue
 					}
 				}
