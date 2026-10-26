@@ -287,6 +287,8 @@ the almanac's figures for it, a clock and a sextant, a navigator fixes
 their position with no signal from anyone else. Aries gives AI coding
 agents the same: one shared reference, on any machine and with any
 model, to fix where their work stands and chart the next step.
+Draft logo marks on that theme (no astrology, no ram) live in
+[docs/brand](docs/brand/README.md).
 
 - **Aries** is the coordination server and its client, `ariesd` and
   `aries`.
