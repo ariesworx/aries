@@ -1,11 +1,18 @@
 # Aries brand concepts
 
 Draft logo marks for Aries and ariesworx.com. Theme: **celestial navigation**
-(the naming family already in the product: Aries, Bearings, Sextant) — not
+(the naming family already in the product: Aries, Bearings, Sextant) - not
 astrology, and no ram's head.
 
-These are concepts to try in the repo (README, docs, favicons) and on a future
-open-source site. Nothing here is the final mark until one is chosen.
+**To see the marks:** open the PNGs under [`review/`](review/) or [`png/`](png/),
+or open [`preview.html`](preview.html) in a browser. SVG files are source code;
+editors often show their XML instead of a picture.
+
+## All ten at a glance
+
+![Ten Aries logo concepts on a light ground](review/contact-sheet-light.png)
+
+![Ten Aries logo concepts on a dark ground](review/contact-sheet-dark.png)
 
 ## Palette
 
@@ -21,39 +28,105 @@ exports for places that want a bitmap (chat, GitHub social, etc.).
 
 ## The ten marks
 
-| # | File | Concept | Good for |
-|---|---|---|---|
-| 01 | [`logos/01-polaris.svg`](logos/01-polaris.svg) | **Polaris** — north star + compass rays | Favicon, app icon, densest at small sizes |
-| 02 | [`logos/02-sextant.svg`](logos/02-sextant.svg) | **Sextant** — arc, index arm, horizon glass | Product/family mark; pairs with the Sextant binary |
-| 03 | [`logos/03-bearings.svg`](logos/03-bearings.svg) | **Bearings** — cardinal ring + fix | Orchestrator / “heading” metaphor |
-| 04 | [`logos/04-first-point.svg`](logos/04-first-point.svg) | **First Point of Aries** — equator × ecliptic | The astronomical meaning of the name |
-| 05 | [`logos/05-star-path.svg`](logos/05-star-path.svg) | **Star Path** — course with guide stars | Marketing, “shared heading” story |
-| 06 | [`logos/06-compass-rose.svg`](logos/06-compass-rose.svg) | **Compass Rose** — eight-point rose | Charts, classic nav feel |
-| 07 | [`logos/07-meridian.svg`](logos/07-meridian.svg) | **Meridian** — horizon + altitude sight | Docs, “measure once” metaphor |
-| 08 | [`logos/08-azimuth.svg`](logos/08-azimuth.svg) | **Azimuth** — ring, north, bearing to a star | Status / direction UI |
-| 09 | [`logos/09-sight-a.svg`](logos/09-sight-a.svg) | **Sight A** — letter A as a navigational sight | Wordmark lockup, README header |
-| 10 | [`logos/10-celestial-fix.svg`](logos/10-celestial-fix.svg) | **Celestial Fix** — three LOPs meet | Multi-agent coordination metaphor |
+Each row links the **PNG preview** (click to see the picture) and the SVG source.
 
-Open [`preview.html`](preview.html) in a browser to compare them on light and
-dark grounds.
+### 01. Polaris
+
+North star with compass rays. Strong at favicon size.
+
+![Polaris](review/01-polaris-on-light.png)
+
+[SVG](logos/01-polaris.svg) · [PNG 512](png/01-polaris-512.png) · [on dark](review/01-polaris-on-dark.png)
+
+### 02. Sextant
+
+Graduated arc, index arm, horizon glass. Pairs with the Sextant binary.
+
+![Sextant](review/02-sextant-on-light.png)
+
+[SVG](logos/02-sextant.svg) · [PNG 512](png/02-sextant-512.png) · [on dark](review/02-sextant-on-dark.png)
+
+### 03. Bearings
+
+Cardinal ring and centered fix. Orchestrator / heading metaphor.
+
+![Bearings](review/03-bearings-on-light.png)
+
+[SVG](logos/03-bearings.svg) · [PNG 512](png/03-bearings-512.png) · [on dark](review/03-bearings-on-dark.png)
+
+### 04. First Point of Aries
+
+Celestial equator crossed by the ecliptic. The navigational meaning of the name.
+
+![First Point of Aries](review/04-first-point-on-light.png)
+
+[SVG](logos/04-first-point.svg) · [PNG 512](png/04-first-point-512.png) · [on dark](review/04-first-point-on-dark.png)
+
+### 05. Star Path
+
+Guide stars along a great-circle course.
+
+![Star Path](review/05-star-path-on-light.png)
+
+[SVG](logos/05-star-path.svg) · [PNG 512](png/05-star-path-512.png) · [on dark](review/05-star-path-on-dark.png)
+
+### 06. Compass Rose
+
+Eight-point rose with brass north.
+
+![Compass Rose](review/06-compass-rose-on-light.png)
+
+[SVG](logos/06-compass-rose.svg) · [PNG 512](png/06-compass-rose-512.png) · [on dark](review/06-compass-rose-on-dark.png)
+
+### 07. Meridian
+
+Horizon, meridian, and a star at altitude.
+
+![Meridian](review/07-meridian-on-light.png)
+
+[SVG](logos/07-meridian.svg) · [PNG 512](png/07-meridian-512.png) · [on dark](review/07-meridian-on-dark.png)
+
+### 08. Azimuth
+
+Azimuth ring with a bearing to a guide star.
+
+![Azimuth](review/08-azimuth-on-light.png)
+
+[SVG](logos/08-azimuth.svg) · [PNG 512](png/08-azimuth-512.png) · [on dark](review/08-azimuth-on-dark.png)
+
+### 09. Sight A
+
+Letter A as a navigational sight. Good wordmark lockup.
+
+![Sight A](review/09-sight-a-on-light.png)
+
+[SVG](logos/09-sight-a.svg) · [PNG 512](png/09-sight-a-512.png) · [on dark](review/09-sight-a-on-dark.png)
+
+### 10. Celestial Fix
+
+Three lines of position meet at one fix. Multi-agent coordination metaphor.
+
+![Celestial Fix](review/10-celestial-fix-on-light.png)
+
+[SVG](logos/10-celestial-fix.svg) · [PNG 512](png/10-celestial-fix-512.png) · [on dark](review/10-celestial-fix-on-dark.png)
 
 ## Files
 
 ```
 docs/brand/
-  README.md
-  preview.html
-  logos/                 # SVG sources for light grounds (512 viewBox)
+  README.md              # this page (renders the PNGs on GitHub)
+  preview.html           # open locally in a browser
+  logos/                 # SVG sources for light grounds
   logos/on-dark/         # Same marks with light ink for dark grounds
-  png/                   # 64 / 128 / 512 px exports (light-ground ink)
-  png/on-dark/           # Matching exports of the on-dark SVGs
-  review/                # Contact sheets and padded composites for side-by-side review
+  png/                   # 64 / 128 / 512 px exports
+  png/on-dark/
+  review/                # Padded PNGs + contact sheets (easiest to view in the IDE)
 ```
 
 ## Suggested next steps
 
 1. Pick a primary mark (favicon / GitHub social) and one wordmark lockup
-   (often **09 Sight A** or **01 Polaris** + the word “Aries”).
+   (often **09 Sight A** or **01 Polaris** + the word "Aries").
 2. Add a monochrome (currentColor) cut of the winner for inline SVG in docs.
 3. When the site lands, reuse the same SVG; do not redraw as a flat PNG hero.
 
