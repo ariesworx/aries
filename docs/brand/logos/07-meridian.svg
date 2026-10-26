@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Meridian mark">
+  <title>Aries - Meridian</title>
+  <desc>Local meridian, horizon, and a star at measured altitude.</desc>
+  <g fill="none" stroke="#0B1D2E" stroke-linecap="round">
+    <path stroke-width="10" d="M64 360h384"/>
+    <path stroke-width="10" d="M96 360A160 160 0 0 1 416 360"/>
+    <path stroke-width="8" d="M256 360V120"/>
+    <path stroke-width="6" stroke="#C9A227" d="M256 360A100 100 0 0 1 330 230"/>
+  </g>
+  <circle cx="256" cy="360" r="12" fill="#0B1D2E"/>
+  <path fill="#C9A227" d="M330 198l12 32 32 12-32 12-12 32-12-32-32-12 32-12z"/>
+  <path stroke="#0B1D2E" stroke-width="6" stroke-linecap="round" d="M256 96v24" fill="none"/>
+</svg>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Bearings mark">
+  <title>Aries - Bearings</title>
+  <desc>Cardinal bearings around a centered guide star.</desc>
+  <g fill="none" stroke="#0B1D2E" stroke-linecap="round">
+    <circle cx="256" cy="256" r="168" stroke-width="8"/>
+    <path stroke-width="10" d="M256 88v56M256 368v56M88 256h56M368 256h56"/>
+  </g>
+  <path fill="#C9A227" d="M256 64l22 44h-44z"/>
+  <path fill="#0B1D2E" d="M256 176l80 80-80 80-80-80z"/>
+  <path fill="#F4F7FA" d="M256 208l48 48-48 48-48-48z"/>
+  <circle cx="256" cy="256" r="14" fill="#C9A227"/>
+</svg>

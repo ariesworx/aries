@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Azimuth mark">
+  <title>Aries (on dark) - Azimuth</title>
+  <desc>Azimuth ring with north mark and a bearing pointer to a guide star.</desc>
+  <g fill="none" stroke="#E6EDF4" stroke-linecap="round">
+    <circle cx="256" cy="256" r="180" stroke-width="12"/>
+    <circle cx="256" cy="256" r="148" stroke-width="3" opacity="0.35"/>
+    <path stroke-width="5" d="M256 76v24M256 412v24M76 256h24M412 256h24M128 128l17 17M367 367l17 17M384 128l-17 17M145 367l-17 17"/>
+  </g>
+  <path fill="#C9A227" d="M256 48l16 32h-32z"/>
+  <!-- N mark as geometry (no text dependency) -->
+  <path fill="#E6EDF4" d="M244 96h8v28l16-28h10v40h-8v-28l-16 28h-10z"/>
+  <path stroke="#C9A227" stroke-width="8" stroke-linecap="round" d="M256 256L372 168" fill="none"/>
+  <circle cx="256" cy="256" r="14" fill="#E6EDF4"/>
+  <path fill="#E6EDF4" d="M372 148l10 26 26 10-26 10-10 26-10-26-26-10 26-10z"/>
+</svg>

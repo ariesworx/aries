@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Compass Rose mark">
+  <title>Aries (on dark) - Compass Rose</title>
+  <desc>Eight-point compass rose with a brass north point.</desc>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#E6EDF4" stroke-width="6"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#E6EDF4" stroke-width="2" opacity="0.4"/>
+  <path fill="#8EB4D0" d="M256 256l40-100 12 100-12 100zm0 0l100-40-100 12-100 12zm0 0l-40 100-12-100 12-100zm0 0l-100 40 100-12 100-12z"/>
+  <path fill="#E6EDF4" d="M256 256L256 72l28 184zm0 0l184 0-184 28zm0 0l0 184-28-184zm0 0l-184 0 184-28z"/>
+  <path fill="#C9A227" d="M256 256L256 72l28 184z"/>
+  <circle cx="256" cy="256" r="20" fill="#F4F7FA"/>
+  <circle cx="256" cy="256" r="10" fill="#E6EDF4"/>
+</svg>

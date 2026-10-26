@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Star Path mark">
+  <title>Aries (on dark) - Star Path</title>
+  <desc>Three guide stars along a great-circle course.</desc>
+  <g fill="none" stroke="#E6EDF4" stroke-linecap="round">
+    <path stroke-width="10" d="M72 340C140 180 280 120 440 200"/>
+    <path stroke-width="4" opacity="0.4" d="M88 380C160 240 290 180 424 250"/>
+  </g>
+  <g fill="#E6EDF4">
+    <path d="M128 268l10 28 28 10-28 10-10 28-10-28-28-10 28-10z"/>
+    <path d="M256 168l12 34 34 12-34 12-12 34-12-34-34-12 34-12z"/>
+  </g>
+  <path fill="#C9A227" d="M392 196l14 40 40 14-40 14-14 40-14-40-40-14 40-14z"/>
+  <circle cx="392" cy="210" r="6" fill="#F4F7FA"/>
+</svg>

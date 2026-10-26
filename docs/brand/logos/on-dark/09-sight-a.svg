@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Sight A monogram">
+  <title>Aries (on dark) - Sight A</title>
+  <desc>Letter A as a navigational sight: limbs meet at a peak star, crossbar as horizon.</desc>
+  <path fill="none" stroke="#E6EDF4" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" d="M128 400L256 112L384 400"/>
+  <path stroke="#E6EDF4" stroke-width="22" stroke-linecap="round" d="M168 292h176" fill="none"/>
+  <path fill="#C9A227" d="M256 64l14 36 36 14-36 14-14 36-14-36-36-14 36-14z"/>
+  <circle cx="256" cy="292" r="10" fill="#F4F7FA" stroke="#E6EDF4" stroke-width="4"/>
+</svg>

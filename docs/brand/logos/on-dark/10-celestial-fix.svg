@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Celestial Fix mark">
+  <title>Aries (on dark) - Celestial Fix</title>
+  <desc>Three lines of position from star sights intersecting at a fix.</desc>
+  <g fill="none" stroke="#E6EDF4" stroke-linecap="round">
+    <path stroke-width="8" d="M80 120L400 392"/>
+    <path stroke-width="8" d="M432 140L120 400"/>
+    <path stroke-width="8" d="M96 280L416 280"/>
+  </g>
+  <g fill="#E6EDF4">
+    <path d="M80 100l8 20 20 8-20 8-8 20-8-20-20-8 20-8z"/>
+    <path d="M432 120l8 20 20 8-20 8-8 20-8-20-20-8 20-8z"/>
+    <path d="M96 260l8 20 20 8-20 8-8 20-8-20-20-8 20-8z"/>
+  </g>
+  <circle cx="256" cy="280" r="28" fill="#C9A227"/>
+  <circle cx="256" cy="280" r="12" fill="#F4F7FA"/>
+  <circle cx="256" cy="280" r="48" fill="none" stroke="#C9A227" stroke-width="4" opacity="0.7"/>
+</svg>

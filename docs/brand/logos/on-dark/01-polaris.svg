@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries Polaris mark">
+  <title>Aries (on dark) - Polaris</title>
+  <desc>North Star with four thin compass rays. Celestial navigation mark for Aries.</desc>
+  <g fill="none" stroke="#E6EDF4" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="6" d="M256 48v56M256 408v56M48 256h56M408 256h56"/>
+    <path stroke-width="4" opacity="0.55" d="M118 118l32 32M362 362l32 32M394 118l-32 32M150 362l-32 32"/>
+  </g>
+  <path fill="#E6EDF4" d="M256 112l28 116 116 28-116 28-28 116-28-116-116-28 116-28z"/>
+  <circle cx="256" cy="256" r="18" fill="#C9A227"/>
+  <circle cx="256" cy="256" r="7" fill="#F4F7FA"/>
+</svg>

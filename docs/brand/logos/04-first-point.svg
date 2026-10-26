@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries First Point mark">
+  <title>Aries - First Point of Aries</title>
+  <desc>Celestial equator and ecliptic crossing: the astronomical First Point of Aries.</desc>
+  <g fill="none" stroke-linecap="round">
+    <ellipse cx="256" cy="256" rx="190" ry="70" stroke="#0B1D2E" stroke-width="10"/>
+    <ellipse cx="256" cy="256" rx="190" ry="70" stroke="#4A7A9B" stroke-width="10" transform="rotate(-24 256 256)"/>
+    <circle cx="256" cy="256" r="190" stroke="#0B1D2E" stroke-width="4" opacity="0.35"/>
+  </g>
+  <circle cx="256" cy="256" r="22" fill="#C9A227"/>
+  <circle cx="256" cy="256" r="9" fill="#F4F7FA"/>
+  <path fill="#0B1D2E" d="M256 214l10 18h-20z"/>
+</svg>
