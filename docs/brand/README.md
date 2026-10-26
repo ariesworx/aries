@@ -4,9 +4,10 @@ Draft logo marks for Aries and ariesworx.com. Theme: **celestial navigation**
 (the naming family already in the product: Aries, Bearings, Sextant) - not
 astrology, and no ram's head.
 
-**To see the marks:** open the PNGs under [`review/`](review/) or [`png/`](png/),
-or open [`preview.html`](preview.html) in a browser. SVG files are source code;
-editors often show their XML instead of a picture.
+**To see and pick marks:** open [`chooser.html`](chooser.html) in a browser
+(rank 1–3, shortlist, leave notes, copy a brief back to the agent). Or open
+the PNGs under [`review/`](review/). SVG files are source code; editors often
+show their XML instead of a picture.
 
 ## All ten at a glance
 
@@ -115,7 +116,8 @@ Three lines of position meet at one fix. Multi-agent coordination metaphor.
 ```
 docs/brand/
   README.md              # this page (renders the PNGs on GitHub)
-  preview.html           # open locally in a browser
+  chooser.html           # interactive picker (self-contained; open in a browser)
+  preview.html           # redirects to chooser.html
   logos/                 # SVG sources for light grounds
   logos/on-dark/         # Same marks with light ink for dark grounds
   png/                   # 64 / 128 / 512 px exports
