@@ -1,7 +1,7 @@
 # References and further reading
 
 Aries is meant to support a *dark factory* for software, where coding
-agents claim work, coordinate, ship and learn with few humans in the
+agents claim work, coordinate, ship and learn with few people in the
 loop. This page collects the articles, papers and specs behind that
 idea. Blog posts and news pieces are tagged **users**. Papers and
 specs are tagged **contributors**. Some work for **both**. Each note
@@ -23,14 +23,13 @@ All links were checked on 26 Oct 2026.
 ## Suggested reading path (newcomers)
 
 1. [Robots, the maker of robots, in FANUC's dark factory](https://www.organizedergi.com/News/5493/robots-the-maker-of-robots-in-fanuc-s-dark-factory):
-   where the "lights-out" idea comes from.
+   where the lights-out idea comes from.
 2. [The Five Levels: from Spicy Autocomplete to the Dark Factory](https://www.danshapiro.com/blog/2026/01/the-five-levels-from-spicy-autocomplete-to-the-software-factory/):
    a vocabulary for how autonomous a software team is.
 3. [The State of Context Engineering](https://www.dbreunig.com/2026/10/24/the-state-of-context-engineering.html):
-   a current overview of how context engineering changed as models
-   improved.
+   a current overview of context engineering.
 4. [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents):
-   the practical method: context as a finite attention budget.
+   the practical method; context as a finite attention budget.
 5. [Welcome to Gas Town](https://yegge.ai/essays/welcome-to-gas-town/):
    what running 20 or more agents at once looks like, and why
    coordination becomes the bottleneck.
@@ -45,7 +44,7 @@ All links were checked on 26 Oct 2026.
   robots. It also argues that the concept only pays off when the
   goals and budget are defined correctly. This is the manufacturing
   origin of the "dark factory" metaphor Aries borrows, and a reminder
-  that autonomy is an investment you measure, not a vibe.
+  that autonomy is an investment you measure.
 
 - **[The Five Levels: from Spicy Autocomplete to the Dark Factory](https://www.danshapiro.com/blog/2026/01/the-five-levels-from-spicy-autocomplete-to-the-software-factory/)**:
   Dan Shapiro, 2026 · blog · *users*
@@ -57,7 +56,7 @@ All links were checked on 26 Oct 2026.
 - **[How StrongDM's AI team build serious software without even looking at the code](https://simonwillison.net/2026/Feb/7/software-factory/)**:
   Simon Willison, 2026 · blog · *both*
   A concrete report on a team running a "software factory" where
-  agents write the code and humans don't review it line by line. It
+  agents write the code and people do not review it line by line. It
   is a real-world benchmark for the workflows Aries coordinates, and
   shows why verification and outcome tracking (the learning loop)
   must replace human code review.
@@ -129,7 +128,8 @@ All links were checked on 26 Oct 2026.
   A current overview of how context engineering changed as models
   improved. Its framing, knowing when to be deterministic and when
   to let the model decide, matches the `bearings` principle "Go
-  supervises; LLMs judge".
+  supervises; LLMs judge"
+  ([bearings.md](design/bearings.md#1-principles)).
 
 ## Multi-agent coordination
 
@@ -171,9 +171,10 @@ All links were checked on 26 Oct 2026.
 - **[Semantic conventions for GenAI agent and framework spans](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md)**:
   OpenTelemetry, 2026 (Development status) · spec · *contributors*
   The emerging standard span and attribute names for agent
-  invocations and tool calls. `sextant` exports over OTLP but
-  deliberately does not emit `gen_ai.*` yet: a span carries ids,
-  codes and small numbers and never text (design §16.4). Use this
+  invocations and tool calls. `sextant` and ariesd's telemetry
+  export over OTLP and do not emit `gen_ai.*` attributes: a span
+  carries ids, codes and small numbers and never text
+  ([design §16.4](design/aries.md#164-what-is-measured)). Use this
   spec to decide which content-free attributes Aries could adopt so
   it works with Langfuse, LangSmith and similar backends.
 
