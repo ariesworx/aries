@@ -15,11 +15,15 @@ weight in the frame and the fix. Chosen from the Fix iteration (E5 → E2 → F5
 
 | Use | File |
 |---|---|
-| SVG (light grounds) | [`logos/aries-mark.svg`](logos/aries-mark.svg) |
-| SVG (dark grounds) | [`logos/on-dark/aries-mark.svg`](logos/on-dark/aries-mark.svg) |
-| PNG 512 / 128 / 64 | [`png/aries-mark-512.png`](png/aries-mark-512.png) · [128](png/aries-mark-128.png) · [64](png/aries-mark-64.png) |
+| Source (packaging / site) | [`assets/icon/aries.svg`](../../assets/icon/aries.svg) |
+| Dark grounds | [`assets/icon/aries-dark.svg`](../../assets/icon/aries-dark.svg) |
+| Favicon | [`assets/icon/favicon.ico`](../../assets/icon/favicon.ico) · [`favicon.svg`](../../assets/icon/favicon.svg) |
+| Apple touch | [`assets/icon/apple-touch-icon.png`](../../assets/icon/apple-touch-icon.png) |
+| Social preview | [`assets/icon/social.png`](../../assets/icon/social.png) |
+| Brand copies | [`logos/aries-mark.svg`](logos/aries-mark.svg) · [`png/aries-mark-512.png`](png/aries-mark-512.png) |
 
-Alias: `logos/fix-airy.svg` (same artwork).
+The README header and brand HTML pages use these assets. Upload `social.png`
+as the GitHub repository social preview (Settings → General → Social preview).
 
 **To browse earlier concepts:** open [`chooser.html`](chooser.html) or the
 PNGs under [`review/`](review/). SVG files are source code; editors often
@@ -181,10 +185,13 @@ docs/brand/
 
 ## Suggested next steps
 
-1. Pick a primary mark (favicon / GitHub social) and one wordmark lockup
-   (often **09 Sight A** or **01 Polaris** + the word "Aries").
-2. Add a monochrome (currentColor) cut of the winner for inline SVG in docs.
-3. When the site lands, reuse the same SVG; do not redraw as a flat PNG hero.
+1. Upload [`assets/icon/social.png`](../../assets/icon/social.png) as the
+   GitHub social preview (Settings → General → Social preview).
+2. Add a monochrome (`currentColor`) cut for inline SVG in docs if needed.
+3. When the site lands, reuse `assets/icon/aries.svg` and the favicon set;
+   do not redraw as a flat PNG hero.
+4. Packaging still needs `internal/tools/icons` for release `.ico` / `.icns`
+   ([packaging.md](../design/packaging.md) K1).
 
 ## License
 

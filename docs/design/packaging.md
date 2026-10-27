@@ -34,6 +34,15 @@ no such warning today on the paths people use (§3.1).
 
 ## 2. The icon
 
+**As built (26 Oct 2026).** The selected mark (Celestial Fix — Airy) is at
+`assets/icon/aries.svg`, with `aries-dark.svg`, PNG sizes 16–1024 (16–48
+optically tuned for favicons), `favicon.ico` / `favicon.svg`,
+`apple-touch-icon.png`, and `social.png` for the GitHub preview. The README
+header shows `aries-128.png`. `internal/tools/icons` (`.ico` / `.icns`
+packing with a drift test) is not built yet; `favicon.ico` and `aries.ico`
+were written beside the PNGs for now. Brand copies also live under
+`docs/brand/`.
+
 ### 2.1 Where it would be seen
 
 | Place | Shows an icon? | Needs |

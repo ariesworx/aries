@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries - Celestial Fix Airy">
-  <title>Aries - Celestial Fix Airy</title>
-  <desc>Most open Quiet: no hub ring, bold brass only.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries">
+  <title>Aries</title>
+  <desc>Celestial Fix Airy: open triangle, star vertices, brass fix.</desc>
   <line x1="274.00" y1="121.18" x2="381.76" y2="307.82" stroke="#0B1D2E" stroke-width="5" stroke-linecap="round"/>
   <line x1="363.76" y1="339.00" x2="148.24" y2="339.00" stroke="#0B1D2E" stroke-width="5" stroke-linecap="round"/>
   <line x1="130.24" y1="307.82" x2="238.00" y2="121.18" stroke="#0B1D2E" stroke-width="5" stroke-linecap="round"/>

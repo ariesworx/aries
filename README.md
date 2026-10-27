@@ -1,7 +1,13 @@
 # Aries
 
-[![ci](https://github.com/ariesworx/aries/actions/workflows/ci.yml/badge.svg)](https://github.com/ariesworx/aries/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
+<p align="center">
+  <img src="assets/icon/aries-128.png" alt="Aries" width="96" height="96">
+</p>
+
+<p align="center">
+  <a href="https://github.com/ariesworx/aries/actions/workflows/ci.yml"><img src="https://github.com/ariesworx/aries/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg" alt="License"></a>
+</p>
 
 **An issue tracker, shared memory and coordination layer for AI coding
 agents.** Agents claim work, hand it off and see who else is working,
