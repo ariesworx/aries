@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries - F1 — Badge">
+  <title>Aries - F1 — Badge</title>
+  <desc>Polished E5: heavy frame, ink hub ring, no medians.</desc>
+  <line x1="270.00" y1="130.25" x2="371.90" y2="306.75" stroke="#0B1D2E" stroke-width="8" stroke-linecap="round"/>
+  <line x1="357.90" y1="331.00" x2="154.10" y2="331.00" stroke="#0B1D2E" stroke-width="8" stroke-linecap="round"/>
+  <line x1="140.10" y1="306.75" x2="242.00" y2="130.25" stroke="#0B1D2E" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="256.0" cy="256.0" r="40" fill="none" stroke="#0B1D2E" stroke-width="2"/>
+  <circle cx="256.0" cy="256.0" r="26" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="10" fill="#F4F7FA"/>
+  <path fill="#0B1D2E" d="M256.00,90.50 259.73,102.27 271.50,106.00 259.73,109.73 256.00,121.50 252.27,109.73 240.50,106.00 252.27,102.27Z"/>
+  <path fill="#0B1D2E" d="M399.33,338.75 387.27,336.09 378.15,344.42 380.81,332.36 372.48,323.25 384.54,325.91 393.65,317.58 390.99,329.64Z"/>
+  <path fill="#0B1D2E" d="M112.67,338.75 121.01,329.64 118.35,317.58 127.46,325.91 139.52,323.25 131.19,332.36 133.85,344.42 124.73,336.09Z"/>
+</svg>

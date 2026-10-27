@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries - F3 — Quiet+">
+  <title>Aries - F3 — Quiet+</title>
+  <desc>E2 with a touch more frame for small sizes.</desc>
+  <line x1="270.00" y1="120.25" x2="380.56" y2="311.75" stroke="#0B1D2E" stroke-width="5.75" stroke-linecap="round"/>
+  <line x1="366.56" y1="336.00" x2="145.44" y2="336.00" stroke="#0B1D2E" stroke-width="5.75" stroke-linecap="round"/>
+  <line x1="131.44" y1="311.75" x2="242.00" y2="120.25" stroke="#0B1D2E" stroke-width="5.75" stroke-linecap="round"/>
+  <circle cx="256.0" cy="256.0" r="48" fill="none" stroke="#0B1D2E" stroke-width="1.35" opacity="0.22"/>
+  <circle cx="256.0" cy="256.0" r="30" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="11.5" fill="#F4F7FA"/>
+  <path fill="#0B1D2E" d="M256.00,80.00 259.85,92.15 272.00,96.00 259.85,99.85 256.00,112.00 252.15,99.85 240.00,96.00 252.15,92.15Z"/>
+  <path fill="#0B1D2E" d="M408.42,344.00 395.97,341.25 386.56,349.86 389.31,337.41 380.71,328.00 393.16,330.75 402.56,322.14 399.82,334.59Z"/>
+  <path fill="#0B1D2E" d="M103.58,344.00 112.18,334.59 109.44,322.14 118.84,330.75 131.29,328.00 122.69,337.41 125.44,349.86 116.03,341.25Z"/>
+</svg>

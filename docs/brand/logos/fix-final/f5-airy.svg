@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries - F5 — Airy">
+  <title>Aries - F5 — Airy</title>
+  <desc>Most open Quiet: no hub ring, bold brass only.</desc>
+  <line x1="274.00" y1="121.18" x2="381.76" y2="307.82" stroke="#0B1D2E" stroke-width="5" stroke-linecap="round"/>
+  <line x1="363.76" y1="339.00" x2="148.24" y2="339.00" stroke="#0B1D2E" stroke-width="5" stroke-linecap="round"/>
+  <line x1="130.24" y1="307.82" x2="238.00" y2="121.18" stroke="#0B1D2E" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="256.0" cy="256.0" r="32" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="12" fill="#F4F7FA"/>
+  <path fill="#0B1D2E" d="M256.00,72.50 260.21,85.79 273.50,90.00 260.21,94.21 256.00,107.50 251.79,94.21 238.50,90.00 251.79,85.79Z"/>
+  <path fill="#0B1D2E" d="M414.92,347.75 401.30,344.75 391.01,354.16 394.01,340.54 384.60,330.25 398.22,333.25 408.51,323.84 405.51,337.46Z"/>
+  <path fill="#0B1D2E" d="M97.08,347.75 106.49,337.46 103.49,323.84 113.78,333.25 127.40,330.25 117.99,340.54 120.99,354.16 110.70,344.75Z"/>
+</svg>

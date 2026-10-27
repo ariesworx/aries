@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aries (on dark) - F4 — Compact">
+  <title>Aries (on dark) - F4 — Compact</title>
+  <desc>Tighter, heavier badge for favicon and app icon.</desc>
+  <line x1="269.00" y1="136.52" x2="365.98" y2="304.48" stroke="#E6EDF4" stroke-width="9" stroke-linecap="round"/>
+  <line x1="352.98" y1="327.00" x2="159.02" y2="327.00" stroke="#E6EDF4" stroke-width="9" stroke-linecap="round"/>
+  <line x1="146.02" y1="304.48" x2="243.00" y2="136.52" stroke="#E6EDF4" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="256.0" cy="256.0" r="36" fill="none" stroke="#E6EDF4" stroke-width="2.25"/>
+  <circle cx="256.0" cy="256.0" r="24" fill="#C9A227"/>
+  <circle cx="256.0" cy="256.0" r="9" fill="#F4F7FA"/>
+  <path fill="#E6EDF4" d="M256.00,97.50 259.97,110.03 272.50,114.00 259.97,117.97 256.00,130.50 252.03,117.97 239.50,114.00 252.03,110.03Z"/>
+  <path fill="#E6EDF4" d="M393.27,335.25 380.43,332.42 370.73,341.29 373.56,328.45 364.69,318.75 377.52,321.58 387.23,312.71 384.39,325.55Z"/>
+  <path fill="#E6EDF4" d="M118.73,335.25 127.61,325.55 124.77,312.71 134.48,321.58 147.31,318.75 138.44,328.45 141.27,341.29 131.57,332.42Z"/>
+</svg>

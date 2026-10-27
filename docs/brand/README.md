@@ -115,7 +115,17 @@ Three lines of position meet at one fix. Multi-agent coordination metaphor.
 
 
 
-## Celestial Fix — E round (current)
+
+
+## Celestial Fix — finalists (current)
+
+Preference **E5 → E2**. Five finalists in
+[`logos/fix-final/`](logos/fix-final/) — pick in
+[`fix-final-chooser.html`](fix-final-chooser.html).
+
+![Celestial Fix finalists](review/fix-final/contact-sheet-light.png)
+
+## Celestial Fix — E round
 
 Shortlist was **E → D → B**. Five evolutions of the triangle live in
 [`logos/fix-e-round/`](logos/fix-e-round/) — pick in
