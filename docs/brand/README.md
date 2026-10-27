@@ -1,12 +1,28 @@
 # Aries brand concepts
 
-Draft logo marks for Aries and ariesworx.com. Theme: **celestial navigation**
+Logo marks for Aries and ariesworx.com. Theme: **celestial navigation**
 (the naming family already in the product: Aries, Bearings, Sextant) - not
 astrology, and no ram's head.
 
-**To see and pick marks:** open [`chooser.html`](chooser.html) in a browser
-(rank 1–3, shortlist, leave notes, copy a brief back to the agent). Or open
-the PNGs under [`review/`](review/). SVG files are source code; editors often
+## Selected mark: Celestial Fix — Airy (F5)
+
+Open triangle with star vertices and a brass fix. No medians, no hub ring —
+weight in the frame and the fix. Chosen from the Fix iteration (E5 → E2 → F5).
+
+![Aries mark on light](review/aries-mark-on-light.png)
+
+![Aries mark on dark](review/aries-mark-on-dark.png)
+
+| Use | File |
+|---|---|
+| SVG (light grounds) | [`logos/aries-mark.svg`](logos/aries-mark.svg) |
+| SVG (dark grounds) | [`logos/on-dark/aries-mark.svg`](logos/on-dark/aries-mark.svg) |
+| PNG 512 / 128 / 64 | [`png/aries-mark-512.png`](png/aries-mark-512.png) · [128](png/aries-mark-128.png) · [64](png/aries-mark-64.png) |
+
+Alias: `logos/fix-airy.svg` (same artwork).
+
+**To browse earlier concepts:** open [`chooser.html`](chooser.html) or the
+PNGs under [`review/`](review/). SVG files are source code; editors often
 show their XML instead of a picture.
 
 ## All ten at a glance
@@ -117,9 +133,9 @@ Three lines of position meet at one fix. Multi-agent coordination metaphor.
 
 
 
-## Celestial Fix — finalists (current)
+## Celestial Fix — finalists
 
-Preference **E5 → E2**. Five finalists in
+Preference **E5 → E2**; selected **F5 Airy** (see Selected mark above). Finalists in
 [`logos/fix-final/`](logos/fix-final/) — pick in
 [`fix-final-chooser.html`](fix-final-chooser.html).
 
