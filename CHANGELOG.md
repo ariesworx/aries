@@ -11,6 +11,19 @@ minor version (decision 93). Entries for v0.1.0 to v0.4.0 were written
 afterward, from the notes GitHub generated for each release; the project
 had another name then, and its notes say Aries and `aries` today.
 
+## v0.8.0 (2026-10-27)
+
+- Protocol 11, accepting 10: v0.7.0's `aries` keeps working against a
+  v0.8.0 server, v0.6.0's is refused, and `aries` v0.8.0 needs a v0.8.0
+  server; upgrade `ariesd` first. Migration 4 adds the `briefs` table.
+- Briefs stored on the issue they start, through the CLI-only op
+  `brief` (`aries dispatch brief --record`), joined to the claim the
+  started session takes; a session never briefs itself.
+- One close-readiness rule for close, finish and the closing pass, and
+  every op held to an offline rule by a test; no behavior change but
+  `inbox` with `ack` offline saying it was not queued.
+- Notes: [docs/releases/v0.8.0.md](docs/releases/v0.8.0.md).
+
 ## v0.7.0 (2026-10-22)
 
 - Protocol 10, accepting 9: v0.6.0's `aries` keeps working against a
