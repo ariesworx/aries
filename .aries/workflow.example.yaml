@@ -1,8 +1,14 @@
 # This repository's workflow (docs/design/aries.md §21.3, decision 95):
 # the acceptance items, required checks, approval and close-out lines the
 # Aries server adds to every issue it creates here. Change it in a pull
-# request like any code; once that merges, a project admin applies it:
+# request like any code.
 #
+# It names principals, which are the server's own, so this file is the
+# template and names alice in their place. A project admin copies it to
+# .aries/workflow.yaml, which is untracked (.gitignore), puts the
+# server's principals in place of alice, and applies that:
+#
+#   cp .aries/workflow.example.yaml .aries/workflow.yaml
 #   aries admin workflow diff .aries/workflow.yaml
 #   aries admin workflow set .aries/workflow.yaml --rev N
 #
@@ -11,7 +17,7 @@
 version: 1
 # Principals that may report a required check. CI cannot reach this
 # project's server, so the maintainer reports `landed` (§21.8).
-ci: [ed]
+ci: [alice]
 types:
   default:                  # every type not named below
     acceptance:
@@ -30,7 +36,7 @@ types:
   epic:
     acceptance: []
     checks: []
-    approve: {approvers: [ed]}   # a human gate on the epic at create (§21.6)
+    approve: {approvers: [alice]}   # a human gate on the epic at create (§21.6)
     closeout:
       - git fetch --prune and git worktree prune; delete merged branches
       - Put the main checkout back on main; archive finished sessions

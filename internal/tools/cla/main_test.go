@@ -111,7 +111,7 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 var (
 	alice = person{Login: "alice", ID: 101}
 	bob   = person{Login: "bob", ID: 102}
-	owner = person{Login: "edwardfward", ID: 1}
+	owner = person{Login: "dave", ID: 1}
 	bot   = person{Login: "dependabot[bot]", ID: 900}
 )
 
@@ -145,7 +145,7 @@ func invoke(t *testing.T, f *fakeGitHub, eventName string, ev map[string]any) (s
 		"GITHUB_EVENT_NAME": eventName, "GITHUB_EVENT_PATH": "/event.json",
 	}
 	var out, errb bytes.Buffer
-	status = run(context.Background(), []string{"--allow", "edwardfward,*[bot]", "--document", "https://example.com/CLA.md"}, env{
+	status = run(context.Background(), []string{"--allow", "dave,*[bot]", "--document", "https://example.com/CLA.md"}, env{
 		getenv: func(k string) string { return vars[k] },
 		readFile: func(p string) ([]byte, error) {
 			if p != "/event.json" {
@@ -347,8 +347,8 @@ func TestUsage(t *testing.T) {
 
 func TestAllowed(t *testing.T) {
 	t.Parallel()
-	allow := []string{"edwardfward", "*[bot]"}
-	for login, want := range map[string]bool{"edwardfward": true, "dependabot[bot]": true, "alice": false, "edwardfward2": false, "[bot]x": false} {
+	allow := []string{"dave", "*[bot]"}
+	for login, want := range map[string]bool{"dave": true, "dependabot[bot]": true, "alice": false, "dave2": false, "[bot]x": false} {
 		if got := allowed(login, allow); got != want {
 			t.Errorf("allowed(%q) = %t, want %t", login, got, want)
 		}

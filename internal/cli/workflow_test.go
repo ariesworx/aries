@@ -13,18 +13,21 @@ import (
 	"github.com/ariesworx/aries/internal/proto"
 )
 
-// repoWorkflow is this repository's .aries/workflow.yaml.
+// repoWorkflow is this repository's workflow template,
+// .aries/workflow.example.yaml, which names alice where the applied copy
+// names the server's principals.
 func repoWorkflow(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", ".aries", "workflow.yaml"))
+	b, err := os.ReadFile(filepath.Join("..", "..", ".aries", "workflow.example.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return b
 }
 
-// This repository's workflow file reads as a workflow: the one its
-// maintainer applies (design §21.3).
+// This repository's workflow template reads as a workflow: the one its
+// maintainer copies, names the server's principals in, and applies
+// (design §21.3). It names no real principal.
 func TestRepoWorkflow(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -34,11 +37,12 @@ func TestRepoWorkflow(t *testing.T) {
 	r := &runner{dir: dir}
 	_, w, err := r.readWorkflow("workflow.yaml")
 	if err != nil {
-		t.Fatalf("readWorkflow(.aries/workflow.yaml): %v", err)
+		t.Fatalf("readWorkflow(.aries/workflow.example.yaml): %v", err)
 	}
 	def := w.Types[proto.WorkflowDefault]
 	if len(def.Acceptance) != 4 || !slices.Equal(def.Checks, []string{"landed"}) || w.Types["epic"].Approve == nil ||
-		!slices.Equal(w.Types["epic"].Approve.Approvers, []string{"ed"}) || len(w.Types["chore"].Acceptance) != 1 {
+		!slices.Equal(w.Types["epic"].Approve.Approvers, []string{"alice"}) || !slices.Equal(w.CI, []string{"alice"}) ||
+		len(w.Types["chore"].Acceptance) != 1 {
 		t.Errorf("the repository's workflow = %+v", w)
 	}
 }
