@@ -27,10 +27,13 @@ const maxAuthorizedKeys = 16 << 20
 
 // controlCmd runs `ariesd control COMMAND`; init is the only command.
 func controlCmd(ctx context.Context, env adminEnv, args []string) error {
-	if len(args) == 0 || args[0] != "init" {
-		return usageError("control takes one command: init")
+	switch {
+	case len(args) > 0 && args[0] == "init":
+		return controlInit(ctx, env, args[1:])
+	case len(args) > 0 && args[0] == "invite":
+		return controlInvite(ctx, env, args[1:])
 	}
-	return controlInit(ctx, env, args[1:])
+	return usageError("control takes one command: init or invite")
 }
 
 // openControl opens the control store's schema s names, which must name
