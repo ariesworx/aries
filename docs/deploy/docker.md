@@ -253,7 +253,12 @@ docker compose --profile telemetry logs -f collector
   (`name:tag@sha256:…`; the digest is what Docker pulls): the
   Collector's core distribution at 0.162.0, and Prometheus at 3.15.0.
   Dependabot proposes a new digest when a tag is rebuilt and a new tag
-  when one is released, after a cooldown.
+  when one is released, after a cooldown. The Collector's tag is the
+  exception and is bumped by hand: Dependabot reads its 32-bit x86
+  image (`0.162.0-386`) as a newer release than `0.162.0`, so
+  `.github/dependabot.yml` ignores the Collector's new tags and keeps
+  only its digest current. To move it, take a release's
+  multi-architecture tag and its digest, 14 days after it was published.
 - **A trace of your own.** Give `aries` a W3C trace context and look for
   its trace id in the collector's output: the server's span is under
   yours, with the write beneath it and you named by a stand-in, which
