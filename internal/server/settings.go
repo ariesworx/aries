@@ -241,6 +241,12 @@ func resolveLogin(l LoginSettings) (LoginSettings, error) {
 // nothing, and returns what the server signs people in with; nil when l
 // names no provider. now is the store's clock (rule 19).
 func OpenLogin(l LoginSettings, now func() time.Time) (*Login, error) {
+	return openLogin(l, now, appArmorProfile())
+}
+
+// openLogin is OpenLogin under the AppArmor profile profile, or none
+// when it is "".
+func openLogin(l LoginSettings, now func() time.Time, profile string) (*Login, error) {
 	if len(l.Providers) == 0 {
 		return nil, nil
 	}
@@ -248,6 +254,9 @@ func OpenLogin(l LoginSettings, now func() time.Time) (*Login, error) {
 	for _, ps := range l.Providers {
 		p, err := oidc.Open(ps, oidc.Options{Now: now, Skew: time.Duration(l.Skew), MaxAge: time.Duration(l.MaxTokenAge),
 			Refetch: time.Duration(l.JWKSRefetch)})
+		if fix := providerFileFix(err, profile); fix != "" {
+			return nil, fmt.Errorf("%w%s", err, fix)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%w; fix: correct the provider under login: providers in the config file (docs/server.md, Sign-in)", err)
 		}

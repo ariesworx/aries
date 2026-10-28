@@ -148,7 +148,7 @@ func OpenWorkload(s WorkloadSettings, audience string, o Options) (*Workload, er
 	}
 	var err error
 	if w.client, err = HTTPClient(s.CAFile); err != nil {
-		return fail("%v", err)
+		return fail("%w", err) // the caller tells a file it may not read
 	}
 	w.cfg = VerifierConfig{Issuer: s.Issuer, Audience: w.audience, Skew: o.Skew, MaxAge: o.MaxAge, Refetch: o.Refetch, Now: o.Now}
 	switch s.Discovery {
@@ -162,7 +162,7 @@ func OpenWorkload(s WorkloadSettings, audience string, o Options) (*Workload, er
 		}
 		if s.JWKSFile != "" {
 			if w.verifier, err = NewFileVerifier(w.cfg, s.JWKSFile); err != nil {
-				return fail("%v", err)
+				return fail("%w", err)
 			}
 		} else {
 			if err := secureURL(s.JWKSURL); err != nil {

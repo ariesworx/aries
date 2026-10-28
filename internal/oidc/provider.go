@@ -164,11 +164,11 @@ func Open(s Settings, o Options) (*Provider, error) {
 	p := &Provider{s: s, opts: o, issuer: iss}
 	if s.ClientSecretFile != "" {
 		if p.secret, err = readSecret(s.ClientSecretFile); err != nil {
-			return fail("%v", err)
+			return fail("%w", err) // the caller tells a file it may not read
 		}
 	}
 	if p.client, err = HTTPClient(s.CAFile); err != nil {
-		return fail("%v", err)
+		return fail("%w", err)
 	}
 	vc := VerifierConfig{Issuer: iss, Audience: s.ClientID, IDToken: true, Skew: o.Skew, MaxAge: o.MaxAge, Refetch: o.Refetch, Now: o.Now}
 	switch s.Discovery {
@@ -191,7 +191,7 @@ func Open(s Settings, o Options) (*Provider, error) {
 		p.endpoints = &endpoints{Issuer: iss, AuthorizationEndpoint: s.AuthorizationEndpoint, TokenEndpoint: s.TokenEndpoint, JWKSURI: s.JWKSURL}
 		if s.JWKSFile != "" {
 			if p.verifier, err = NewFileVerifier(vc, s.JWKSFile); err != nil {
-				return fail("%v", err)
+				return fail("%w", err)
 			}
 		} else {
 			p.verifier = NewFetchVerifier(vc, s.JWKSURL, p.client)

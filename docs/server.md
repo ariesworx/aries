@@ -914,26 +914,26 @@ login:
       kind: oidc                  # Keycloak, AD FS, Okta, Google Workspace, any OpenID Connect provider
       issuer: https://sso.example.com/realms/example
       client_id: aries
-      client_secret_file: /etc/aries/corp-secret   # 0600; the secret is never in this file
-      ca_file: /etc/aries/corp-ca.pem              # the internal CA of the provider's certificate, in place of the system's
+      client_secret_file: /etc/aries/login/corp-secret   # 0600; the secret is never in this file
+      ca_file: /etc/aries/login/corp-ca.pem        # the internal CA of the provider's certificate, in place of the system's
       domains: [example.com]      # the token's address must be at one of these, and verified
       require: {hd: example.com}  # claims that must have these values
     - name: corp-offline
       kind: oidc
       issuer: https://sso.example.com/realms/example
       client_id: aries
-      client_secret_file: /etc/aries/corp-secret
+      client_secret_file: /etc/aries/login/corp-secret
       discovery: static           # nothing discovered: every endpoint written here
       authorization_endpoint: https://sso.example.com/realms/example/protocol/openid-connect/auth
       token_endpoint: https://sso.example.com/realms/example/protocol/openid-connect/token
-      jwks_file: /etc/aries/corp-jwks.json         # the provider's key set; no key is fetched (or jwks_url:)
+      jwks_file: /etc/aries/login/corp-jwks.json   # the provider's key set; no key is fetched (or jwks_url:)
     - name: entra
       kind: entra
       authority: https://login.microsoftonline.com   # the tenant's cloud's sign-in host: required, no default
       tenant: 00000000-0000-4000-8000-000000000000   # the tenant's id; common and organizations are refused
       token_version: 2            # what the app registration issues
       client_id: 00000000-0000-4000-8000-000000000000
-      client_secret_file: /etc/aries/entra-secret
+      client_secret_file: /etc/aries/login/entra-secret
 ```
 
 - **Register the server at the provider** as a confidential web
@@ -941,6 +941,22 @@ login:
   `/auth/callback`, such as `https://aries.example.com/auth/callback`.
   The server exchanges the provider's code itself (decision 85), with
   the client secret; `aries` never talks to the provider.
+- **At Entra**, register a single-tenant app with that redirect on the
+  Web platform, and nothing on any other. Under Token configuration,
+  add the optional claims `email` and `xms_edov` to the ID token, and
+  let the portal add Microsoft Graph's `email` permission. Without
+  `xms_edov` no address is verified, so no invitation binds and
+  `domains` refuses everyone. Copy the tenant's id and the app's client
+  id into the config. Put the secret's value straight into its file on
+  the server.
+- **A provider's files**, its `client_secret_file`, `ca_file` and
+  `jwks_file`, go in `/etc/aries/login/`, a directory of root's and
+  group `aries`, mode 0750, with each secret owned by `aries` and mode
+  0600. ariesd's AppArmor profile reads a provider's files there and
+  nowhere else (`@{ariesd_login}` in `deploy/apparmor/tunables/ariesd`).
+  Under the profile, `ariesd serve` refuses at start a provider whose
+  file it may not open, with a fix that names the profile and that
+  directory; unconfined, it reads them anywhere.
 - **The provider's keys**: with `discovery: fetch`, the default, from
   the issuer's own discovery document, read at the first sign-in (so
   that a provider that cannot be reached at start delays nothing), and
@@ -1066,7 +1082,7 @@ workload:
       kind: github-actions
       issuer: https://ghes.example.com/_services/token
       discovery: static           # nothing discovered (or jwks_url:)
-      jwks_file: /etc/aries/ghes-jwks.json
+      jwks_file: /etc/aries/login/ghes-jwks.json
 ```
 
 A provider's `discovery`, `jwks_url`, `jwks_file` and `ca_file` work as
