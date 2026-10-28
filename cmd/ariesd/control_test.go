@@ -113,7 +113,7 @@ func (s *site) run(t *testing.T, stdin string, cmd func(context.Context, adminEn
 	env := adminEnv{stdin: strings.NewReader(stdin), stdout: &out, stderr: &errb, getenv: func(k string) string { return s.env[k] }}
 	// Flags come before a command's file, and after `control`'s init.
 	at := 0
-	if len(args) > 0 && args[0] == "init" {
+	if len(args) > 0 && (args[0] == "init" || args[0] == "invite") {
 		at = 1
 	}
 	err := cmd(t.Context(), env, slices.Insert(slices.Clone(args), at, "--config", s.cfg))

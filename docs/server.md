@@ -1494,7 +1494,7 @@ change that.
 
 - **Name rules:** lowercase, starting with a letter, then letters, digits,
   `.`, `_` or `-`, up to 64 characters. `ariesd` (the claim reaper and
-  the daemon's own changes), `import` (the bd importer and `control init`),
+  the daemon's own changes), `import` (the bd importer, `control init` and `control invite`),
   `ariesd-upgrade` (the health check of `ariesd upgrade`) and
   `ariesd-status` ([`ariesd status`](#ariesd-status)) are reserved.
 - **Agents on someone's machine** use that person's key, so their work is
@@ -2231,6 +2231,25 @@ $ aries admin invite remove 7
   principal at an address it controls. Another server admin does it.
   A principal may list its own identities (`aries admin identity list
   YOU`) and show itself (`principal show YOU`).
+- **A server with one admin.** Where the only server admin is one
+  person, nobody may invite them. The operator does, on the server,
+  as the `aries` account, the way `control init` runs:
+
+  ```console
+  $ sudo -u aries -H aa-exec -p ariesd-admin -- ariesd control invite --provider entra alice alice@example.com
+  invitation 1 for alice: alice@example.com at entra, open until 2026-10-23 09:00 UTC (added); alice's first `aries login --provider entra` binds it
+  ```
+
+  Without the AppArmor profiles, leave out `aa-exec -p ariesd-admin
+  --`. It invites as `aries admin invite add` does, and refuses what
+  that refuses, but writes as `import`, which no connection can be, so
+  the rule above still holds for every connection: only someone with
+  the daemon's account on the machine, who already has its database,
+  gets past it. The provider must be one of `login: providers`. It runs
+  beside ariesd, which reads identities from the database at each
+  sign-in, so the person's next `aries login` binds the invitation.
+  Only `aries admin status`'s counts of identities wait for ariesd's
+  next restart.
 - **A person or a service.** A principal is a `person` unless added or
   set as a `service`. A service answers to an owner, a person other
   than itself, and has no identities: it signs in by a key, and later
@@ -2305,8 +2324,8 @@ connection ends, so a daemon that dies frees its projects for another.
   `ariesd import-bd`, is refused with what to do: stop ariesd, import,
   and start it again. `import-bd --dry-run`, `export-bd`, and the clock
   check of `ariesd upgrade` only read, and run beside the daemon.
-  `ariesd control init` writes the control store beside the daemon, as
-  before, and takes no lock.
+  `ariesd control init` and `ariesd control invite` write the control
+  store beside the daemon, as before, and take no lock.
 - **When the lock's connection is lost**, the next write connects
   again and takes back every lock. A write in flight finishes before
   another process that took the project over writes anything; a
@@ -2944,7 +2963,8 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
   ([Observability](#observability)), and a token for a hosted backend
   from the environment only.
 - **The database role is checked** by every command that opens the
-  store: `serve`, `control init`, `import-bd`, `export-bd` and `upgrade`.
+  store: `serve`, `control init`, `control invite`, `import-bd`,
+  `export-bd` and `upgrade`.
   [The database role](security-model.md#the-database-role) lists what
   they refuse. So is the server: Postgres 16 or newer.
 - **`--dev`** is for a developer's own machine. It lets `serve` run off

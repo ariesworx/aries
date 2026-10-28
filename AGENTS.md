@@ -353,8 +353,9 @@ and what a test that passes there does not do.
    project's store beside one still closing, and between processes the
    writer's lock (`store/fence.go`), an advisory lock each write checks,
    refuses a second daemon, or `ariesd import-bd`, a schema another
-   serves (`*store.ServedError`). Only `ariesd control init` writes the
-   control store beside the daemon, without the lock; a store opened
+   serves (`*store.ServedError`). Only `ariesd control init` and
+   `ariesd control invite` write the control store beside the daemon,
+   without the lock; a store opened
    `ReadOnly` takes none and writes nothing. A write that changes an
    issue (its fields, status, handoffs or acceptance) first calls
    `wtx.guard` with the issue's claim (`store/authz.go`), so only the

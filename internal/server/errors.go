@@ -383,7 +383,7 @@ func accessErr(e *store.AccessError) *proto.Error {
 			msg+"nobody manages a trust rule of their own principal")
 	case store.AccessOwnIdentity:
 		return proto.Errf(proto.CodeForbidden,
-			"ask another server admin to run it: an invitation lets whoever holds the address sign in as the principal",
+			"ask another server admin to run it, since an invitation lets whoever holds the address sign in as the principal; where there is no other, the server's operator runs `ariesd control invite --provider P NAME ADDRESS` on the server",
 			msg+"nobody invites an identity onto their own principal")
 	case store.AccessReach:
 		if e.Principal == "" {

@@ -3,6 +3,7 @@
 //	ariesd serve [--dev [--allow-unsafe-account]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F]
 //	ariesd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
 //	ariesd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
+//	ariesd control invite --provider P [--config FILE] [--dsn DSN] NAME ADDRESS
 //	ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
 //	ariesd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
 //	ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
@@ -16,7 +17,9 @@
 // the store directly with the daemon's DSN settings and move a backlog in
 // and out as bd's JSONL. With control_schema set the server holds many
 // projects, each in a schema of its own: control init adopts the
-// existing schema as the first and imports authorized_keys, import-bd
+// existing schema as the first and imports authorized_keys, control
+// invite invites an address for a principal as the operator (how a
+// lone server admin gets an identity), import-bd
 // and export-bd take --project, and serve writes the keys the control
 // store holds to a file sshd reads (keys_file) and opens every active
 // project's schema once before it listens, which migrates it. upgrade
@@ -67,6 +70,7 @@ const usage = `usage:
   ariesd serve [--dev [--allow-unsafe-account]] [--config FILE] [--dsn DSN] [--socket PATH] [--project UUID] [--prefix P] [--log-level L] [--log-format F] [--accept-clock-behind TIME]
   ariesd stdio --principal NAME [--key FINGERPRINT] [--config FILE] [--socket PATH]
   ariesd control init --name NAME [--authorized-keys FILE] [--restore-removed-access] [--config FILE] [--dsn DSN]
+  ariesd control invite --provider P [--config FILE] [--dsn DSN] NAME ADDRESS
   ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
   ariesd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
   ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
@@ -98,6 +102,12 @@ leaves alone what admins did since, and reports each:
   a principal disabled with     aries admin principal disable
 --restore-removed-access overrides those admins: it puts all three back
 for every principal the file names, and records each as an event.
+
+control invite invites ADDRESS at the login: provider P for the principal
+NAME, as aries admin invite add does; NAME's first aries login there binds
+it. Nobody invites onto their own principal, so it is how a server whose
+only admin is one person gives that person an identity. Like control init,
+it writes as the operator and runs beside serve.
 
 serve refuses to start, with exit status 75, when the server's clock is
 behind the latest event of a project it serves by more than
