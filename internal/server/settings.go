@@ -76,6 +76,11 @@ type Settings struct {
 	// release.Open accepts. Empty means the default compiled in. Upgrade
 	// checks it; the daemon never reads it.
 	Releases string `yaml:"releases"`
+	// UpgradeDumps is the directory `ariesd upgrade` writes the dump it
+	// takes before a release's migrations to: an absolute path. Empty
+	// means upgrade-dumps in the home directory of the user who runs it.
+	// The daemon never reads it.
+	UpgradeDumps string `yaml:"upgrade_dumps"`
 	// LogLevel is the least severe level logged: debug, info, warn or
 	// error. Default info; debug adds a line per request.
 	LogLevel string `yaml:"log_level"`
@@ -635,7 +640,7 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 		}{
 			{&out.DSN, s.DSN}, {&out.Socket, s.Socket}, {&out.Project, s.Project},
 			{&out.Prefix, s.Prefix}, {&out.SystemdUnit, s.SystemdUnit},
-			{&out.Releases, s.Releases},
+			{&out.Releases, s.Releases}, {&out.UpgradeDumps, s.UpgradeDumps},
 			{&out.LogLevel, s.LogLevel}, {&out.LogFormat, s.LogFormat}, {&out.Account, s.Account},
 			{&out.ControlSchema, s.ControlSchema}, {&out.KeysFile, s.KeysFile}, {&out.AuthorizedKeys, s.AuthorizedKeys},
 			{&out.Bridge, s.Bridge}, {&out.ClockBehind, s.ClockBehind},
@@ -734,6 +739,9 @@ func ResolveSettings(flags Settings, configPath string, getenv func(string) stri
 	}
 	if out.SystemdUnit != "" && !UnitPattern.MatchString(out.SystemdUnit) {
 		return Settings{}, fmt.Errorf("systemd_unit %q is not a unit name; fix: set it to the service's name, for example ariesd.service", out.SystemdUnit)
+	}
+	if out.UpgradeDumps != "" && !filepath.IsAbs(out.UpgradeDumps) {
+		return Settings{}, fmt.Errorf("upgrade_dumps %q is not an absolute path; fix: set it to the directory upgrade writes its dumps to, such as /var/lib/aries/upgrade-dumps, or leave it out", out.UpgradeDumps)
 	}
 	if _, err := NewLogger(io.Discard, out.LogLevel, out.LogFormat); err != nil {
 		return Settings{}, err

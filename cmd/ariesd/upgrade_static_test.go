@@ -50,7 +50,7 @@ func TestUpgradeServerFromStaticTree(t *testing.T) {
 				}
 			}
 			out, err := r.run(t, "--check")
-			if want := "ariesd v0.2.0, latest v0.3.0: run ariesd upgrade\n"; err != nil || out != want {
+			if want := "ariesd v0.2.0, latest v0.3.0: run ariesd upgrade\nmigrations: none to run, so upgrade takes no dump\n"; err != nil || out != want {
 				t.Fatalf("upgrade --check = %q, %v, want %q", out, err, want)
 			}
 			out, err = r.run(t)
