@@ -104,6 +104,9 @@ func OpenWorkload(w WorkloadSettings, login LoginSettings, audience string, now 
 	for _, ps := range w.Providers {
 		p, err := oidc.OpenWorkload(ps, audience, oidc.Options{Now: now, Skew: time.Duration(login.Skew), MaxAge: out.Fresh,
 			Refetch: time.Duration(login.JWKSRefetch)})
+		if fix := providerFileFix(err, appArmorProfile()); fix != "" {
+			return nil, fmt.Errorf("%w%s", err, fix)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%w; fix: correct the provider under workload: providers in the config file (docs/server.md, Service principals)", err)
 		}
