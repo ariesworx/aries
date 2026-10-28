@@ -210,7 +210,7 @@ services:
   # image does by default; it is published on 127.0.0.1 alone.
   observe:
     profiles: [observe]
-    image: grafana/otel-lgtm:0.35.0@sha256:2de1094c593c671cbfca878a28ffcd7e46ff5e32f2ce966c0cf33003f6cf4266
+    image: grafana/otel-lgtm:0.36.0@sha256:57c04cbd8e7022f32bb84c4ac005d79baf8b08e2c5be44facf11f5f1f9944ba2
     network_mode: service:aries
     depends_on:
       aries:
@@ -248,7 +248,7 @@ services:
   keycloak:
     profiles: [identity]
     # spike/identity ran against this release
-    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
     entrypoint: ["bash", "/opt/aries/identity.sh"]
     init: true
     environment:
