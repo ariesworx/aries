@@ -260,7 +260,7 @@ func dumpBeforeMigrations(ctx context.Context, env adminEnv, d upgradeDeps, s se
 		dir = filepath.Join(home, dumpsDir)
 	}
 	if err := dumpDir(dir); err != nil {
-		return "", fmt.Errorf("%w; fix: nothing was changed; make %s a directory of the user who runs upgrade, mode 0700, or set upgrade_dumps:", err, dir)
+		return "", fmt.Errorf("%w; fix: nothing was changed; make %s a directory of the user who runs upgrade, mode 0700, or name another in upgrade_dumps", err, dir)
 	}
 	file := filepath.Join(dir, fmt.Sprintf("ariesd-%s-%s-to-%s.dump", d.now().UTC().Format("20060102T150405Z"), cur, tag))
 	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // dir is the operator's
