@@ -15,7 +15,10 @@ under other terms too, so that Aries can also be licensed commercially
 (design decision 82). The agreement is [CLA.md](CLA.md), in effect from
 15 October 2026 (decision 84). On your first pull request the `cla`
 check posts it and fails until you sign, by commenting the sentence it
-gives you; it then passes on that and every later pull request. To
+gives you; it then passes on that and every later pull request. Bots,
+and the accounts in the repository variable `CLA_ALLOW` (the
+maintainers' GitHub logins, comma-separated, which a fork sets for
+itself), need not sign. To
 contribute on behalf of a company, contact Ariesworx first (section 6.3
 of the agreement).
 

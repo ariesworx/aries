@@ -40,8 +40,8 @@ data or the same files.
 
 | What | Source both read | Evidence |
 |---|---|---|
-| Acceptance items, required checks, close-out lines | The workflow setting, applied from `.aries/workflow.yaml` (decision 95, aries.md:737) | `.aries/workflow.yaml:15-39`; prime shows "workflow rev 1: bug, feature, task: 4 items, landed" to every session |
-| Closed means landed | The `landed` check and the closing pass | `.aries/workflow.yaml:23-25`; aries-4zjc7i7m shows "landed passed at b25f3cf" |
+| Acceptance items, required checks, close-out lines | The workflow setting, applied from `.aries/workflow.yaml` (decision 95, aries.md:737) | `.aries/workflow.example.yaml:21-45`; prime shows "workflow rev 1: bug, feature, task: 4 items, landed" to every session |
+| Closed means landed | The `landed` check and the closing pass | `.aries/workflow.example.yaml:29-31`; aries-4zjc7i7m shows "landed passed at b25f3cf" |
 | Claims and leases | `start` on the server; the dispatcher claims before launch | dispatcher.go:294-305; dispatcher.md:89-95; `RuleClaimed` skips an issue a Desktop session holds (select.go:122) |
 | Model labels and the `human` and `waiting:maintainer` labels | Issue labels | select.go:110-113, 125-137; memory `dispatch` rules 1-2; memory `holds` item 2 |
 | The `workflow`, `lessons` and `briefs` memories | `recall` by key | The dispatcher's brief tells the run to recall them (brief.go:64, 71); the coordinator's briefs say the same (brief comment on aries-vhbljxmz, 21:41 UTC) |

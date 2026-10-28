@@ -34,6 +34,10 @@ therefore reports `CLAUDE.md`'s pointer missing, and `--write` would add
 a second. They need `aries` on `PATH` and a `.aries.yaml`, which this
 repository does not commit: each contributor keeps their own, untracked,
 at the top of their checkout, and a worktree reads the main worktree's.
+The workflow is committed as a template, `.aries/workflow.example.yaml`,
+naming `alice`; the copy a project admin applies,
+`.aries/workflow.yaml`, is untracked too and names the server's own
+principals, so nothing a new user copies names a real one (rule 1).
 Without one, the hooks print nothing and the `aries` tools refuse,
 saying that no `.aries.yaml` was found: work without them. A
 contributor who keeps the backlog on the Docker test server rebuilds it
@@ -276,9 +280,18 @@ and what a test that passes there does not do.
 
 1. **Nothing organization-specific** in code, tests or docs: no real host,
    fingerprint, path, person or client name. Use `example.com`, `alice`,
-   `bob` and invented UUIDs (design principle 10). The one exception is
-   the copyright holder, Ariesworx LLC, named in the README's license
-   notice (design decision 82).
+   `bob` and invented UUIDs (design principle 10). Above all, no default
+   names one: nothing a new user copies, applies or installs (a workflow,
+   a config, a setup's output, an installer's or a workflow's defaults)
+   may name a real principal or account; a repository variable or an
+   untracked file holds those. The one exception is the copyright
+   holder, Ariesworx LLC, where the project's legal standing is the
+   subject: the README's license notice, `CLA.md`, the CLA's paragraph in
+   `CONTRIBUTING.md`, the design decisions and release notes on the
+   license and the CLA (decisions 82 and 84, with the CLA's governing
+   law) and the publisher of record a design names; and the repository's
+   address, `github.com/ariesworx/aries`, which is also the module path.
+   Commit authorship is not content and is left as it is.
 2. **No secret in argv, logs, output or the repository.** `ariesd` refuses
    a DSN password on the command line, and a config file holding one must be
    mode 0600. Follow that pattern for anything new. **And no text in

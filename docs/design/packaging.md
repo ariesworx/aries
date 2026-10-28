@@ -404,10 +404,12 @@ the maintainer's to review and merge (rule 3; the memory `merges`).
    Application: *the legal entity* (TEAM)", an Authenticode certificate
    names the entity, and an `.msi`'s `Manufacturer` and a `.pkg`'s
    distribution file name a publisher in files in this repository.
-   Rule 1 names Ariesworx LLC only in the README's license notice
-   (decision 82). Widen that exception to the installers' publisher
-   fields, or give them a neutral "Aries" and leave the entity to the
-   certificates, which are not in the repository?
+   Rule 1 names Ariesworx LLC only where the project's legal standing is
+   the subject (the license notice, the CLA, the decisions on them, a
+   publisher of record) and in the repository's address. Do the
+   installers' publisher fields count, or do they get a neutral "Aries"
+   and leave the entity to the certificates, which are not in the
+   repository?
 4. **macOS.** Enroll in the Apple Developer Program (option C)? A
    `.pkg` alone, or also a `.dmg` around it?
 5. **Windows.** Option D now, later, or only when an organization asks?

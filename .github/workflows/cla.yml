@@ -55,11 +55,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GOFLAGS: -mod=readonly
+          # The maintainers' GitHub logins, comma-separated: a repository
+          # variable, so that no account is named here and a fork sets its
+          # own. Unset, every human contributor must sign.
+          CLA_ALLOW: ${{ vars.CLA_ALLOW }}
         # The maintainer holds the copyright already; bots contribute
         # nothing copyrightable.
         run: >-
           go run ./internal/tools/cla
           --document https://github.com/ariesworx/aries/blob/main/CLA.md
-          --allow 'edwardfward,*[bot]'
+          --allow "$CLA_ALLOW,*[bot]"
           --branch cla-signatures
           --file signatures/cla.json

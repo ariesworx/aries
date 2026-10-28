@@ -6,6 +6,11 @@
 # checkout, where aries in a worktree finds it.
 /.aries.yaml
 
+# The workflow applied to this project's server names that server's
+# principals, so it is kept untracked too: copy .aries/workflow.example.yaml
+# to .aries/workflow.yaml and put your principals in place of alice.
+/.aries/workflow.yaml
+
 # Editor and IDE settings are personal; keep them out of the repository.
 .idea/
 *.iml

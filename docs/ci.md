@@ -412,7 +412,7 @@ recommends them for one maintainer:
    added. For an issue that requires it, the first report makes the
    gate, and a pass that leaves nothing else open closes the issue,
    landed. The gate is the workflow's: its `ci`
-   names the principal who runs `aries land` (`ci: [ed]`), and the
+   names the principal who runs `aries land` (`ci: [alice]`), and the
    report is a person's act, so it is made from the session `cli` even
    when an agent's environment says otherwise. What a pass is worth is
    what your checkout of the default branch saw, as much as your key.
