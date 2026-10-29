@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ariesworx/aries/internal/release"
 	"github.com/ariesworx/aries/internal/release/releasetest"
+	"github.com/ariesworx/aries/internal/server"
 )
 
 const upgradeProject = "00000000-0000-4000-8000-0000000000aa"
@@ -31,13 +33,18 @@ type upgradeRig struct {
 	vars map[string]string
 	// healthy reports whether a daemon running version v answers.
 	healthy func(v string) bool
+	// home is the HOME upgrade sees, and dumps the files dump was asked
+	// to write.
+	home  string
+	dumps []string
 }
 
 func newRig(t *testing.T, current, latest, configExtra string) *upgradeRig {
 	t.Helper()
 	dir := t.TempDir()
 	r := &upgradeRig{gh: releasetest.New(t, latest), exe: filepath.Join(dir, "ariesd"), running: current,
-		healthy: func(string) bool { return true }}
+		healthy: func(string) bool { return true }, home: filepath.Join(dir, "home")}
+	r.vars = map[string]string{"HOME": r.home}
 	r.gh.AddBinary(t, "ariesd", "linux", "amd64", []byte(latest))
 	if err := os.WriteFile(r.exe, []byte(current), 0o755); err != nil { //nolint:gosec // an executable fixture
 		t.Fatal(err)
@@ -56,6 +63,19 @@ func newRig(t *testing.T, current, latest, configExtra string) *upgradeRig {
 			}
 			return nil
 		},
+		// By default the release carries the migrations the database has
+		// run: there is nothing to dump.
+		migrations: func(context.Context, string) (migrationSet, error) {
+			return migrationSet{project: []string{"0001_init"}, control: []string{"0001_init"}}, nil
+		},
+		schemas: func(context.Context, adminEnv, server.Settings, string) ([]schemaAt, error) {
+			return []schemaAt{{label: "project " + upgradeProject, schema: "public", version: 1}}, nil
+		},
+		dump: func(_ context.Context, _ server.Settings, file string) error {
+			r.dumps = append(r.dumps, file)
+			return os.WriteFile(file, []byte("PGDMP fake"), 0o600)
+		},
+		now: time.Now,
 		restart: func(_ context.Context, unit string) error {
 			r.restarts = append(r.restarts, unit)
 			b, err := os.ReadFile(r.exe)
@@ -179,9 +199,9 @@ func TestUpgradeServerCheck(t *testing.T) {
 		args                  []string
 		want                  string
 	}{
-		{"behind", "v0.2.0", "v0.3.0", nil, "ariesd v0.2.0, latest v0.3.0: run ariesd upgrade\n"},
+		{"behind", "v0.2.0", "v0.3.0", nil, "ariesd v0.2.0, latest v0.3.0: run ariesd upgrade\nmigrations: none to run, so upgrade takes no dump\n"},
 		{"current", "v0.3.0", "v0.3.0", nil, "ariesd v0.3.0, latest v0.3.0: up to date\n"},
-		{"target", "v0.2.0", "v0.3.0", []string{"--to", "v0.3.0"}, "ariesd v0.2.0, target v0.3.0: run ariesd upgrade\n"},
+		{"target", "v0.2.0", "v0.3.0", []string{"--to", "v0.3.0"}, "ariesd v0.2.0, target v0.3.0: run ariesd upgrade\nmigrations: none to run, so upgrade takes no dump\n"},
 		{"dev", "dev", "v0.3.0", nil, "ariesd dev, latest v0.3.0: dev build; install a release to upgrade\n"},
 	}
 	for _, tt := range tests {

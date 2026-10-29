@@ -2931,6 +2931,7 @@ the config file (`/etc/aries/ariesd.yaml`, or `--config FILE`, or
 | `admins` | [Admins](#admins) | none | `ARIESD_ADMINS` |
 | `systemd_unit` | The unit `ariesd upgrade` restarts and health-checks | none | |
 | `releases` | Where `ariesd upgrade` reads releases from: the `https://` URL of a mirror, or the absolute path of a directory ([Upgrades](#upgrades)) | GitHub | `ARIES_RELEASES`, the variable `aries` and `install.sh` read |
+| `upgrade_dumps` | The directory, an absolute path, `ariesd upgrade` writes the dump it takes before a release's migrations to ([Upgrades](#upgrades)) | `upgrade-dumps` in the home directory of the user who runs upgrade | |
 | `log_level` | `debug`, `info`, `warn` or `error` ([Logs](#logs)) | `info` | `--log-level`, `ARIESD_LOG_LEVEL` |
 | `log_format` | `text` (key=value) or `json`, for a log shipper | `text` | `--log-format`, `ARIESD_LOG_FORMAT` |
 | `account` | The project's account: what an issue's time and tokens report against when neither it nor an ancestor sets one ([Accounts, time and tokens](concepts.md#accounts-time-and-tokens)). A code name: lowercase letters, digits and inner hyphens | `internal` | |
@@ -4476,21 +4477,17 @@ with exit code 3:
 | An agent on such an `aries mcp` | Every tool call fails with code `version` and that message, and the fix `tell the user aries cannot connect, quoting the server:` followed by the line above. The session's start says the same in one line. The agent cannot fix it: the person upgrades `aries` and restarts the agent |
 | An `aries` newer than the server | A message that the server is older, and `fix: ask the server admin to run `ariesd upgrade`, or install the aries release that matches the server` |
 
-**Take a dump first.** A release may migrate the database when the new
-ariesd starts, and migrations only go forward: the old binary refuses a
-schema the new one migrated. A migration runs in one transaction with
-the row that records it, so one that fails leaves its schema as it was;
-but a migration that succeeds and a release you then want to leave can
-only be undone from a backup. So before each upgrade, run the daily dump
-once more, and keep its file apart from the rotation
-([Backups and restore](#backups-and-restore)):
+**A dump before migrations.** A release may migrate the database when
+the new ariesd starts, and migrations only go forward: the old binary
+refuses a schema the new one migrated, and `--rollback` swaps only the
+binary. A migration runs in one transaction with the row that records
+it, so one that fails leaves its schema as it was; but a migration that
+succeeds and a release you then want to leave can only be undone from a
+dump. So `ariesd upgrade` does not install a release that migrates the
+database without a fresh dump of it: it takes one itself, or checks the
+one you give it, as step 3 below says.
 
-```sh
-systemctl start aries-backup.service
-cp /var/backups/aries/aries-"$(date -u +%a)".dump /var/backups/aries/before-upgrade.dump
-```
-
-Then, on the server, as the `aries` user:
+On the server, as the `aries` user:
 
 ```sh
 cd /var/lib/aries
@@ -4505,10 +4502,49 @@ sudo -u aries -H ariesd upgrade
    start. If the restarted daemon would refuse to start for it
    (`clock_behind: stop`), the upgrade stops here with that refusal and
    changes nothing: otherwise the daemon's refusal would fail the health
-   check of step 4 and be taken for a bad release. `upgrade --check`
+   check of step 5 and be taken for a bad release. `upgrade --check`
    prints the same finding on a line starting `clock:`.
-3. Swaps the binary.
-4. With `systemd_unit:` set, or `--restart`, restarts the unit through the
+3. Asks the release, staged beside the binary and not yet installed,
+   which migrations it carries (`ariesd migrations`), and reads how far
+   each schema the restarted daemon migrates has run: the project's, or
+   the control store's and every active project's. If any schema has
+   migrations to run, it prints them and dumps the database first, and
+   refuses to go on, changing nothing, if it cannot:
+   - **By default it takes the dump itself:** `pg_dump --format=custom`
+     of the whole database, as ariesd's role, which owns every schema in
+     it, through the config file's DSN. That is the unix socket for a
+     Postgres on the machine and the network for one on another; a
+     password the DSN holds goes to `pg_dump` in `PGPASSWORD`, never on
+     its command line, and a `passfile=` is read as ariesd reads it. It
+     runs the `pg_dump` of the server's major version from
+     `/usr/lib/postgresql/MAJOR/bin` where that exists, and otherwise the
+     one on `PATH`, which must be at least as new as the server. It then
+     reads the dump back with `pg_restore --list`. The file is
+     `upgrade-dumps/ariesd-TIME-FROM-to-TO.dump` in the home directory of
+     the user who runs upgrade, `/var/lib/aries/upgrade-dumps` with the
+     commands below, or in the absolute directory `upgrade_dumps:` names;
+     the directory is made mode 0700, a directory open to group or others
+     is refused, and the file is mode 0600. Upgrade never deletes one: it
+     is the only way back past the release's migrations, so remove old
+     ones yourself once you are sure of the release, and copy the one you
+     keep off the machine with the daily dumps.
+   - **`--dump FILE` gives one you took yourself**, for a Postgres that
+     `pg_dump` cannot reach as ariesd's role, or a dump you would rather
+     take as `postgres` ([The daily dump](#the-daily-dump)). It must be in
+     `pg_dump`'s custom format and written within the last hour, and the
+     `aries` user must be able to read it, so copy it into
+     `/var/lib/aries/upgrade-dumps` first.
+   - **A release that cannot list its migrations**, one older than the
+     command, is taken to carry some: upgrade dumps first.
+
+   A release with no migrations to run is installed with no dump.
+   `upgrade --check` downloads and stages the release as well, to report
+   on a line starting `migrations:` what step 3 would find: none to run,
+   or how many and, for each schema with any, their numbers and names,
+   such as `project web (schema project_web): 0005_briefs`. It takes no
+   dump.
+4. Swaps the binary.
+5. With `systemd_unit:` set, or `--restart`, restarts the unit through the
    sudo rule from [step 5](#5-run-ariesd-under-systemd). It then checks
    that the new version answers on the socket within 30 seconds. If it does
    not, upgrade puts the old binary back and restarts it. The check is
@@ -4542,8 +4578,11 @@ As on a server of one project, the old binary refuses a schema the new
 one has already migrated, since migrations only go forward. So after an
 upgrade that failed partway, the restored version may not serve the
 schemas the new one reached. To go back all the way, stop ariesd,
-restore the dump you took before the upgrade
-([Restore](#restore)), and run `ariesd upgrade --rollback --restart`.
+restore the dump upgrade took or checked in step 3, whose path it
+printed on a line starting `dump:` ([Restore](#restore)), and run
+`ariesd upgrade --rollback --restart`. A dump upgrade took is the
+`aries` user's: give `pg_restore` its path as root, or as `postgres`
+after copying it where that user can read it.
 
 **Keys and the upgrade.** sshd runs nothing of Aries's to find a key
 ([Keys from the store](#keys-from-the-store)), so an upgrade has no
@@ -4557,6 +4596,13 @@ It refuses to run as root, except with `--check`. `--to vX.Y.Z` installs a given
 never an older one, because migrations only go forward. `--rollback`
 restores the binary the last upgrade replaced; it does not touch the
 database, so a release that migrated it needs the dump as well.
+
+Under the [AppArmor profiles](#confine-ariesd-with-apparmor), the dump
+runs the `pg_dump` and `pg_restore` of `/usr/lib/postgresql`, under
+`ariesd-admin`, and writes to `@{ariesd_dumps}`, at
+`/var/lib/aries/upgrade-dumps`; with `upgrade_dumps:` set elsewhere,
+change that tunable. Those rules have not been run on a confined
+server.
 
 **Where the release is read from.** GitHub, unless the server is told
 otherwise, in one of two ways. Both take what `aries upgrade` and

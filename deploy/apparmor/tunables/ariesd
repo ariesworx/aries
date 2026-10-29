@@ -44,6 +44,11 @@
 # the profiles refuse everything there.
 @{ariesd_home}=/var/lib/aries
 
+# The directory `ariesd upgrade` writes its dump to before a release's
+# migrations (`upgrade_dumps`; by default upgrade-dumps in the home
+# directory).
+@{ariesd_dumps}=@{ariesd_home}/upgrade-dumps
+
 # The file ariesd writes for sshd on a server of many projects
 # (`keys_file`), as its directory and its name, and the hand-maintained
 # file it reads beside it (`authorized_keys`).

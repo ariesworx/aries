@@ -6,7 +6,8 @@
 //	ariesd control invite --provider P [--config FILE] [--dsn DSN] NAME ADDRESS
 //	ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
 //	ariesd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
-//	ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
+//	ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--dump FILE] [--config FILE] [--dsn DSN] [--socket PATH]
+//	ariesd migrations
 //	ariesd status [--json] [--config FILE] [--socket PATH]
 //	ariesd version
 //
@@ -25,8 +26,12 @@
 // project's schema once before it listens, which migrates it. upgrade
 // replaces this binary with a verified release, and restarts and
 // health-checks the daemon when a systemd unit is configured or
-// --restart is given; a migration that fails leaves the schema as it
-// was, and the operator's backups are the restore point. status
+// --restart is given; when the release would migrate a schema, it first
+// takes a dump of the database, or checks the fresh one --dump names,
+// and refuses without one. A migration that fails leaves the schema as
+// it was; one that succeeds is undone only from that dump. migrations
+// lists the migrations this binary carries, which upgrade asks of the
+// release it is about to install. status
 // asks the running daemon, over its socket and as its own user, for the
 // report `aries admin status` gives a server admin.
 //
@@ -73,7 +78,8 @@ const usage = `usage:
   ariesd control invite --provider P [--config FILE] [--dsn DSN] NAME ADDRESS
   ariesd import-bd [--config FILE] [--dsn DSN] [--project UUID] [--principal NAME] [--dry-run] [--json] FILE|-
   ariesd export-bd [--config FILE] [--dsn DSN] [--project UUID] [-o FILE]
-  ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--config FILE] [--dsn DSN] [--socket PATH]
+  ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart] [--dump FILE] [--config FILE] [--dsn DSN] [--socket PATH]
+  ariesd migrations
   ariesd status [--json] [--config FILE] [--socket PATH]
   ariesd version
 
@@ -198,6 +204,8 @@ func run(ctx context.Context, args []string) error {
 		return upgradeCmd(ctx, osEnv(), osUpgradeDeps(), args[1:])
 	case "status":
 		return statusCmd(ctx, osEnv(), args[1:])
+	case "migrations":
+		return migrationsCmd(osEnv(), args[1:])
 	case "version", "--version":
 		fmt.Printf("ariesd %s\n", version.Version)
 		return nil

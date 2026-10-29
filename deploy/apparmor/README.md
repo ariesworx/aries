@@ -279,6 +279,21 @@ an enforcing kernel.
 The bridge's profile, `ariesd`, is unchanged; with SSH off nothing runs
 under it but `ariesd status`.
 
+## What the dump before migrations needed
+
+On 28 October 2026 `ariesd upgrade` began to take a dump of the
+database before a release that migrates it (docs/server.md, Upgrades).
+`ariesd-admin` changed for it; CI checks the rules' syntax with
+`apparmor_parser -Q -K`, and they have not been loaded into an
+enforcing kernel.
+
+| What ariesd does | The rule, in `ariesd-admin` |
+|---|---|
+| Runs the staged release's `ariesd migrations` | Nothing new: it runs `version` there already (`.ariesd.new-*`, `ix`) |
+| Runs `pg_dump` and `pg_restore --list` of the server's major version | `/usr/lib/postgresql/*/bin/pg_dump mrix,` and the same for `pg_restore`, under this profile, which reaches Postgres as the daemon does. `/usr/bin/pg_dump` is Ubuntu's `pg_wrapper`, a Perl script, which upgrade does not run |
+| Writes the dump | `owner @{ariesd_dumps}/ rw,` and `owner @{ariesd_dumps}/* rw,`, with the tunable at `/var/lib/aries/upgrade-dumps`. With `upgrade_dumps:` set elsewhere, change the tunable |
+| Reads a dump given with `--dump FILE` | Nothing new where it is in that directory or the top of the home directory; anywhere else needs a rule in `local/ariesd-admin` |
+
 ## The bridge's profile, with SSH alone
 
 On 16 October 2026 (slice S1 of

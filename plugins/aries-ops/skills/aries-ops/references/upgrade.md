@@ -1,11 +1,12 @@
 # Upgrading the server
 
 `ariesd upgrade` downloads a release, checks its signature and
-checksum, checks the clock against the server's history, swaps the
-binary, restarts the unit through its sudo rule and checks the new
-daemon answers, putting the old one back if it does not
-(docs/server.md#upgrades). It keeps no copy of the database: the dump
-before it is the way back from a migration. It runs as the `aries` user, never as root
+checksum, checks the clock against the server's history, asks the
+release which migrations it would run and, if any, dumps the database
+first, refusing without a dump, swaps the binary, restarts the unit
+through its sudo rule and checks the new daemon answers, putting the
+old one back if it does not (docs/server.md#upgrades). That dump, whose
+path it prints on a `dump:` line, is the way back from a migration. It runs as the `aries` user, never as root
 (except `--check`). An upgrade is destructive in SKILL.md's sense: the
 operator names the version in their reply.
 
@@ -27,6 +28,8 @@ operator names the version in their reply.
 
   Its `clock:` line must not say the restarted daemon would refuse to
   start (docs/server.md#when-the-clock-is-behind-the-servers-history).
+  Its `migrations:` line says whether the upgrade will dump the database
+  first, and lists the migrations by schema.
 
 ## 2. Before
 
@@ -34,12 +37,13 @@ operator names the version in their reply.
   upgraded, every older `aries` may be refused until it is upgraded, and
   every agent restarted (docs/server.md#upgrades, the table of what each
   side sees).
-- **Take a dump, and keep it apart**, as docs/server.md#upgrades says:
-  `sudo -n systemctl start aries-backup.service`, then copy the day's
-  file to `/var/backups/aries/before-upgrade.dump` (references/backup.md).
-  A release may migrate the database when the new daemon starts, and
-  the old binary refuses a migrated schema: this dump is the only way
-  back from that.
+- **The dump** is upgrade's own when the release migrates the database
+  (docs/server.md#upgrades, step 3): it writes it to
+  `/var/lib/aries/upgrade-dumps` as the `aries` user and refuses to go
+  on if it cannot. Where `pg_dump` cannot reach the database as that
+  role, take one as references/backup.md says, copy it there, readable
+  by `aries`, and give it with `--dump FILE` within the hour. The old
+  binary refuses a migrated schema: this dump is the only way back.
 - **Postgres itself** is upgraded apart from Aries
   (references/database.md, "Postgres's own upgrades").
 
@@ -80,9 +84,9 @@ operator's workstation with their yes.
 - **To go back by hand:** `ariesd upgrade --rollback --restart`,
   through `aa-exec` where confined, restores the binary the last upgrade
   replaced. The old binary refuses a schema the new one migrated: going
-  back all the way is the restore of the dump taken before
-  (docs/server.md#restore), a destructive step the operator names,
-  then the rollback.
+  back all the way is the restore of the dump upgrade named on its
+  `dump:` line (docs/server.md#restore), a destructive step the
+  operator names, then the rollback.
 - **`sudo … a password is required`** from the restart: the sudo rule
   must name `ariesd.service` exactly as `systemd_unit` does
   (docs/server.md#5-run-ariesd-under-systemd).
