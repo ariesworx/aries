@@ -1259,6 +1259,11 @@ streaming passthrough and three small usage parsers; no provider SDK.
 - **Rate limits** per provider and key, from policy.
 - **Self-hosted models** behind OpenAI-compatible endpoints routed the
   same way, cost from a configured rate per token or GPU-hour.
+  *Proposed 28 Oct 2026 ([open-weight-models.md](open-weight-models.md)):
+  the gateway serves Anthropic's Messages format too, so Claude Code
+  reaches open-weight models, local or hosted, through it, and takes
+  the dispatcher's routes (labels to harness, endpoint and model, with
+  fallback at a run's start) as its own.*
 - **Fails closed** (finding 6): after `gateway.aries_timeout` (30 s) with
   no word from ariesd it refuses new calls with a fix; running responses
   complete. `bearings halt` stops it locally.
