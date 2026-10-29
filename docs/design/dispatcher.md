@@ -145,8 +145,10 @@ Checked before every start, never mid-run:
 
 **What it cannot see.** Usage is captured from Claude Code's transcripts
 alone (`aries usage --hook`, `internal/capture`); a Codex or Gemini run
-reports none, so the cap is blind to them (§10). Prices are not set, so
-the cap is tokens, not dollars.
+reports none, so the cap is blind to them (§10;
+[harnesses.md §6](harnesses.md#6-usage-without-a-hook-q8) proposes
+how their usage is read). Prices are not set, so the cap is tokens, not
+dollars.
 
 ## 7. Briefs
 
@@ -487,6 +489,23 @@ the budget until the dispatcher reports their usage from their JSON
 output, which is Bearings' capture (§3.7.1) and needs a way for a client
 to report usage other than a hook (Q8). The first slice drives Claude
 Code alone.
+
+**Researched (29 October 2026).** [harnesses.md](harnesses.md)
+(ar-uhs4k7ja) replaces the Codex and Gemini columns above and adds
+Cursor's CLI, from runs of each CLI up to its sign-in and from their
+documentation, each fact marked as tried or read. What it changes here:
+Gemini CLI does take `--session-id`, and resumes with `--resume`; Codex
+cannot be given a session id, so its thread id is read from its first
+event, and the run's Aries session stays the dispatcher's through
+`ARIES_SESSION`; Cursor makes a chat with `create-chat` and resumes it
+with `--resume`. Codex runs its SessionStart hook under `codex exec`,
+and has Stop and SessionEnd hooks, so usage can come from a hook for
+Codex and Gemini as well as from the dispatcher reading their
+transcripts after a run (harnesses.md §6, the proposal for Q8); Cursor
+records no tokens a run can read. Gemini CLI no longer serves
+subscription sign-ins since 18 June 2026. One slice per harness:
+ar-owbab6v2 (Codex), ar-ennqoomf (Gemini) and ar-dnqnflbs (Cursor).
+Open-weight models are ar-hcjyxibf's.
 
 ## 11. The credential
 
