@@ -505,7 +505,8 @@ transcripts after a run (harnesses.md §6, the proposal for Q8); Cursor
 records no tokens a run can read. Gemini CLI no longer serves
 subscription sign-ins since 18 June 2026. One slice per harness:
 ar-owbab6v2 (Codex), ar-ennqoomf (Gemini) and ar-dnqnflbs (Cursor).
-Open-weight models are ar-hcjyxibf's.
+Open-weight models are ar-hcjyxibf's
+([open-weight-models.md](open-weight-models.md)).
 
 ## 11. The credential
 

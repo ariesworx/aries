@@ -5,7 +5,8 @@ Status: **research, 29 October 2026** (ar-uhs4k7ja). It extends
 CLI and OpenAI's Codex CLI, and proposes how their usage reaches Aries
 without Claude Code's usage hook (dispatcher.md §10, Q8). It decides
 nothing and changes no code. Open-weight models, and who holds the
-credentials for them, are ar-hcjyxibf's, not this note's.
+credentials for them, are ar-hcjyxibf's, in
+[open-weight-models.md](open-weight-models.md), not this note's.
 
 ## 1. How this was done
 
