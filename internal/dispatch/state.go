@@ -45,6 +45,8 @@ type State struct {
 	// Wake is the last wake's source, and WokeAt its time.
 	Wake   string    `json:"wake,omitempty"`
 	WokeAt time.Time `json:"woke_at,omitzero"`
+	// Sweep is what the after-merge sweep last found and did.
+	Sweep Sweep `json:"sweep,omitzero"`
 }
 
 // Budget is the last read of the day's Opus output against the cap.
@@ -83,6 +85,9 @@ type Run struct {
 	Cleaned    bool `json:"cleaned,omitempty"`
 	Left       bool `json:"left,omitempty"`
 	BranchDone bool `json:"branch_done,omitempty"`
+	// Rework is set on a run the sweep started or resumed on a broken PR:
+	// ReworkConflict or ReworkChecks.
+	Rework string `json:"rework,omitempty"`
 	// Cleared: a person cleared the stops (`run --clear`) since it
 	// failed, so its issue may be started again.
 	Cleared bool `json:"cleared,omitempty"`

@@ -23,8 +23,14 @@
 // It runs on macOS and Linux: runs are process groups, interrupted by
 // signal. It builds everywhere, and on Windows the command refuses.
 //
-// Not here yet: the after-merge sweep (resume, rework, merges under
-// dispatch rule 4, notices on a standing issue; dispatcher.md §8), which
-// is the next slice. A move of the default branch wakes the loop, which
-// reconciles and cleans up, and nothing more.
+// At the start, when the default branch moves, and at the next wake when
+// the last one left a PR it may act on, the wake also sweeps (sweep.go,
+// dispatcher.md §8): each open PR that conflicts or
+// whose required checks failed is resumed in its own ended run's session,
+// left to a live session that holds it, given a new run on its branch when
+// its runs opened it or it carries [ReworkLabel], or named; each rework
+// posts a rework: comment naming the merge.
+//
+// Not here yet: merges under dispatch rule 4 and the notices on a
+// standing issue (dispatcher.md §8, §12), which wait on merges.md.
 package dispatch

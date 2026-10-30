@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/ariesworx/aries/internal/brief"
 	"github.com/ariesworx/aries/internal/gitx"
 	"github.com/ariesworx/aries/internal/guard"
+	"github.com/ariesworx/aries/internal/merges"
 	"github.com/ariesworx/aries/internal/proto"
 )
 
@@ -113,6 +115,12 @@ func (e *Exec) Handoff(ctx context.Context, id, session, note string, release bo
 func (e *Exec) Brief(ctx context.Context, id string, rec brief.Record, text string) error {
 	return e.run(ctx, e.Session, text, nil, "dispatch", "brief", id, "--record", "--harness", rec.Harness, "--model", rec.Model,
 		"--effort", rec.Effort, "--session", rec.Session, "--template", rec.Template, "--text", "-")
+}
+
+// Comment runs `aries comment ID -` in the dispatcher's own session, the
+// body on stdin.
+func (e *Exec) Comment(ctx context.Context, id, body string) error {
+	return e.run(ctx, e.Session, body, nil, "comment", id, "-")
 }
 
 // OpusOutput runs `aries cost` by model for the UTC day that holds day,
@@ -252,14 +260,8 @@ func (g *ExecGit) gitIn(ctx context.Context, dir string, args ...string) (string
 // committed, reset or removed. The worktrees' directory ignores itself,
 // so the checkout shows none of it.
 func (g *ExecGit) AddWorktree(ctx context.Context, path, branch string) (string, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := worktreesDir(path); err != nil {
 		return "", err
-	}
-	ignore := filepath.Join(filepath.Dir(filepath.Dir(path)), ".gitignore")
-	if _, err := os.Stat(ignore); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(ignore, []byte("*\n"), 0o644); err != nil { //nolint:gosec // a .gitignore, read by git
-			return "", err
-		}
 	}
 	if _, err := g.git(ctx, "fetch", "--quiet", g.Remote, g.Base); err != nil {
 		return "", err
@@ -291,6 +293,62 @@ func (g *ExecGit) AddWorktree(ctx context.Context, path, branch string) (string,
 		}
 	}
 	_, err := g.git(ctx, "worktree", "add", "-B", branch, path, base)
+	return found, err
+}
+
+// worktreesDir makes the directory path's worktree goes in, under a
+// directory that ignores itself, so the checkout shows none of it.
+func worktreesDir(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	ignore := filepath.Join(filepath.Dir(filepath.Dir(path)), ".gitignore")
+	if _, err := os.Stat(ignore); errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(ignore, []byte("*\n"), 0o644); err != nil { //nolint:gosec // a .gitignore, read by git
+			return err
+		}
+	}
+	return nil
+}
+
+// ReworkWorktree makes path a worktree on branch as the remote has it,
+// freshly fetched with the default branch, for a run that reworks the
+// branch's PR (dispatcher.md §8). A worktree already at path that is
+// clean, on branch and holds nothing the remote's branch lacks is
+// fast-forwarded to it and used; any other is a lost run's and is kept
+// aside, as AddWorktree keeps one. A local branch with nothing of its own
+// is moved up to the remote's; one with commits the remote lacks is taken
+// as it is, and found says so.
+func (g *ExecGit) ReworkWorktree(ctx context.Context, path, branch string) (string, error) {
+	if err := worktreesDir(path); err != nil {
+		return "", err
+	}
+	if _, err := g.git(ctx, "fetch", "--quiet", g.Remote, g.Base, branch); err != nil {
+		return "", err
+	}
+	theirs := g.Remote + "/" + branch
+	if _, err := g.git(ctx, "rev-parse", "--verify", "--quiet", "refs/remotes/"+theirs); err != nil {
+		return "", fmt.Errorf("the remote has no branch %s", branch)
+	}
+	var found string
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		note, ok, err := g.refresh(ctx, path, branch, theirs)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return note, nil
+		}
+		found = note
+	}
+	if _, err := g.git(ctx, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		if _, err := g.git(ctx, "merge-base", "--is-ancestor", "refs/heads/"+branch, theirs); err != nil {
+			ahead, _ := g.git(ctx, "rev-list", "--count", theirs+"..refs/heads/"+branch)
+			_, err = g.git(ctx, "worktree", "add", path, branch)
+			return found + fmt.Sprintf("The local branch %s has %s commits not on %s; push them or leave them, as the PR needs.", branch, ahead, theirs), err
+		}
+	}
+	_, err := g.git(ctx, "worktree", "add", "-B", branch, path, theirs)
 	return found, err
 }
 
@@ -386,6 +444,120 @@ func (g *ExecGit) Policy(ctx context.Context) ([]byte, bool, error) {
 // GH is the Forge over the gh binary, in the repository at Dir.
 type GH struct {
 	Dir string
+	// Run runs gh; nil runs the real one. Tests replace it.
+	Run merges.Run
+}
+
+// Open runs `gh pr list` for the open PRs with their merge state, labels
+// and commits, and `gh pr checks N --required` for each PR an issue names
+// that does not conflict: the sweep acts on those alone (dispatcher.md
+// §8). A PR whose required checks could not be read has none, so the
+// sweep leaves it until the next.
+func (g *GH) Open(ctx context.Context) ([]OpenPR, error) {
+	run := g.Run
+	if run == nil {
+		run = runGH
+	}
+	out, err := run(ctx, g.Dir, "gh", "pr", "list", "--state", "open", "--limit", strconv.Itoa(merges.MaxOpen),
+		"--json", "number,url,headRefName,headRefOid,mergeable,labels,commits,isCrossRepository")
+	if err != nil {
+		return nil, fmt.Errorf("gh pr list: %w", err)
+	}
+	prs, err := parseOpen(out)
+	if err != nil {
+		return nil, err
+	}
+	checks := &merges.GH{Dir: g.Dir, Run: g.Run}
+	for i := range prs {
+		if prs[i].Issue == "" || prs[i].Mergeable == MergeConflicting {
+			continue
+		}
+		if cs, err := checks.Required(ctx, prs[i].Number); err == nil {
+			prs[i].Checks = requiredRollup(cs)
+		}
+	}
+	return prs, nil
+}
+
+// runGH runs gh in dir and returns its standard output, with the first
+// line of its standard error in the error when it fails.
+func runGH(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // gh, with arguments built here
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return stdout.Bytes(), fmt.Errorf("%w: %s", err, firstLine(stderr.String()))
+	}
+	return stdout.Bytes(), nil
+}
+
+// parseOpen reads `gh pr list --json …`: each PR's issue from the last of
+// its commits with an Aries: trailer, else from its branch's name. PRs from
+// another repository are left out.
+func parseOpen(b []byte) ([]OpenPR, error) {
+	var v []struct {
+		Number    int    `json:"number"`
+		URL       string `json:"url"`
+		Branch    string `json:"headRefName"`
+		Head      string `json:"headRefOid"`
+		Mergeable string `json:"mergeable"`
+		Fork      bool   `json:"isCrossRepository"`
+		Labels    []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		Commits []struct {
+			Headline string `json:"messageHeadline"`
+			Body     string `json:"messageBody"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, fmt.Errorf("gh pr list printed what is not its JSON: %w", err)
+	}
+	out := make([]OpenPR, 0, len(v))
+	for _, p := range v {
+		if p.Fork {
+			continue
+		}
+		pr := OpenPR{Number: p.Number, URL: p.URL, Branch: p.Branch, Head: p.Head, Mergeable: strings.ToUpper(p.Mergeable)}
+		for _, l := range p.Labels {
+			pr.Labels = append(pr.Labels, l.Name)
+		}
+		for _, c := range slices.Backward(p.Commits) {
+			if id, ok := gitx.IDFromMessage(c.Headline + "\n\n" + c.Body); ok {
+				pr.Issue = id
+				break
+			}
+		}
+		if pr.Issue == "" {
+			pr.Issue, _ = gitx.IDFromBranch(p.Branch, "")
+		}
+		out = append(out, pr)
+	}
+	return out, nil
+}
+
+// requiredRollup sums required checks up by gh's buckets as rollup sums a
+// PR's: a failed or cancelled one is ChecksFail, one not finished
+// ChecksPending, all passed or skipped ChecksPass, none "".
+func requiredRollup(cs []merges.Check) string {
+	if len(cs) == 0 {
+		return ""
+	}
+	pending := false
+	for _, c := range cs {
+		switch c.Bucket {
+		case "pass", "skipping":
+		case "fail", "cancel":
+			return ChecksFail
+		default:
+			pending = true
+		}
+	}
+	if pending {
+		return ChecksPending
+	}
+	return ChecksPass
 }
 
 // PR runs `gh pr view BRANCH --json number,url,state,statusCheckRollup`.

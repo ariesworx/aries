@@ -29,6 +29,9 @@ type Tracker interface {
 	OpusOutput(ctx context.Context, day time.Time) (int64, error)
 	// Paused reports whether anyone holds PauseLock.
 	Paused(ctx context.Context) (bool, error)
+	// Comment posts body as a comment on id, from the dispatcher's own
+	// session.
+	Comment(ctx context.Context, id, body string) error
 	// Slots is how many hold RunsLock now.
 	Slots(ctx context.Context) (int, error)
 	// Watch calls wake with a source (WakeInbox, WakeEvent, WakeResync)
@@ -76,6 +79,9 @@ type Spec struct {
 	// lists rendered from it.
 	Policy          string
 	Allowed, Denied []string
+	// Resume resumes the ended run of Session in Dir, rather than
+	// starting a new one: the sweep's rework (dispatcher.md §8).
+	Resume bool
 }
 
 // Process is a launched or adopted run.
@@ -102,6 +108,10 @@ type Git interface {
 	// default branch. What an earlier run left there or on the branch is
 	// kept aside, never committed, and described in found for the brief.
 	AddWorktree(ctx context.Context, path, branch string) (found string, err error)
+	// ReworkWorktree makes a worktree at path on branch as the remote has
+	// it, for a run that reworks that branch's PR. What an earlier run left
+	// there is kept aside, as AddWorktree keeps it, and described in found.
+	ReworkWorktree(ctx context.Context, path, branch string) (found string, err error)
 	// RemoveWorktree removes it without --force: one with changes is
 	// refused.
 	RemoveWorktree(ctx context.Context, path string) error
@@ -136,8 +146,39 @@ type PR struct {
 	Head string
 }
 
-// Forge finds a branch's pull request. [GH] runs gh.
+// A PR's merge state against its base, as the forge reports it.
+// MergeUnknown is one the forge has not computed yet, as after its base
+// moved.
+const (
+	MergeClean       = "MERGEABLE"
+	MergeConflicting = "CONFLICTING"
+	MergeUnknown     = "UNKNOWN"
+)
+
+// OpenPR is an open pull request as the sweep reads it (dispatcher.md
+// §8). A PR from another repository (a fork) is never listed: its branch
+// is not the project's to push.
+type OpenPR struct {
+	Number int
+	URL    string
+	// Branch is its head branch, and Head the commit it is at.
+	Branch, Head string
+	// Issue is the issue it is for, from its commits' Aries: trailer,
+	// else its branch's name; "" when neither names one.
+	Issue string
+	// Mergeable is MergeClean, MergeConflicting or MergeUnknown.
+	Mergeable string
+	// Checks are its required checks on Head, summed up as PR.Checks is;
+	// "" when it has none or they were not read (a conflicted PR's, or
+	// one no issue names).
+	Checks string
+	Labels []string
+}
+
+// Forge reads pull requests. [GH] runs gh.
 type Forge interface {
 	// PR returns branch's PR, or nil when it has none.
 	PR(ctx context.Context, branch string) (*PR, error)
+	// Open lists the open pull requests of the project's repository.
+	Open(ctx context.Context) ([]OpenPR, error)
 }

@@ -2,8 +2,9 @@
 
 Status: **design, 17 October 2026, accepted 19 October 2026**
 (aries-w5aa37nf; decision 96 in [aries.md §14](aries.md#14-decisions)).
-The loop is built, without the sweep: see **As built (20 October
-2026)** at the end of §12. The maintainer answered §14 on 19 October 2026,
+The loop is built: see **As built (20 October 2026)** at the end of
+§12. The sweep's resume and rework are built, without merges under rule
+4: see **As built (28 October 2026)** at the end of §8. The maintainer answered §14 on 19 October 2026,
 and the answers are recorded there, with what they changed in the
 sections they name. It draws on the five
 research issues of the epic aries-hzuyf4mt: idle time (aries-5llpbo64),
@@ -222,8 +223,8 @@ the CLI and `aries outcome` share one statement of each.
   after opening the PR, and stop every background command and monitor
   before the handoff. Headless (`harness=claude-code`) has neither a
   wake on its PR nor background work: start none, and say in the
-  handoff that the sweep takes over the PR (until it ships, the
-  coordinator does, memory `dispatch`, answer 6). The headless brief
+  handoff that the sweep takes over the PR (built, §8, As built; brief
+  version 5 says so). The headless brief
   names its session and worktree, which the dispatcher chose; a
   Desktop brief names neither, since the session and its worktree do
   not exist when it is written, and carries `{handwritten}` instead: a
@@ -309,6 +310,83 @@ The sweep keeps its own acts below: resume, rework and queueing merges.
   before the workflow, with no `landed` gate, is finished citing its PR,
   as step 7 says.
 - **Cleanup** of the issues that closed (§9).
+
+**As built (28 October 2026, ar-2vli76ya).** The resume and rework above
+are `internal/dispatch/sweep.go`, wired by nothing new: `aries dispatch
+run` sweeps. Merges under rule 4 and the notices on a standing issue are
+not built (they wait on merges.md M2 and M3, and Q7's notices); merged
+but open issues are left to `digest`. It departs from or settles the
+design here:
+
+- **No `aries prs check`.** prs-check.md is not built, so the sweep reads
+  the forge itself, through `Forge.Open`: one `gh pr list --state open`
+  with each PR's `mergeable`, labels, commits and whether it is from a
+  fork, then `gh pr checks N --required` for each PR that an issue names
+  and that does not conflict. A PR from a fork is left out: its branch is
+  not the project's to push. When prs-check.md is built, `Forge.Open` is
+  the one place to swap.
+- **When.** At the start, at a wake for a move of the default branch, and
+  at the next wake of any source when the last sweep left one due: a PR
+  it could have acted on but for a hold, a PR whose `mergeable` the forge
+  had not computed yet (`UNKNOWN`, as it is for a while after a merge), or
+  a read that failed. An inbox or event wake does not sweep otherwise.
+- **Broken** is `mergeable` `CONFLICTING`, or the required checks on the
+  head summed to a failure (a fail or cancel bucket). "Failed on a commit
+  after the last merge" is read as: not a failure the dispatcher's own run
+  already counted as its own at the same head. That one is the two-failure
+  stop's (§6), named `own-ci` and left, so a run that handed off on red
+  is not quietly retried; a failure on a head its run had seen green
+  (CI rerun after main moved, a check made required) is reworked. A
+  merge queue's failed run is not visible this way: GitHub reports it on
+  the queue's commit, not the PR's head.
+- **Once per PR, head and kind.** The state keeps a record for each
+  (`State.Sweep.Reworks`, the newest 200): a PR is resumed or given a run
+  once at a head, and named once. A rework run that ends with the PR still
+  broken at the same head is named `rework-left` and left for a person,
+  so the sweep never loops on a PR its runs cannot fix. A rework that
+  pushes gives the PR a new head, which the next sweep judges afresh, and
+  its CI counts toward the two-failure stop as any run's does (§13's drill).
+- **Resume** needs the run's record with its worktree not yet removed, an
+  outcome of `ok`, `lost` or `unknown` (a run that failed, timed out or
+  was stopped is named `failed-before` until `--clear`, as fill skips its
+  issue), and a free slot. It claims the issue again in the run's own
+  session (`start ID --for 10m`), takes a fresh snapshot of the policy,
+  and starts `claude -p --resume SESSION` in the run's worktree under the
+  lock, with the same model. Its brief is built in code (`ReworkBrief`),
+  not from the template: the session already holds the template's steps,
+  and the brief says only what broke, at which head, after which commit
+  of main, and to `start`, merge `origin/main` keeping both sides, retest,
+  push to the same branch and hand off again. It is recorded as a brief
+  with `template=rework`. The old run's record hands its worktree and
+  branch to the new one (it is marked cleaned), so cleanup runs once.
+- **A new run** on a PR no one holds that its runs opened (and cannot be
+  resumed) or that carries `dispatch:rework`: a new session claims the
+  issue, `ExecGit.ReworkWorktree` makes `.aries-dispatch/worktrees/ID`
+  from the remote's branch, freshly fetched (a worktree there with work
+  of its own is kept aside as §9 keeps a lost run's; a local branch with
+  commits the remote lacks is taken as it is and the brief says so), and
+  the run starts from the template, with what broke and what to do in the
+  block of what was found. Its model is the issue's one model label;
+  without one it is named `no-model`.
+- **A live session's claim** is a claim not the dispatcher's ended run's,
+  unexpired. The first sweep that finds it records it and says nothing;
+  the next sweep that still finds the PR broken at that head and held
+  names it `held`.
+- **Holds.** Every resume and new run waits on what holds fill (§6, §12):
+  a stop, auth, two CI failures, the budget, the pause and the slots,
+  read once a wake, and each takes a slot. A held rework is said
+  (`sweep: ID PR N waits [RULE]`) and makes the next wake sweep again.
+- **The record.** Each rework posts one comment on the issue whose first
+  line is `rework: pr=N kind=conflict|checks main=SHA head=SHA
+  action=resume|run session=S`, `main` the default branch's commit the
+  sweep read, which is the merge that broke it or the last of the merges
+  since the previous sweep, for aries-a3fxwzfk. Lines for a person begin
+  `sweep:`; the log gains `sweep`, `rework` and `sweep-named` records,
+  ids and rules only; `aries dispatch status` shows the last sweep and
+  its latest ten records.
+- **Dry run** sweeps too, reading the forge, git and `show`, and prints
+  `sweep: would resume ID PR N` or `would start a run on`, and the names;
+  it claims, launches and comments nothing.
 
 ## 9. Its runs, its state and cleanup
 
@@ -716,7 +794,9 @@ It departs from or settles the design here:
   id both matching, through `ps`) by the next.
 - **Not built here:** the sweep of §8 (aries-i6fndp4h), the notices on
   a standing issue (§12, Q7, with it), and resuming a run. A move of the
-  default branch wakes the loop, which reconciles and cleans up. A run's
+  default branch wakes the loop, which reconciles and cleans up. *Since
+  28 October 2026* the sweep's resume and rework are built (§8, As
+  built); the notices and merges under rule 4 are not. A run's
   wall-clock limit and `--now` send SIGINT, then SIGTERM after 30
   seconds, to the run's process group.
 

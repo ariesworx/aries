@@ -196,6 +196,7 @@ func dispatchRun(ctx context.Context, r *runner, args []string) error {
 		Save:         save,
 		StopRequest:  func() string { return dispatch.ReadStop(paths.Stop) },
 		Template:     tmpl,
+		Upstream:     "origin/" + base,
 	}
 	if cfg.DryRun {
 		r.notef("dry run: it starts, claims and writes nothing")
@@ -410,6 +411,7 @@ func printDispatchStatus(w io.Writer, s *dispatch.State, running bool, stop stri
 	if s.Stopped != "" {
 		p("stopped: %s, until `aries dispatch run --clear`", esc(s.Stopped))
 	}
+	printSweep(p, s.Sweep)
 	if len(s.Runs) == 0 {
 		p("runs: none")
 		return
@@ -448,6 +450,38 @@ func printDispatchStatus(w io.Writer, s *dispatch.State, running bool, stop stri
 			line += "  " + esc(run.Worktree)
 		}
 		p("%s", line)
+	}
+}
+
+// printSweep prints what the last sweep found (dispatcher.md §8): when it
+// ran, the default branch's commit it read, whether one is due, and the
+// broken PRs it reworked or named, latest last.
+func printSweep(p func(string, ...any), sw dispatch.Sweep) {
+	if sw.At.IsZero() {
+		return
+	}
+	line := fmt.Sprintf("last sweep: %s, main %s", when(sw.At), esc(sw.Main))
+	if sw.Due {
+		line += ", another due at the next wake"
+	}
+	p("%s", line)
+	const shown = 10
+	rws := sw.Reworks
+	if len(rws) > shown {
+		rws = rws[len(rws)-shown:]
+	}
+	for _, rw := range rws {
+		if rw.Action == dispatch.SweepHeld {
+			continue // said only once it is named
+		}
+		l := fmt.Sprintf("  PR %d  %s  %s  %s", rw.PR, esc(rw.Issue), esc(rw.Kind), esc(rw.Action))
+		if rw.Rule != "" {
+			l += " [" + esc(rw.Rule) + "]"
+		}
+		if rw.Run != "" {
+			l += "  session " + esc(rw.Run)
+		}
+		p("%s  at %s", l, when(rw.At))
 	}
 }
 
