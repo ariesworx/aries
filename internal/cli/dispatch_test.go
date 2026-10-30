@@ -202,6 +202,22 @@ func TestDispatchStatusAndStop(t *testing.T) {
 		t.Errorf("a running dispatcher's status lacks its scope:\n%s", sb.String())
 	}
 	sb.Reset()
+	swept := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	printDispatchStatus(&sb, &dispatch.State{Sweep: dispatch.Sweep{At: swept, Main: "c0ffee", Due: true, Reworks: []*dispatch.Rework{
+		{PR: 7, Issue: "ar-1", Kind: dispatch.ReworkConflict, Action: dispatch.SweepResume, Run: "s-1", At: swept},
+		{PR: 8, Issue: "ar-2", Kind: dispatch.ReworkChecks, Action: dispatch.SweepHeld, At: swept},
+		{PR: 9, Kind: dispatch.ReworkConflict, Action: dispatch.SweepNamed, Rule: dispatch.SweepNoIssue, At: swept},
+	}}}, false, "")
+	for _, want := range []string{"last sweep: ", "main c0ffee, another due at the next wake",
+		"PR 7  ar-1  conflict  resume  session s-1", "PR 9    conflict  named [no-issue]"} {
+		if !strings.Contains(sb.String(), want) {
+			t.Errorf("status lacks %q:\n%s", want, sb.String())
+		}
+	}
+	if strings.Contains(sb.String(), "PR 8") {
+		t.Errorf("status shows a PR a live session holds before it is named:\n%s", sb.String())
+	}
+	sb.Reset()
 	printDispatchStatus(&sb, &dispatch.State{Models: f.Models}, false, "")
 	if strings.Contains(sb.String(), "scope:") {
 		t.Errorf("a stopped dispatcher's status shows a scope:\n%s", sb.String())

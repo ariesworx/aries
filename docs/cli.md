@@ -512,7 +512,7 @@ and open PRs with your own `git` and `gh`.
 | Command | Does |
 |---|---|
 | `dispatch run` | Run the loop until stopped or interrupted. Each wake (an inbox item or issue event, at most every 10 seconds; a run's exit; the default branch moving, read every 5 minutes; a released `dispatch/pause` or a freed slot, read every 90 seconds while it holds for one; and a 20-minute timer) prints a line per decision: `start ID (model M, session S, pid P)`, `skip ID [RULE]: why`, `queue ID (model M) [slots]: why`, or `hold [RULE]: why` when nothing may start. Before them it says `judged N ready issues` (with `(the most a wake reads)` when N reached the limit): each wake reads up to 500 ready issues, the server's cap on one answer, since `ready` has no offset and a filter such as `--models` is applied after the read, and judges each with a `show`; past 500 the rest wait until ones ahead start or close. `--dry-run` prints `would start` for what it would start and starts, claims, makes and writes nothing, and needs no key; `--once` wakes once and exits, leaving the runs it started running. `--capacity N` is the lock's capacity (default 4); `--cap TOKENS` a UTC day's Opus output tokens past which it starts nothing (default 1300000); `--max-budget-usd USD` each run's limit; `--models haiku[,sonnet,opus]` starts only issues whose model label is one of these, and `--labels L[,L]` only issues carrying all of these labels (a `trial` label, say), each skipping the rest by a rule of its own and each named on a line after `wake` (`only models haiku; only labels trial`); an unknown model is a usage error that lists the known ones; `--clear` clears a stop that two CI failures in a row or an auth failure left, and lets the issues its runs failed on be picked again. Interrupted (ctrl-c), it exits and its runs keep running; the next `dispatch run` adopts them |
-| `dispatch status` | Say what its state file holds: whether it runs, what holds it, today's Opus output against the cap, the CI failures in a row, the `--models` and `--labels` in force while it runs (`scope:`), and its runs, each with its issue, model, state, session, pid, PR, CI result and worktree. It never connects. `--json` prints the state as one document |
+| `dispatch status` | Say what its state file holds: whether it runs, what holds it, today's Opus output against the cap, the CI failures in a row, the `--models` and `--labels` in force while it runs (`scope:`), the last sweep (its time, the default branch's commit it read, whether another is due) with its latest ten reworks and named PRs, and its runs, each with its issue, model, state, session, pid, PR, CI result and worktree. It never connects. `--json` prints the state as one document |
 | `dispatch stop` | Ask the dispatcher running for this project on this machine to start nothing more; it exits once its runs have ended. `--now` also interrupts them (SIGINT, then SIGTERM after 30 seconds). To stop every dispatcher, on every machine, hold the lock `dispatch/pause`: `aries lock acquire dispatch/pause --for 24h` |
 | `dispatch brief ID` | Print the brief for an issue, rendered from the project's template `.aries/brief.txt` as `dispatch run` renders its runs' ([design](design/dispatcher.md#7-briefs)), for a coordinator to send to a session. It reads the issue and writes nothing but with `--record`, and runs on every system. By default the brief is for a Desktop session (`--harness claude-code-desktop`), with a hand-written section between marked lines that `--note TEXT` fills (`(none)` without it); `--harness claude-code` prints what a headless run gets, naming `--session` and `--worktree`. `--record --model M --session S [--effort E]` records the brief on the issue ([Briefs](agents.md#briefs)) and prints only the text to send: a comment of kind `brief` whose first line is `brief: harness=H model=M effort=E session=S template=brief@N`, then a blank line and the brief, joined to the claim of the next session to start the issue, or at once to the live claim of the session `--session` names. `--text TEXT` (`-` for standard input) records that text instead of rendering one, with `--template brief@N` naming its version, as `dispatch run` records its runs'. `--json` gives the template's version, the brief, its SHA-256 (of the text trimmed, as the log and `aries outcome` take it) and, with `--record`, the comment and what was recorded. A missing or malformed template is refused, as `dispatch run` refuses it |
 | `dispatch key set`, `dispatch key remove` | Keep the API key the runs are given in the system's credential store (the macOS keychain; the Secret Service on Linux where one runs, else a 0600 file in aries's data directory), read from standard input alone, never a terminal, or remove it. `dispatch run` reads it at start and says which store it read; it reaches each run in its environment only |
@@ -542,6 +542,27 @@ checks are one failure, not two. The first run that fails to authenticate
 stops it at once. A run past 90 minutes is interrupted. Each stop is
 logged once and shown by `status`. The cap is an alert before the
 provider's own: set a spend limit on the key in the provider's console.
+
+**The sweep.** A headless run ends at its handoff and has no Auto-fix,
+so at its start, whenever the default branch moves, and at the next wake
+when the last sweep left one due, `dispatch run` lists the open PRs
+(`gh pr list`, and `gh pr checks --required` for each that an issue
+names and that does not conflict; never a fork's) and takes back each
+that conflicts or whose required checks failed
+([design](design/dispatcher.md#8-the-after-merge-sweep)). A PR one of
+its own ended runs opened is resumed in that run's session and worktree
+(`claude -p --resume`), after the claim is taken again, with a brief to
+merge the default branch, keep both sides, retest and push. A PR a live
+session holds is left, and named if it is still broken at the next
+sweep. A PR no one holds is given a new run on its branch only if its
+runs opened it or it carries the label `dispatch:rework`, which a person
+adds to hand it over; any other is named (`sweep: name ID PR N [RULE]`).
+A failure its own run counted is the two-failure stop's, not the
+sweep's (`own-ci`), and a rework that leaves the PR as it was is named
+once (`rework-left`) and not tried again at that commit. Each rework
+waits on the same stops and slots as a start, and posts a comment on the
+issue whose first line is `rework: pr=N kind=conflict|checks main=SHA
+head=SHA action=resume|run session=S`. It never merges or queues a merge.
 
 **What each run gets.** The dispatcher claims the issue under the run's
 session id before it starts the run, so a second dispatcher is refused

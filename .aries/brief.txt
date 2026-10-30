@@ -11,7 +11,7 @@
 # A change to any line below the version ships by review and raises the
 # version; scripts/brief_test.go fails until it does, and `go test
 # ./scripts/ -run TestBriefTemplate -update` then records the new one.
-version: 4
+version: 5
 
 [headless] You are a headless run that `aries dispatch` started on issue {id}, in session {session}.
 [desktop] You are a session the project's coordinator started on issue {id}.
@@ -32,7 +32,7 @@ Do this:
 5. Commit with an imperative subject and a body that says why and "No new dependencies". End the message with one trailer block, with no blank line inside it: `Aries: {id}`, then your Co-Authored-By line.
 6. Push, and open one PR titled `type: …` from the repository's template, saying what ran and what was left to CI. Resolve a conflict by merging origin/main, never by rebasing a pushed branch.
 [desktop] 7. Right after opening the PR, turn on Auto-fix: `mcp__ccd_pr__set_monitor` with auto_fix and address_comments true and the PR's url.
-[headless] 7. This run is headless and has no Auto-fix: say so in your handoff, and end after it. The sweep, and until it ships the coordinator, takes over the PR's CI failures and conflicts.
+[headless] 7. This run is headless and has no Auto-fix: say so in your handoff, and end after it. The dispatcher's sweep takes over the PR: if it conflicts or fails its required checks after main moves, the sweep resumes this session with a brief to merge origin/main, retest and push.
 [desktop] 8. Stop every background command and monitor you started before your handoff.
 [headless] 8. Start no background work: a headless run waits for it before exiting. Issue every command bare: never write `VAR=value` in front of one (GOTOOLCHAIN=local and GOFLAGS=-mod=readonly are already set in your environment), and never wrap one in `mise exec`; the harness denies those forms. If a command is denied, retry it in its allowed form before you give up: one denial is not a block on all Bash, and you must still commit, push, open the PR and hand off.
 9. If your claim's lease lapses, `start` {id} again before writing to it.

@@ -85,10 +85,16 @@ func (c *Claude) Argv(sp Spec) []string {
 	if claude == "" {
 		claude = "claude"
 	}
+	// A rework resumes the ended run's own session, in its worktree
+	// (dispatcher.md §8, §10).
+	sessionFlag := "--session-id"
+	if sp.Resume {
+		sessionFlag = "--resume"
+	}
 	argv := []string{c.Aries, "-C", sp.Dir, "lock", "run", RunsLock,
 		"--capacity", strconv.Itoa(sp.Capacity), "--for", sp.Lease.String(),
 		"--grace", KillGrace.String(), "--",
-		claude, "-p", "--session-id", sp.Session, "--model", sp.Model,
+		claude, "-p", sessionFlag, sp.Session, "--model", sp.Model,
 		"--output-format", "json", "--permission-mode", "dontAsk"}
 	if c.MaxBudgetUSD != "" {
 		argv = append(argv, "--max-budget-usd", c.MaxBudgetUSD)

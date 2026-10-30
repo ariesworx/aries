@@ -222,6 +222,15 @@ func (f *fakeTracker) Brief(_ context.Context, id string, rec brief.Record, text
 	return nil
 }
 
+func (f *fakeTracker) Comment(_ context.Context, id, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	first, _, _ := strings.Cut(body, "\n")
+	f.calls.add("comment %s %s", id, first)
+	f.comments[id] = append(f.comments[id], body)
+	return nil
+}
+
 func (f *fakeTracker) OpusOutput(context.Context, time.Time) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -432,6 +441,17 @@ func (g *fakeGit) AddWorktree(_ context.Context, path, branch string) (string, e
 	return g.found, nil
 }
 
+func (g *fakeGit) ReworkWorktree(_ context.Context, path, branch string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls.add("worktree rework %s %s", path, branch)
+	if g.failAdd != nil {
+		return "", g.failAdd
+	}
+	g.worktrees[path] = branch
+	return g.found, nil
+}
+
 func (g *fakeGit) RemoveWorktree(_ context.Context, path string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -460,10 +480,21 @@ func (g *fakeGit) RemoteHead(context.Context) (string, error) {
 	return g.head, nil
 }
 
-// fakeForge stands in for gh: each branch's PR.
+// fakeForge stands in for gh: each branch's PR, and the open PRs the
+// sweep lists.
 type fakeForge struct {
-	mu  sync.Mutex
-	prs map[string]*PR
+	mu   sync.Mutex
+	prs  map[string]*PR
+	open []OpenPR
+	// opens counts the lists of open PRs.
+	opens atomic.Int64
+}
+
+func (f *fakeForge) Open(context.Context) ([]OpenPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.opens.Add(1)
+	return slices.Clone(f.open), nil
 }
 
 func (f *fakeForge) PR(_ context.Context, branch string) (*PR, error) {

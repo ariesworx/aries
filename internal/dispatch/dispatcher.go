@@ -55,6 +55,9 @@ type Dispatcher struct {
 	Save  func(*State) error
 	// StopRequest returns the stop asked for: StopDrain, StopNow or "".
 	StopRequest func() string
+	// Upstream is the remote default branch, as REMOTE/BRANCH, that a
+	// rework merges; optional, origin/main when empty.
+	Upstream string
 	// Template is the project's brief template, read once at start
 	// (brief.Load), so that every run of one dispatcher follows one
 	// version.
@@ -146,6 +149,9 @@ func (d *Dispatcher) Wake(ctx context.Context, source string) error {
 		d.reapReady(ctx)
 		d.reconcile(ctx)
 	}
+	if d.sweepDue(source) {
+		d.sweep(ctx)
+	}
 	d.fill(ctx)
 	d.save()
 	return ctx.Err()
@@ -154,18 +160,7 @@ func (d *Dispatcher) Wake(ctx context.Context, source string) error {
 // fill starts runs while it may (dispatcher.md §2, §4, §6).
 func (d *Dispatcher) fill(ctx context.Context) {
 	now := d.Now().UTC()
-	in := Inputs{Stop: d.stopRequest()}
-	// What holds it without reading aries first; then with what it reads.
-	rule, whyHeld := Hold(d.Cfg, d.State, Inputs{Stop: in.Stop, Free: 1})
-	if rule == "" {
-		var err error
-		in, err = d.inputs(ctx, in, now)
-		if err != nil {
-			rule, whyHeld = HoldUnreachable, "aries could not be read: "+errText(err)
-		} else {
-			rule, whyHeld = Hold(d.Cfg, d.State, in)
-		}
-	}
+	in, rule, whyHeld := d.readHold(ctx, now)
 	if rule != "" && (rule != HoldSlots || !d.Cfg.DryRun) {
 		d.held(rule, whyHeld)
 		return
@@ -197,6 +192,22 @@ func (d *Dispatcher) fill(ctx context.Context) {
 		}
 		d.decided(dec)
 	}
+}
+
+// readHold reads what holds a start: first what needs no read of aries,
+// then the budget, the pause and the slots.
+func (d *Dispatcher) readHold(ctx context.Context, now time.Time) (Inputs, string, string) {
+	in := Inputs{Stop: d.stopRequest()}
+	rule, whyHeld := Hold(d.Cfg, d.State, Inputs{Stop: in.Stop, Free: 1})
+	if rule != "" {
+		return in, rule, whyHeld
+	}
+	in, err := d.inputs(ctx, in, now)
+	if err != nil {
+		return in, HoldUnreachable, "aries could not be read: " + errText(err)
+	}
+	rule, whyHeld = Hold(d.Cfg, d.State, in)
+	return in, rule, whyHeld
 }
 
 // cappedNote says that n ready issues is all one wake reads, when it is.
@@ -331,43 +342,71 @@ func (d *Dispatcher) start(ctx context.Context, dec Decision) Decision {
 		d.release(ctx, id, session, "aries dispatch could not make the run's worktree: "+err.Error())
 		return skip(RuleLaunch, "the worktree failed: "+err.Error())
 	}
+	if d.postgres(id) == "" {
+		found = strings.TrimSpace(found + "\n" + NoPostgresNote)
+	}
+	text := Brief(d.Template, st, session, dir, found)
+	model := ModelID(dec.Model)
+	p, err := d.launch(ctx, id, session, model, dir, st.Branch, text, false)
+	if err != nil {
+		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
+		d.release(ctx, id, session, "aries dispatch could not launch the run: "+err.Error())
+		return skip(RuleLaunch, err.Error())
+	}
+	d.record(ctx, &Run{Issue: id, Session: session, Harness: HarnessClaudeCode, Model: model, Worktree: dir,
+		Branch: st.Branch, PID: p.PID(), Started: d.Now().UTC()}, p, text, d.Template.Name())
+	return dec
+}
+
+// postgres is the directory of the Postgres programs a run of id gets,
+// or "" with a line saying it starts without.
+func (d *Dispatcher) postgres(id string) string {
 	pg := ""
 	if d.FindPostgres != nil {
 		pg = d.FindPostgres()
 	}
 	if pg == "" {
 		d.say("no Postgres found for %s: the run starts with a note in its brief (scripts/install-postgres.sh installs one)", id)
-		found = strings.TrimSpace(found + "\n" + NoPostgresNote)
+	}
+	return pg
+}
+
+// launch takes the run's snapshot of the policy and launches it under the
+// lock, in session, in dir on branch, with text as its brief; resume
+// resumes the session instead of starting it.
+func (d *Dispatcher) launch(ctx context.Context, id, session, model, dir, branch, text string, resume bool) (Process, error) {
+	pg := ""
+	if d.FindPostgres != nil {
+		pg = d.FindPostgres()
 	}
 	snap, pol, err := d.snapshot(ctx, session)
 	if err != nil {
-		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
-		d.release(ctx, id, session, "aries dispatch did not start the run: "+err.Error())
-		return skip(RuleLaunch, err.Error())
+		return nil, err
 	}
-	text := Brief(d.Template, st, session, dir, found)
-	model := ModelID(dec.Model)
-	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: st.Branch, Brief: text,
+	sp := Spec{Issue: id, Session: session, Model: model, Dir: dir, Branch: branch, Brief: text,
 		Env: append(d.runEnv(session, id, pg), guard.EnvPolicy+"="+snap), Log: filepath.Join(d.RunLogs, session+".log"),
-		Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease, Policy: snap, Allowed: guard.Allowed(pol), Denied: guard.Coarse(pol)}
+		Capacity: d.Cfg.Capacity, Lease: d.Cfg.Lease, Policy: snap, Allowed: guard.Allowed(pol), Denied: guard.Coarse(pol),
+		Resume: resume}
 	p, err := d.Launcher.Launch(ctx, sp)
 	if err != nil {
-		_ = d.Git.RemoveWorktree(ctx, dir) // made for this run alone, and empty
-		d.release(ctx, id, session, "aries dispatch could not launch the run: "+err.Error())
-		return skip(RuleLaunch, "the launch failed: "+err.Error())
+		return nil, fmt.Errorf("the launch failed: %w", err)
 	}
-	run := &Run{Issue: id, Session: session, Harness: HarnessClaudeCode, Model: model, Worktree: dir,
-		Branch: st.Branch, PID: p.PID(), Started: d.Now().UTC()}
+	return p, nil
+}
+
+// record keeps a launched run, saves the state, records its brief on the
+// issue under template, and says and logs the start.
+func (d *Dispatcher) record(ctx context.Context, run *Run, p Process, text, template string) {
 	d.State.Runs = append(d.State.Runs, run)
-	d.procs[session] = p
+	d.procs[run.Session] = p
 	d.save()
-	rec := brief.Record{Harness: HarnessClaudeCode, Model: model, Effort: EffortDefault, Session: session, Template: d.Template.Name()}
-	if err := d.Tracker.Brief(ctx, id, rec, text); err != nil {
-		d.say("could not record the brief on %s: %s", id, errText(err))
+	rec := brief.Record{Harness: HarnessClaudeCode, Model: run.Model, Effort: EffortDefault, Session: run.Session, Template: template}
+	if err := d.Tracker.Brief(ctx, run.Issue, rec, text); err != nil {
+		d.say("could not record the brief on %s: %s", run.Issue, errText(err))
 	}
-	d.say("start %s (model %s, session %s, pid %d)", id, model, session, run.PID)
-	d.log(record{Event: "start", Issue: id, Session: session, Model: model, PID: run.PID, Path: dir, Branch: st.Branch, Brief: brief.Hash(text)})
-	return dec
+	d.say("start %s (model %s, session %s, pid %d)", run.Issue, run.Model, run.Session, run.PID)
+	d.log(record{Event: "start", Issue: run.Issue, Session: run.Session, Model: run.Model, PID: run.PID, Path: run.Worktree,
+		Branch: run.Branch, Brief: brief.Hash(text), Action: run.Rework})
 }
 
 // snapshot takes the run's snapshot of the policy, from the remote
