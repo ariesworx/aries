@@ -889,6 +889,8 @@ func TestResolveSettings(t *testing.T) {
 	unit := write("unit.yaml", "systemd_unit: ariesd.service\n", 0o600)
 	badUnit := write("badunit.yaml", "systemd_unit: --no-block\n", 0o600)
 	releases := write("releases.yaml", "releases: https://releases.example.com/aries\n", 0o600)
+	dumps := write("dumps.yaml", "upgrade_dumps: /srv/aries-dumps\n", 0o600)
+	relDumps := write("reldumps.yaml", "upgrade_dumps: dumps\n", 0o600)
 	logs := write("logs.yaml", "log_level: warn\nlog_format: json\n", 0o600)
 	admins := write("admins.yaml", "admins: [alice, bob]\n", 0o600)
 	reserved := write("reserved.yaml", "admins: [ariesd]\n", 0o600)
@@ -927,6 +929,8 @@ func TestResolveSettings(t *testing.T) {
 		{name: "option-like unit refused", path: badUnit, err: "is not a unit name"},
 		{name: "releases from file", path: releases, check: func(s Settings) bool { return s.Releases == "https://releases.example.com/aries" }},
 		{name: "no releases by default", path: empty, check: func(s Settings) bool { return s.Releases == "" }},
+		{name: "upgrade dumps from file", path: dumps, check: func(s Settings) bool { return s.UpgradeDumps == "/srv/aries-dumps" }},
+		{name: "relative upgrade dumps refused", path: relDumps, err: "upgrade_dumps \"dumps\" is not an absolute path"},
 		{name: "log settings default", path: empty, check: func(s Settings) bool { return s.LogLevel == "info" && s.LogFormat == "text" }},
 		{name: "log settings from file", path: logs, check: func(s Settings) bool { return s.LogLevel == "warn" && s.LogFormat == "json" }},
 		{name: "log level env beats file", path: logs, env: map[string]string{EnvLogLevel: "debug"},

@@ -96,6 +96,13 @@ func (s Swap) Rollback() error {
 	return s.replace(s.Prev())
 }
 
+// Stage writes bin beside Exe, executable, as Install does, without
+// installing it: `ariesd upgrade --check` runs the staged release to ask
+// it what it carries. The caller removes the file when done with it.
+func (s Swap) Stage(bin []byte) (string, error) {
+	return s.stage(bin, 0o700)
+}
+
 // stage writes bin to a new file in Exe's directory, so the final rename
 // stays on one filesystem.
 func (s Swap) stage(bin []byte, mode fs.FileMode) (string, error) {

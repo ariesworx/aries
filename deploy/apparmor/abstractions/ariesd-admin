@@ -7,8 +7,9 @@
 # this file as /etc/apparmor.d/abstractions/ariesd-admin.
 #
 # The commands are control init, import-bd, export-bd, status, and
-# upgrade with --check, --to and --rollback. They open the store as the
-# daemon does; upgrade also downloads a release, replaces the binary,
+# upgrade with --check, --to, --dump and --rollback. They open the store
+# as the daemon does; upgrade also downloads a release, runs it to list
+# its migrations, dumps the database before them, replaces the binary,
 # asks systemd for a restart through sudo, and asks the daemon whether it
 # is healthy. Rules of your own go in /etc/apparmor.d/local/ariesd-admin,
 # which both profiles read, and a deny rule here wins over them.
@@ -65,6 +66,17 @@ owner @{ariesd_bin}/ariesd rw,
 owner @{ariesd_bin}/ariesd.prev rw,
 owner @{ariesd_bin}/.ariesd.prev-* rw,
 owner @{ariesd_bin}/.ariesd.new-* mrwix,
+
+# Before a release that migrates the database, upgrade dumps it:
+# pg_dump of the server's major version, where Ubuntu keeps it, under
+# this same profile, as the daemon's role over the socket or the
+# network above, into a directory of the account's own, then
+# pg_restore --list to read the dump back. /usr/bin/pg_dump is
+# Ubuntu's pg_wrapper, a Perl script, which upgrade does not run.
+/usr/lib/postgresql/*/bin/pg_dump mrix,
+/usr/lib/postgresql/*/bin/pg_restore mrix,
+owner @{ariesd_dumps}/ rw,
+owner @{ariesd_dumps}/* rw,
 
 # The restart: `sudo -n systemctl restart UNIT`. sudo runs unconfined,
 # with a scrubbed environment (Ux), and does what sudoers lets the

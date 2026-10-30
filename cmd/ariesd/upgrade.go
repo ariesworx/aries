@@ -46,6 +46,15 @@ type upgradeDeps struct {
 	// behind the server's history, so that serve may refuse to start.
 	// Nil skips the question.
 	clock func(ctx context.Context, env adminEnv, fl server.Settings, cfgPath string) error
+	// migrations runs a staged release's `ariesd migrations`.
+	migrations func(ctx context.Context, path string) (migrationSet, error)
+	// schemas reads how far each schema the restarted daemon would
+	// migrate has run.
+	schemas func(ctx context.Context, env adminEnv, fl server.Settings, cfgPath string) ([]schemaAt, error)
+	// dump writes a dump of the database to file, which exists, empty.
+	dump func(ctx context.Context, s server.Settings, file string) error
+	// now is the time a dump is named by and a --dump is judged fresh by.
+	now func() time.Time
 	// restart restarts the systemd unit.
 	restart func(ctx context.Context, unit string) error
 	// probe handshakes with the daemon and returns its version.
@@ -65,8 +74,12 @@ func osUpgradeDeps() upgradeDeps {
 		check: func(ctx context.Context, path, tag string) error {
 			return release.VersionCheck(tag)(ctx, path)
 		},
-		clock:   clockPreflight,
-		restart: systemctlRestart,
+		clock:      clockPreflight,
+		migrations: runMigrations,
+		schemas:    readSchemas,
+		dump:       pgDump,
+		now:        time.Now,
+		restart:    systemctlRestart,
 		probe: func(ctx context.Context, socket, project string) (string, error) {
 			return server.Probe(ctx, socket, project, version.Version)
 		},
@@ -74,10 +87,11 @@ func osUpgradeDeps() upgradeDeps {
 	}
 }
 
-// upgradeCmd runs `ariesd upgrade [--check] [--to vX.Y.Z] [--rollback] [--restart]`.
+// upgradeCmd runs `ariesd upgrade [--check] [--to vX.Y.Z] [--rollback]
+// [--restart] [--dump FILE]`.
 func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string) error {
 	var fl server.Settings
-	var cfgPath, to string
+	var cfgPath, to, dumpFile string
 	var check, rollback, restart bool
 	fs, err := adminFlags("upgrade", args, &fl, &cfgPath, func(fs *flag.FlagSet) {
 		fs.StringVar(&fl.Socket, "socket", "", "unix socket path")
@@ -85,6 +99,7 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		fs.StringVar(&to, "to", "", "upgrade to this release instead of the latest")
 		fs.BoolVar(&rollback, "rollback", false, "restore the binary the last upgrade replaced")
 		fs.BoolVar(&restart, "restart", false, "restart the systemd unit (systemd_unit, default ariesd) and health-check it")
+		fs.StringVar(&dumpFile, "dump", "", "a dump taken in the last hour, which upgrade checks instead of taking its own before migrations")
 	})
 	if err != nil {
 		return err
@@ -94,6 +109,8 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 		return usageError("upgrade takes no arguments; use --to vX.Y.Z")
 	case rollback && (check || to != ""):
 		return usageError("--rollback cannot be combined with --check or --to")
+	case dumpFile != "" && (check || rollback):
+		return usageError("--dump is for an upgrade; --check and --rollback take no dump")
 	case to != "" && !release.TagPattern.MatchString(to):
 		return usageError(fmt.Sprintf("--to %q is not a release version (vMAJOR.MINOR.PATCH)", to))
 	}
@@ -165,6 +182,14 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 				_, _ = fmt.Fprintln(env.stdout, "clock: not behind the server's history")
 			}
 		}
+		if ok && cmp < 0 {
+			plan, err := checkPlan(ctx, env, d, fl, cfgPath, rels, rel)
+			if err != nil {
+				_, _ = fmt.Fprintf(env.stdout, "migrations: not checked: %v\n", err)
+			} else {
+				plan.print(env.stdout, rel.Tag)
+			}
+		}
 		return nil
 	}
 	switch {
@@ -199,8 +224,31 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 			return fmt.Errorf("check the clock against the server's history before upgrading: %w; fix: nothing was changed; make sure Postgres is running and retry", err)
 		}
 	}
-	swap := release.Swap{Exe: exe, GOOS: d.goos, Check: func(ctx context.Context, p string) error { return d.check(ctx, p, rel.Tag) }}
+	var dumped string
+	swap := release.Swap{Exe: exe, GOOS: d.goos, Check: func(ctx context.Context, p string) error {
+		if err := d.check(ctx, p, rel.Tag); err != nil {
+			return err
+		}
+		// The release is verified and staged, and nothing is installed:
+		// ask it what it migrates, and dump first if anything.
+		plan, err := planMigrations(ctx, env, d, fl, cfgPath, p)
+		if err != nil {
+			return dumpRefusal{fmt.Errorf("read how far the database has migrated: %w; fix: nothing was changed; make sure Postgres is running and retry", err)}
+		}
+		if !plan.needsDump() {
+			return nil
+		}
+		plan.print(env.stdout, rel.Tag)
+		if dumped, err = dumpBeforeMigrations(ctx, env, d, s, dumpFile, cur, rel.Tag); err != nil {
+			return dumpRefusal{err}
+		}
+		_, _ = fmt.Fprintf(env.stdout, "dump: %s (%s), from which to restore the database if you leave %s\n", dumped, statDump(dumped), rel.Tag)
+		return nil
+	}}
 	if err := swap.Install(ctx, bin); err != nil {
+		if dr, ok := errors.AsType[dumpRefusal](err); ok {
+			return dr.error
+		}
 		return swapFailure(exe, err)
 	}
 	if unit == "" {
@@ -219,11 +267,38 @@ func upgradeCmd(ctx context.Context, env adminEnv, d upgradeDeps, args []string)
 			rel.Tag, herr, cur, err, swap.Prev(), exe, unit)
 	}
 	if err := restartHealthy(ctx, d, s, unit, cur); err != nil {
-		return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is not healthy either (%w); fix: check `journalctl -u %s`; the old binary refuses a schema the new one migrated, so restore that from the backup taken before the upgrade",
-			rel.Tag, herr, cur, err, unit)
+		backup := "the backup taken before the upgrade"
+		if dumped != "" {
+			backup = dumped
+		}
+		return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is not healthy either (%w); fix: check `journalctl -u %s`; the old binary refuses a schema the new one migrated, so restore that from %s (docs/server.md, Restore)",
+			rel.Tag, herr, cur, err, unit, backup)
 	}
 	return fmt.Errorf("ariesd %s is unhealthy (%w); restored %s, which is running; fix: check `journalctl -u %s` and report it at %s",
 		rel.Tag, herr, cur, unit, releasesURL)
+}
+
+// checkPlan fetches rel, stages it beside the binary as an upgrade
+// would, asks it what it migrates and removes it: what `upgrade --check`
+// reports on its migrations line.
+func checkPlan(ctx context.Context, env adminEnv, d upgradeDeps, fl server.Settings, cfgPath string, rels *release.Client, rel *release.Release) (migrationPlan, error) {
+	exe := d.exe
+	if exe == "" {
+		var err error
+		if exe, err = release.Executable(); err != nil {
+			return migrationPlan{}, err
+		}
+	}
+	bin, err := rels.Fetch(ctx, rel, "ariesd", d.goos, d.goarch)
+	if err != nil {
+		return migrationPlan{}, fetchFailure(rel.Tag, err)
+	}
+	p, err := release.Swap{Exe: exe, GOOS: d.goos}.Stage(bin)
+	if err != nil {
+		return migrationPlan{}, err
+	}
+	defer func() { _ = os.Remove(p) }()
+	return planMigrations(ctx, env, d, fl, cfgPath, p)
 }
 
 // upgradeSource returns d.releases, or the client for the source that
