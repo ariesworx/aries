@@ -103,7 +103,7 @@ services:
   nginx:
     profiles: [proxy]
     # Mainline 1.31.6, released 15 September 2026
-    image: nginx:1.31.6@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86
+    image: nginx:1.31.7@sha256:8632b3314d74c61f0e27f59055bab13f7793b988c94c090154d867bc29e0f39b
     network_mode: service:aries
     # Healthy, not just started: the certificate is made by the entrypoint,
     # which with the identity profile first waits for Keycloak.
@@ -176,7 +176,7 @@ services:
   # docs/deploy/docker.md says how to ask it a question.
   prometheus:
     profiles: [prometheus]
-    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
     command:
       - --config.file=/etc/prometheus/prometheus.yaml
       - --storage.tsdb.path=/prometheus
@@ -210,7 +210,7 @@ services:
   # image does by default; it is published on 127.0.0.1 alone.
   observe:
     profiles: [observe]
-    image: grafana/otel-lgtm:0.36.0@sha256:57c04cbd8e7022f32bb84c4ac005d79baf8b08e2c5be44facf11f5f1f9944ba2
+    image: grafana/otel-lgtm:0.38.1@sha256:0df9bc14142000b161344bd24caf6ddd319b7319055aedaf9b0692b125730af7
     network_mode: service:aries
     depends_on:
       aries:
@@ -248,7 +248,7 @@ services:
   keycloak:
     profiles: [identity]
     # spike/identity ran against this release
-    image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+    image: quay.io/keycloak/keycloak:26.8.2-1@sha256:723b1d6e254c0fc96d5cffec860c7e0744d6a3277822b865bb538cf891575e41
     entrypoint: ["bash", "/opt/aries/identity.sh"]
     init: true
     environment:
